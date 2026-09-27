@@ -1,0 +1,12 @@
+node_modules/
+out/
+release/
+
+# TypeScript incremental build caches
+*.tsbuildinfo
+
+# OS / editor cruft
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/

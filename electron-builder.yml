@@ -1,0 +1,41 @@
+appId: app.viewflux.desktop
+productName: ViewFlux
+copyright: Copyright © 2026 ViewFlux Desktop Contributors
+
+directories:
+  buildResources: build
+  output: release
+
+# Everything the app needs at runtime is emitted by electron-vite into `out/`,
+# plus the externalized production dependency (youtubei.js) which electron-builder
+# resolves from node_modules automatically.
+files:
+  - out/**
+  - package.json
+  - '!**/*.map'
+  - '!**/{.eslintrc,.eslintrc.*,.prettierrc,.prettierrc.*,.editorconfig,tsconfig*.json}'
+  - '!**/{README.md,CHANGELOG.md,LICENSE.md}'
+
+asar: true
+
+win:
+  executableName: ViewFlux
+  icon: build/icon.png
+  target:
+    - target: nsis
+      arch:
+        - x64
+
+nsis:
+  oneClick: false
+  perMachine: false
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: always
+  createStartMenuShortcut: true
+  shortcutName: ViewFlux
+  uninstallDisplayName: ViewFlux
+  artifactName: ViewFlux-Setup-${version}.${ext}
+  deleteAppDataOnUninstall: false
+
+# No native modules are used, so skip the electron-rebuild pass entirely.
+npmRebuild: false

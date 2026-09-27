@@ -1,0 +1,38 @@
+{
+  "name": "viewflux-desktop",
+  "version": "0.3.3",
+  "description": "A fast, native Windows YouTube client focused on searching and watching videos.",
+  "main": "./out/main/index.js",
+  "author": "ViewFlux Desktop Contributors",
+  "license": "GPL-3.0-or-later",
+  "private": true,
+  "scripts": {
+    "dev": "electron-vite dev",
+    "build": "electron-vite build",
+    "preview": "electron-vite preview",
+    "typecheck:node": "tsc --noEmit -p tsconfig.node.json",
+    "typecheck:web": "tsc --noEmit -p tsconfig.web.json",
+    "typecheck": "npm run typecheck:node && npm run typecheck:web",
+    "icon": "node scripts/gen-icon.mjs",
+    "dist": "electron-vite build && electron-builder --win",
+    "dist:dir": "electron-vite build && electron-builder --win --dir"
+  },
+  "dependencies": {
+    "youtubei.js": "^18.1.0"
+  },
+  "devDependencies": {
+    "@types/node": "^24.10.1",
+    "@types/react": "^19.2.7",
+    "@types/react-dom": "^19.2.3",
+    "@vitejs/plugin-react": "^5.1.1",
+    "electron": "^44.4.5",
+    "electron-builder": "^26.15.3",
+    "electron-vite": "^5.0.0",
+    "react": "^19.3.0",
+    "react-dom": "^19.3.0",
+    "shaka-player": "^5.2.12",
+    "typescript": "^5.9.3",
+    "vite": "^7.3.6"
+  }
+}
+

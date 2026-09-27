@@ -1,0 +1,393 @@
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { VideoCard } from '../components/VideoCard'
+import { ChannelCard, PlaylistCard } from '../components/ResultCards'
+import { EmptyState, Loader } from '../components/EmptyState'
+import { Icon } from '../components/Icons'
+import { navigate, searchRoute } from '../lib/router'
+import { useApp } from '../state/AppContext'
+import { formatRelative } from '../lib/format'
+import type { SearchFilter, SearchItem, VideoSummary } from '../../../shared/types'
+
+const FILTERS: { id: SearchFilter; label: string; icon: 'search' | 'play' | 'person' | 'playlist' | 'music_note' }[] = [
+  { id: 'all', label: 'All', icon: 'search' },
+  { id: 'videos', label: 'Videos', icon: 'play' },
+  { id: 'channels', label: 'Channels', icon: 'person' },
+  { id: 'playlists', label: 'Playlists', icon: 'playlist' },
+  { id: 'music', label: 'Music', icon: 'music_note' }
+]
+
+export function SearchPage({
+  query,
+  filter
+}: {
+  query: string
+  filter: SearchFilter
+}): React.JSX.Element {
+  const {
+    settings,
+    searchHistory,
+    recordSearch,
+    removeSearch,
+    clearSearchHistory,
+    confirm,
+    isYoutubePlaylistSaved,
+    saveYoutubePlaylistSummary,
+    removeYoutubePlaylist
+  } = useApp()
+  const [input, setInput] = useState(query)
+  const [suggestions, setSuggestions] = useState<string[]>([])
+  const [showSuggestions, setShowSuggestions] = useState(false)
+  const [activeSuggestion, setActiveSuggestion] = useState(-1)
+  const [results, setResults] = useState<SearchItem[]>([])
+  const [continuation, setContinuation] = useState<string | null>(null)
+  const [loading, setLoading] = useState(false)
+  const [loadingMore, setLoadingMore] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  const sentinelRef = useRef<HTMLDivElement>(null)
+  const inputRef = useRef<HTMLInputElement>(null)
+  const requestRef = useRef(0)
+  const suggTimer = useRef<number | null>(null)
+
+  useEffect(() => {
+    setInput(query)
+  }, [query])
+
+  // The app dispatches this when the user presses `/` anywhere outside a text
+  // field, so search is always one keystroke away from any screen.
+  useEffect(() => {
+    const focus = (): void => {
+      inputRef.current?.focus()
+      inputRef.current?.select()
+    }
+    window.addEventListener('viewflux:focus-search', focus)
+    return () => window.removeEventListener('viewflux:focus-search', focus)
+  }, [])
+
+  // Run the search (and remember it in search history).
+  useEffect(() => {
+    const q = query.trim()
+    const id = ++requestRef.current
+    if (!q) {
+      setResults([])
+      setContinuation(null)
+      setError(null)
+      return
+    }
+    if (settings.saveSearchHistory) void recordSearch(q)
+    setLoading(true)
+    setError(null)
+    setResults([])
+    void window.api
+      .search(q, filter)
+      .then((page) => {
+        if (requestRef.current !== id) return
+        setResults(page.items)
+        setContinuation(page.continuation)
+      })
+      .catch((err: unknown) => {
+        if (requestRef.current === id) setError(err instanceof Error ? err.message : String(err))
+      })
+      .finally(() => {
+        if (requestRef.current === id) setLoading(false)
+      })
+  }, [query, filter, settings.saveSearchHistory, recordSearch])
+
+  const loadMore = useCallback(async () => {
+    if (!continuation || loadingMore) return
+    setLoadingMore(true)
+    try {
+      const page = await window.api.searchMore(continuation)
+      setResults((prev) => {
+        const keyOf = (item: SearchItem): string =>
+          item.type === 'video' ? `video:${item.videoId}` : `${item.type}:${item.id}`
+        const seen = new Set(prev.map(keyOf))
+        return [...prev, ...page.items.filter((item) => !seen.has(keyOf(item)))]
+      })
+      setContinuation(page.continuation)
+    } catch {
+      setContinuation(null)
+    } finally {
+      setLoadingMore(false)
+    }
+  }, [continuation, loadingMore])
+
+  useEffect(() => {
+    const el = sentinelRef.current
+    if (!el) return
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries[0]?.isIntersecting) void loadMore()
+      },
+      { rootMargin: '600px' }
+    )
+    observer.observe(el)
+    return () => observer.disconnect()
+  }, [loadMore])
+
+  const onInputChange = (value: string): void => {
+    setInput(value)
+    setActiveSuggestion(-1)
+    if (suggTimer.current) window.clearTimeout(suggTimer.current)
+    if (!value.trim()) {
+      setSuggestions([])
+      setShowSuggestions(false)
+      return
+    }
+    suggTimer.current = window.setTimeout(() => {
+      void window.api.suggestions(value.trim()).then((items) => {
+        setSuggestions(items)
+        setShowSuggestions(items.length > 0)
+      })
+    }, 180)
+  }
+
+  const searchStatus = useMemo(() => {
+    const q = query.trim()
+    if (!q) return ''
+    if (loading) return `Searching for ${q}`
+    if (error) return `Search for ${q} failed`
+    const total = results.length
+    if (total === 0) return `No results for ${q}`
+    const noun = total === 1 ? 'result' : 'results'
+    return `${total} ${noun} for ${q}${loadingMore ? ', loading more' : ''}`
+  }, [query, loading, error, results.length, loadingMore])
+
+  const submit = (value?: string): void => {
+    const q = (value ?? input).trim()
+    setShowSuggestions(false)
+    setActiveSuggestion(-1)
+    if (!q) return
+    navigate(searchRoute(q, filter))
+  }
+
+  const goFilter = (next: SearchFilter): void => {
+    if (query.trim()) navigate(searchRoute(query, next))
+    else navigate(searchRoute('', next))
+  }
+
+  const onInputKeyDown = (event: React.KeyboardEvent<HTMLInputElement>): void => {
+    if (event.key === 'ArrowDown') {
+      event.preventDefault()
+      setActiveSuggestion((prev) => Math.min(prev + 1, suggestions.length - 1))
+    } else if (event.key === 'ArrowUp') {
+      event.preventDefault()
+      setActiveSuggestion((prev) => Math.max(prev - 1, -1))
+    } else if (event.key === 'Enter') {
+      event.preventDefault()
+      submit(activeSuggestion >= 0 ? suggestions[activeSuggestion] : undefined)
+    } else if (event.key === 'Escape') {
+      setShowSuggestions(false)
+    }
+  }
+
+  const renderItem = (item: SearchItem, index: number): React.JSX.Element => {
+    if (item.type === 'video') {
+      const video = item as VideoSummary & { type: 'video' }
+      return (
+        <VideoCard
+          key={`v-${video.videoId}-${index}`}
+          video={video}
+        />
+      )
+    }
+    if (item.type === 'channel') {
+      return <ChannelCard key={`c-${item.id}-${index}`} channel={item} />
+    }
+    return (
+      <PlaylistCard
+        key={`p-${item.id}-${index}`}
+        playlist={item}
+        // Playlist search results get the same save/remove affordance as the
+        // playlist's own page, so the saved state is visible right in results.
+        saved={isYoutubePlaylistSaved(item.id)}
+        onSave={() => void saveYoutubePlaylistSummary(item)}
+        onRemove={(target) => void removeYoutubePlaylist(target.id)}
+      />
+    )
+  }
+
+  const clearAll = async (): Promise<void> => {
+    const ok = await confirm('Clear your search history?', {
+      confirmLabel: 'Clear all',
+      danger: true
+    })
+    if (!ok) return
+    await clearSearchHistory()
+  }
+
+  return (
+    <div className="page">
+      <form
+        className="search-bar"
+        onSubmit={(e) => {
+          e.preventDefault()
+          submit()
+        }}
+      >
+        <div className="search-bar__field">
+          <Icon name="search" size={20} className="search-bar__lead" />
+          <input
+            ref={inputRef}
+            className="search-bar__input"
+            placeholder="Search videos, channels, playlists, music…"
+            value={input}
+            autoFocus
+            role="combobox"
+            aria-expanded={showSuggestions && suggestions.length > 0}
+            aria-controls="search-suggestions"
+            aria-autocomplete="list"
+            aria-activedescendant={
+              showSuggestions && activeSuggestion >= 0
+                ? `search-suggestion-${activeSuggestion}`
+                : undefined
+            }
+            aria-label="Search"
+            onChange={(e) => onInputChange(e.target.value)}
+            onKeyDown={onInputKeyDown}
+            onFocus={() => suggestions.length > 0 && setShowSuggestions(true)}
+            onBlur={() => window.setTimeout(() => setShowSuggestions(false), 140)}
+          />
+          {input && (
+            <button
+              type="button"
+              className="icon-btn icon-btn--sm search-bar__clear"
+              aria-label="Clear"
+              onClick={() => {
+                onInputChange('')
+                setInput('')
+              }}
+            >
+              <Icon name="close" size={18} />
+            </button>
+          )}
+          {showSuggestions && suggestions.length > 0 && (
+            <div className="suggestions" id="search-suggestions" role="listbox" aria-label="Search suggestions">
+              {suggestions.map((s, index) => (
+                <button
+                  type="button"
+                  key={s}
+                  id={`search-suggestion-${index}`}
+                  role="option"
+                  aria-selected={index === activeSuggestion}
+                  className={`suggestions__item${index === activeSuggestion ? ' suggestions__item--active' : ''}`}
+                  onMouseDown={(e) => {
+                    e.preventDefault()
+                    submit(s)
+                  }}
+                >
+                  <Icon name="search" size={18} />
+                  <span>{s}</span>
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+        <button type="submit" className="btn btn--filled">
+          <Icon name="search" size={18} />
+          Search
+        </button>
+      </form>
+
+      {query && (
+        <div className="filter-chips" role="tablist" aria-label="Search filters">
+          {FILTERS.map((f) => (
+            <button
+              key={f.id}
+              role="tab"
+              aria-selected={filter === f.id}
+              className={`filter-chip${filter === f.id ? ' filter-chip--active' : ''}`}
+              onClick={() => goFilter(f.id)}
+            >
+              <Icon name={f.icon} size={16} />
+              {f.label}
+            </button>
+          ))}
+        </div>
+      )}
+
+      {/* Announced politely so a screen reader hears the result count without
+          the focus ever leaving the search field. */}
+      <p className="sr-only" role="status" aria-live="polite">
+        {searchStatus}
+      </p>
+
+      {loading && <Loader label="Searching…" />}
+
+      {!loading && error && (
+        <EmptyState icon="close" title="Search failed" message={error} />
+      )}
+
+      {!loading && !query.trim() && !error && (
+        <>
+          {settings.saveSearchHistory && searchHistory.length > 0 ? (
+            <div className="recent">
+              <div className="recent__head">
+                <Icon name="history" size={18} />
+                <span className="recent__title">Recent searches</span>
+                <div className="recent__spacer" />
+                <button className="btn btn--tonal btn--sm" onClick={() => void clearAll()}>
+                  <Icon name="delete" size={16} />
+                  Clear all
+                </button>
+              </div>
+              <div className="recent__list">
+                {searchHistory.map((entry) => (
+                  <div key={entry.query} className="recent__item">
+                    <button
+                      className="recent__query"
+                      onClick={() => navigate(searchRoute(entry.query, filter))}
+                    >
+                      <Icon name="search" size={16} />
+                      <span>{entry.query}</span>
+                    </button>
+                    <span className="recent__at">{formatRelative(entry.searchedAt)}</span>
+                    <button
+                      className="icon-btn icon-btn--sm recent__remove"
+                      aria-label={`Remove “${entry.query}” from search history`}
+                      onClick={() => void removeSearch(entry.query)}
+                    >
+                      <Icon name="close" size={16} />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ) : (
+            <EmptyState
+              hero
+              iconSize={34}
+              icon="search"
+              title="Search YouTube"
+              message={
+                <>
+                  Find videos, channels, playlists and music — then watch them here,
+                  <br />
+                  distraction-free.
+                </>
+              }
+            />
+          )}
+        </>
+      )}
+
+      {!loading && query.trim() && results.length === 0 && !error && (
+        <EmptyState
+          icon="search"
+          title="No results"
+          message="Try a different search term or filter."
+        />
+      )}
+
+      {results.length > 0 && (
+        <>
+          <div className="video-grid">
+            {results.map((item, index) => renderItem(item, index))}
+          </div>
+          <div ref={sentinelRef} />
+          {loadingMore && <Loader />}
+        </>
+      )}
+    </div>
+  )
+}
