@@ -57,6 +57,10 @@ interface AppContextValue {
   recordSearch: (query: string) => Promise<void>
   removeSearch: (query: string) => Promise<void>
   clearSearchHistory: () => Promise<void>
+  /** Returns 0-1 playback progress for a video, or 0 if unplayed / completed */
+  getHistoryProgress: (videoId: string, fallbackDuration?: number | null) => number
+  /** True when this channel is bookmarked in saved channels. */
+  isChannelSaved: (channelId: string) => boolean
   /** Bookmarks a real YouTube playlist so it shows up in the app's playlists. */
   saveYoutubePlaylist: (playlist: PlaylistSource) => Promise<void>
   /** Bookmarks a remote playlist described by a summary card. */
@@ -264,11 +268,47 @@ export function AppProvider({ children }: { children: ReactNode }): React.JSX.El
     [refreshPlaylists, toast]
   )
 
+  // Fast O(1) lookup map for video watch history
+  const historyMap = useMemo(() => {
+    const map = new Map<string, HistoryEntry>()
+    for (const h of history) {
+      map.set(h.videoId, h)
+    }
+    return map
+  }, [history])
+
+  const getHistoryProgress = useCallback(
+    (videoId: string, fallbackDuration?: number | null): number => {
+      const match = historyMap.get(videoId)
+      if (!match || match.position <= 0) return 0
+      const duration = match.duration || fallbackDuration
+      if (!duration || duration <= 0) return 0
+      return Math.min(1, Math.max(0, match.position / duration))
+    },
+    [historyMap]
+  )
+
+  // Fast O(1) set for saved channels
+  const savedChannelsSet = useMemo(
+    () => new Set(savedChannels.map((c) => c.channelId)),
+    [savedChannels]
+  )
+
+  const isChannelSaved = useCallback(
+    (channelId: string): boolean => savedChannelsSet.has(channelId),
+    [savedChannelsSet]
+  )
+
+  // Fast O(1) set for saved YouTube playlists
+  const savedPlaylistsSet = useMemo(
+    () => new Set(playlists.map((p) => p.youtubeId).filter((id): id is string => Boolean(id))),
+    [playlists]
+  )
+
   /** Whether a YouTube playlist is already bookmarked, so buttons can flip to "Remove". */
   const isYoutubePlaylistSaved = useCallback(
-    (youtubeId: string): boolean =>
-      playlistsRef.current.some((p) => p.youtubeId === youtubeId),
-    []
+    (youtubeId: string): boolean => savedPlaylistsSet.has(youtubeId),
+    [savedPlaylistsSet]
   )
 
   /** Undoes `saveYoutubePlaylist`, used by the "Remove from playlists" affordances. */
@@ -351,6 +391,8 @@ export function AppProvider({ children }: { children: ReactNode }): React.JSX.El
       recordSearch,
       removeSearch,
       clearSearchHistory,
+      getHistoryProgress,
+      isChannelSaved,
       saveYoutubePlaylist,
       saveYoutubePlaylistSummary,
       isYoutubePlaylistSaved,
@@ -382,6 +424,8 @@ export function AppProvider({ children }: { children: ReactNode }): React.JSX.El
       recordSearch,
       removeSearch,
       clearSearchHistory,
+      getHistoryProgress,
+      isChannelSaved,
       saveYoutubePlaylist,
       saveYoutubePlaylistSummary,
       isYoutubePlaylistSaved,

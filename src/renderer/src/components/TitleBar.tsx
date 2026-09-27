@@ -19,6 +19,15 @@ export function TitleBar(): React.JSX.Element {
         <span>ViewFlux</span>
       </div>
       <div className="titlebar__spacer" />
+      <button
+        type="button"
+        className="titlebar__shortcuts-btn"
+        aria-label="Keyboard shortcuts"
+        title="Keyboard shortcuts (?)"
+        onClick={() => window.dispatchEvent(new CustomEvent('viewflux:open-shortcuts'))}
+      >
+        <Icon name="info" size={16} />
+      </button>
     </header>
   )
 }

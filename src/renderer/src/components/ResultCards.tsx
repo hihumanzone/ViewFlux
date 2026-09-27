@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { memo, useState } from 'react'
 import { Icon } from './Icons'
 import { Menu, MenuItem } from './Menu'
 import { ChannelLine } from './ChannelLine'
@@ -13,8 +13,8 @@ import { activationProps } from '../lib/keyboard'
 import type { ChannelSummary, PlaylistSummary } from '../../../shared/types'
 
 /** Compact channel card used in search results. */
-export function ChannelCard({ channel }: { channel: ChannelSummary }): React.JSX.Element {
-  const { savedChannels } = useApp()
+export const ChannelCard = memo(function ChannelCard({ channel }: { channel: ChannelSummary }): React.JSX.Element {
+  const { isChannelSaved } = useApp()
   const avatar = useChannelAvatar(channel.id, channel.avatar)
   const { broken: avatarBroken, onError: onAvatarError } = useBrokenImage(avatar)
   const [menuAnchor, setMenuAnchor] = useState<HTMLElement | null>(null)
@@ -23,7 +23,7 @@ export function ChannelCard({ channel }: { channel: ChannelSummary }): React.JSX
   const open = (): void => navigate(`#/channel/${channel.id}`)
   // The dialog doubles as the editor once the channel is bookmarked, so the
   // menu label has to track the same state the channel page does.
-  const isSaved = savedChannels.some((c) => c.channelId === channel.id)
+  const isSaved = isChannelSaved(channel.id)
 
   return (
     <article className="channel-card" onClick={open} {...activationProps(open)}>
@@ -108,10 +108,10 @@ export function ChannelCard({ channel }: { channel: ChannelSummary }): React.JSX
       )}
     </article>
   )
-}
+})
 
 /** YouTube playlist card used in search results and channel playlists. */
-export function PlaylistCard({
+export const PlaylistCard = memo(function PlaylistCard({
   playlist,
   onSave,
   onRemove,
@@ -216,4 +216,4 @@ export function PlaylistCard({
       </Menu>
     </article>
   )
-}
+})

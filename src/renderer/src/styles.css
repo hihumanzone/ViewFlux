@@ -5195,6 +5195,128 @@ button.list-row__channel-name:hover {
   text-shadow: 0 0 8px color-mix(in srgb, var(--primary) 60%, transparent);
 }
 
+/* ---- Keyboard Shortcuts Dialog ---- */
+.shortcuts-dialog {
+  width: min(640px, 100%);
+  max-height: min(680px, 85vh);
+  display: flex;
+  flex-direction: column;
+}
+
+.shortcuts-dialog__content {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  overflow-y: auto;
+  padding-right: 4px;
+  margin-top: 6px;
+  margin-bottom: 8px;
+}
+
+.shortcuts-dialog__category {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.shortcuts-dialog__category-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--primary);
+}
+
+.shortcuts-dialog__grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 6px;
+  background: var(--surface-1);
+  border: 1px solid var(--outline-variant);
+  border-radius: var(--r-md);
+  padding: 8px 12px;
+}
+
+.shortcuts-dialog__row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 4px 0;
+}
+
+.shortcuts-dialog__row:not(:last-child) {
+  border-bottom: 1px solid color-mix(in srgb, var(--outline-variant) 40%, transparent);
+}
+
+.shortcuts-dialog__desc {
+  font-size: 13.5px;
+  color: var(--on-surface-variant);
+}
+
+.shortcuts-dialog__key {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 3px 8px;
+  min-width: 24px;
+  font-family: ui-monospace, 'Cascadia Mono', Consolas, monospace;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--on-surface);
+  background: var(--surface-3);
+  border: 1px solid var(--outline-variant);
+  border-radius: var(--r-sm);
+  box-shadow: 0 1px 2px rgb(0 0 0 / 0.16);
+}
+
+.shortcuts-dialog__footer {
+  display: flex;
+  justify-content: flex-end;
+  padding-top: 8px;
+}
+
+/* ---- Scroll To Top Floating Action Button ---- */
+.scroll-to-top {
+  position: fixed;
+  bottom: 28px;
+  right: 28px;
+  z-index: 90;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  border-radius: var(--r-full);
+  background: color-mix(in srgb, var(--surface-3) 85%, transparent);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid var(--outline-variant);
+  color: var(--on-surface);
+  box-shadow: var(--shadow-2);
+  cursor: pointer;
+  transition: transform var(--t-fast) var(--ease-spring),
+              background var(--t-fast) var(--ease-out),
+              box-shadow var(--t-fast) var(--ease-out),
+              color var(--t-fast) var(--ease-out);
+  animation: fade-in var(--t-fast) var(--ease-spring);
+}
+
+.scroll-to-top:hover {
+  background: var(--primary);
+  color: var(--on-primary);
+  border-color: var(--primary);
+  transform: translateY(-3px) scale(1.05);
+  box-shadow: var(--shadow-3);
+}
+
+.scroll-to-top:active {
+  transform: translateY(0) scale(0.96);
+}
+
 /* ---- Responsive (Mobile-First Material 3 Expressive Architecture) ---- */
 @media (max-width: 1280px) {
   .watch:not(.watch--solo) {
@@ -5353,6 +5475,10 @@ button.list-row__channel-name:hover {
   .modal {
     max-width: calc(100vw - 32px);
     padding: 22px;
+  }
+  .scroll-to-top {
+    bottom: 84px;
+    right: 18px;
   }
 }
 

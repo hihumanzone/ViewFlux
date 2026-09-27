@@ -256,6 +256,7 @@ export function SearchPage({
               onClick={() => {
                 onInputChange('')
                 setInput('')
+                inputRef.current?.focus()
               }}
             >
               <Icon name="close" size={18} />

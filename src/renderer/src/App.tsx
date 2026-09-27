@@ -1,7 +1,9 @@
-import { useEffect, useMemo } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { TitleBar } from './components/TitleBar'
 import { Sidebar } from './components/Sidebar'
 import { ErrorBoundary } from './components/ErrorBoundary'
+import { ShortcutsDialog } from './components/ShortcutsDialog'
+import { ScrollToTop } from './components/ScrollToTop'
 import { goBack, useRoute, type Route } from './lib/router'
 import { SearchPage } from './pages/SearchPage'
 import { WatchPage } from './pages/WatchPage'
@@ -45,6 +47,7 @@ function isTypingTarget(target: EventTarget | null): boolean {
 export function App(): React.JSX.Element {
   const route = useRoute()
   const key = useMemo(() => routeKey(route), [route])
+  const [shortcutsOpen, setShortcutsOpen] = useState(false)
 
   useEffect(() => {
     // 1. Prevent default native drag ghosts (localhost URLs / images)
@@ -83,6 +86,14 @@ export function App(): React.JSX.Element {
       if (e.key === 'f' && (e.ctrlKey || e.metaKey) && !e.shiftKey) {
         e.preventDefault()
         window.dispatchEvent(new CustomEvent('viewflux:focus-search'))
+        return
+      }
+
+      // `?` opens keyboard shortcuts cheat sheet
+      if (e.key === '?' && !e.ctrlKey && !e.metaKey && !e.altKey) {
+        if (isTypingTarget(document.activeElement)) return
+        e.preventDefault()
+        setShortcutsOpen(true)
       }
     }
 
@@ -98,13 +109,17 @@ export function App(): React.JSX.Element {
       }
     }
 
+    const handleOpenShortcuts = (): void => setShortcutsOpen(true)
+
     window.addEventListener('dragstart', handleDragStart)
     window.addEventListener('keydown', handleKeyDown)
     window.addEventListener('pointerdown', handlePointerDown)
+    window.addEventListener('viewflux:open-shortcuts', handleOpenShortcuts)
     return () => {
       window.removeEventListener('dragstart', handleDragStart)
       window.removeEventListener('keydown', handleKeyDown)
       window.removeEventListener('pointerdown', handlePointerDown)
+      window.removeEventListener('viewflux:open-shortcuts', handleOpenShortcuts)
     }
   }, [])
 
@@ -120,6 +135,8 @@ export function App(): React.JSX.Element {
       <main className="content" id="main-content" tabIndex={-1}>
         <ErrorBoundary resetKey={key}>{renderRoute(route)}</ErrorBoundary>
       </main>
+      <ScrollToTop />
+      {shortcutsOpen && <ShortcutsDialog onClose={() => setShortcutsOpen(false)} />}
     </div>
   )
 }

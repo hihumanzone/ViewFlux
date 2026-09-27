@@ -1,4 +1,4 @@
-import { useMemo } from 'react'
+import { memo, useMemo } from 'react'
 import { VideoOptions } from './VideoOptions'
 import { navigate } from '../lib/router'
 import { formatCount, formatDuration } from '../lib/format'
@@ -8,7 +8,7 @@ import { activationProps } from '../lib/keyboard'
 import { useApp } from '../state/AppContext'
 import type { VideoSummary } from '../../../shared/types'
 
-export function VideoCard({
+export const VideoCard = memo(function VideoCard({
   video,
   progress
 }: {
@@ -16,7 +16,7 @@ export function VideoCard({
   /** 0-1 playback progress for history cards. If omitted, looked up from watch history. */
   progress?: number
 }): React.JSX.Element {
-  const { history } = useApp()
+  const { getHistoryProgress } = useApp()
   // Music results carry the channel id but no picture, so resolve it lazily.
   const avatar = useChannelAvatar(video.authorId ?? null, video.authorAvatar)
   const { broken: avatarBroken, onError: onAvatarError } = useBrokenImage(avatar)
@@ -24,12 +24,8 @@ export function VideoCard({
 
   const effectiveProgress = useMemo(() => {
     if (progress != null && progress > 0) return progress
-    const match = history.find((entry) => entry.videoId === video.videoId)
-    if (!match || match.position <= 0) return 0
-    const duration = match.duration || video.duration
-    if (!duration || duration <= 0) return 0
-    return Math.min(1, Math.max(0, match.position / duration))
-  }, [progress, history, video.videoId, video.duration])
+    return getHistoryProgress(video.videoId, video.duration)
+  }, [progress, getHistoryProgress, video.videoId, video.duration])
 
   return (
     <article
@@ -110,4 +106,4 @@ export function VideoCard({
       </div>
     </article>
   )
-}
+})
