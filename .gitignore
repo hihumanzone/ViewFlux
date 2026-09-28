@@ -5,6 +5,9 @@ release/
 # TypeScript incremental build caches
 *.tsbuildinfo
 
+# electron-builder output logs from local packaging runs
+dist-*.log
+
 # Throwaway visual-verification harness (see docs/preview-harness.md)
 .tmp-ui-preview/
 
