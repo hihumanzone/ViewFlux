@@ -25,6 +25,8 @@ import type {
   Continuable,
   ContinuationEntry,
   LockupViewNode,
+  NodeMemo,
+  PlaylistFeed,
   TextLike,
   ThumbLike
 } from './youtube/types'
@@ -32,6 +34,8 @@ import {
   absUrl,
   classifyChannelTexts,
   extractVideoChapters,
+  hasMusicBadge,
+  hasMusicTitleBadge,
   lockupAuthor,
   lockupBadges,
   lockupRows,
@@ -40,6 +44,7 @@ import {
   parseCompactCount,
   parseDurationText,
   pickThumbnail,
+  splitReleaseByline,
   text
 } from './youtube/parsers'
 
@@ -64,6 +69,35 @@ const LIVE_TTL_MS = 60 * 1000
 const CHANNEL_TTL_MS = 10 * 60 * 1000
 /** Channel-picture lookups fire in parallel; keep the fan-out polite. */
 const AVATAR_LOOKUP_CONCURRENCY = 5
+/** YouTube Music serves every music release as an auto-generated playlist. */
+const RELEASE_PLAYLIST_PREFIX = 'OLAK5uy_'
+/**
+ * LockupView `content_type`s that carry a playlist. Album lockups are labelled
+ * `ALBUM`, not `PLAYLIST` — NewPipe drops those, which is why some clients show
+ * an empty discography for auto-generated topic channels.
+ */
+const PLAYLIST_LOCKUP_TYPES = ['PLAYLIST', 'ALBUM', 'PODCAST', 'SHOW']
+/** Node types a feed contributes playlists from (youtubei.js `GridShow` ≈ show). */
+const PLAYLIST_NODE_TYPES = ['Playlist', 'GridPlaylist', 'GridShow']
+/** Node types carrying a continuation token. */
+const CONTINUATION_NODE_TYPES = ['ContinuationItem', 'ContinuationItemView', 'ContinuationCommand']
+/** Home-page shelf holding a "- Topic" channel's discography. */
+const ALBUMS_SHELF_TITLE = /album/i
+/** "13 videos" / "13 songs" / "9 tracks" — the count on a playlist or album card. */
+const TRACK_COUNT_REGEX = /\d+\s*(?:videos?|songs?|tracks?)\b/i
+/** Type words LockupViews put in their first metadata row instead of a byline. */
+const PLAYLIST_TYPE_WORDS = /^(?:playlist|album|ep|single|music video|video)$/i
+/** "13 videos" — YouTube's wording for a track count. */
+const VIDEO_COUNT_REGEX = /^(\d[\d,.]*)\s+videos?$/i
+
+/** An album's tracks are songs; the raw count text still says "videos". */
+function trackCountText(countText: string | null, isAlbum: boolean): string | null {
+  if (!isAlbum || !countText) return countText
+  return countText.replace(VIDEO_COUNT_REGEX, (_match, n: string) => {
+    const count = Number.parseInt(n.replace(/[,.]/g, ''), 10)
+    return `${n} ${count === 1 ? 'song' : 'songs'}`
+  })
+}
 
 export class YoutubeService {
   private yt: Innertube | null = null
@@ -308,7 +342,14 @@ export class YoutubeService {
     const c = node as {
       type?: string
       id?: string
-      author?: { name?: string; id?: string; thumbnails?: ThumbLike[]; best_thumbnail?: { url?: string }; avatar_thumbnail_url?: string }
+      author?: {
+        name?: string
+        id?: string
+        thumbnails?: ThumbLike[]
+        best_thumbnail?: { url?: string }
+        avatar_thumbnail_url?: string
+        badges?: unknown[]
+      }
       description?: TextLike
       subscriber_count?: TextLike
       subscribers?: TextLike
@@ -335,18 +376,34 @@ export class YoutubeService {
       handle,
       subscribers,
       videoCount,
-      description: text(c.description) || null
+      description: text(c.description) || null,
+      isMusic: hasMusicBadge(c.author?.badges)
     }
   }
 
-  private toPlaylistSummary(node: unknown): PlaylistSummary | null {
+  /**
+   * Maps a playlist or music-release node. `isRelease` marks nodes that come
+   * from a channel's "Releases" tab, where every entry is an album even if
+   * YouTube hands out a plain playlist id.
+   */
+  private toPlaylistSummary(node: unknown, isRelease = false): PlaylistSummary | null {
     if (this.isLockup(node)) {
-      if (node.content_type !== 'PLAYLIST' || !node.content_id) return null
+      if (!node.content_id) return null
+      const isAlbum = isRelease || node.content_type === 'ALBUM'
+      if (node.content_type !== 'PLAYLIST' && !isAlbum) return null
       const thumbs = node.content_image?.primary_thumbnail?.image
-      const countText = lockupBadges(node).find((b) => /videos?/i.test(b)) ?? null
+      const countText =
+        lockupBadges(node).find((b) => TRACK_COUNT_REGEX.test(b)) ??
+        lockupRows(node).flat().find((p) => TRACK_COUNT_REGEX.test(p)) ??
+        null
       const firstRow = lockupRows(node)[0] ?? []
-      const author =
-        firstRow.find((p) => p && p !== 'Playlist' && !/^view /i.test(p)) ?? null
+      const byline =
+        firstRow.find(
+          (p) => p && !PLAYLIST_TYPE_WORDS.test(p.trim()) && !/^view /i.test(p)
+        ) ?? null
+      const { artist: author, year } = isAlbum
+        ? splitReleaseByline(byline)
+        : { artist: byline, year: null }
       const { authorId, authorAvatar } = lockupAuthor(node)
       return {
         id: node.content_id,
@@ -355,8 +412,10 @@ export class YoutubeService {
         authorId,
         authorAvatar,
         count: parseCompactCount(countText),
-        countText,
-        thumbnail: thumbs ? pickThumbnail(thumbs, 480) : null
+        countText: trackCountText(countText, isAlbum),
+        thumbnail: thumbs ? pickThumbnail(thumbs, 480) : null,
+        isAlbum,
+        year
       }
     }
 
@@ -378,19 +437,28 @@ export class YoutubeService {
     }
     const pid = p?.id ?? p?.playlist_id
     if (!pid) return null
+    // YouTube Music serves every release as an auto-generated playlist; that
+    // prefix is the only thing distinguishing an album from a hand-made one.
+    const isAlbum = isRelease || pid.startsWith(RELEASE_PLAYLIST_PREFIX)
+    const byline = p.author?.name ?? null
+    const { artist: author, year } = isAlbum
+      ? splitReleaseByline(byline)
+      : { artist: byline, year: null }
     const countText = text(p.video_count) || null
     return {
       id: pid,
       title: text(p.title),
-      author: p.author?.name ?? null,
+      author,
       authorId:
         p.author?.channel_id ?? p.author?.id ?? p.author?.endpoint?.payload?.browseId ?? null,
       authorAvatar:
         pickThumbnail(p.author?.thumbnails, 240) || absUrl(p.author?.avatar_thumbnail_url) || null,
       count: parseCompactCount(countText),
-      countText,
+      countText: trackCountText(countText, isAlbum),
       thumbnail:
-        pickThumbnail(p.thumbnail_renderer?.thumbnail, 480) || pickThumbnail(p.thumbnails, 480) || null
+        pickThumbnail(p.thumbnail_renderer?.thumbnail, 480) || pickThumbnail(p.thumbnails, 480) || null,
+      isAlbum,
+      year
     }
   }
 
@@ -534,7 +602,7 @@ export class YoutubeService {
           if (c) items.push({ type: 'channel', ...c })
         } else if (this.isLockup(node)) {
           const mapped =
-            node.content_type === 'PLAYLIST'
+            node.content_type === 'PLAYLIST' || node.content_type === 'ALBUM'
               ? this.toPlaylistSummary(node)
               : this.toLockupVideo(node)
           if (mapped) {
@@ -621,7 +689,8 @@ export class YoutubeService {
     const channel = await this.getChannel(id)
 
     const meta = channel.metadata ?? {}
-    const headerContent = channel.header?.content ?? {}
+    const header = channel.header ?? {}
+    const headerContent = header.content ?? {}
     const rows = headerContent.metadata?.metadata_rows ?? []
     const parts = rows.flatMap(
       (row: { metadata_parts?: { text?: TextLike }[] }) =>
@@ -637,9 +706,32 @@ export class YoutubeService {
         return false
       }
     }
+
+    // The note logo rides along with the channel name: as a badge on the legacy
+    // tabbed header, and — on the current layout, where `header.author` is left
+    // empty — as an attachment on the title run itself. `music_artist_name` is
+    // only set on auto-generated "- Topic" channels; official artist channels
+    // send an empty string there.
+    const isMusic =
+      hasMusicTitleBadge(headerContent.title) ||
+      hasMusicTitleBadge(headerContent.page_title) ||
+      hasMusicBadge(header.author?.badges) ||
+      Boolean(meta.music_artist_name)
+
     try {
       const names: string[] = channel.tabs ?? []
       if (names.includes('Videos') || safeHas('has_videos')) tabs.push('videos')
+      // Music channels put their albums on a "Releases" tab, between videos and
+      // playlists — same order YouTube renders them in. "- Topic" channels are
+      // music channels without that tab, so fall back to their discography
+      // shelf; without the music check a stray "Albums" shelf would invent one.
+      if (
+        names.includes('Releases') ||
+        safeHas('has_releases') ||
+        (isMusic && this.albumsShelfToken(channel))
+      ) {
+        tabs.push('releases')
+      }
       if (names.includes('Playlists') || safeHas('has_playlists')) tabs.push('playlists')
       if (safeHas('has_about')) tabs.push('about')
     } catch {
@@ -656,7 +748,8 @@ export class YoutubeService {
       subscribers,
       videoCount,
       description: text(meta.description) || null,
-      tabs
+      tabs,
+      isMusic
     }
   }
 
@@ -885,18 +978,19 @@ export class YoutubeService {
     }
   }
 
+  /** Playlist/release nodes of a channel tab or its continuation feed. */
+  private feedPlaylists(feed: PlaylistFeed | null | undefined, isRelease = false): PlaylistSummary[] {
+    const nodes = feed?.playlists ?? feed?.results ?? []
+    return nodes
+      .map((n) => this.toPlaylistSummary(n, isRelease))
+      .filter((p): p is PlaylistSummary => p !== null)
+  }
+
   async getChannelPlaylists(id: string): Promise<{ items: PlaylistSummary[]; continuation: string | null }> {
     const channel = await this.getChannel(id)
-    const feed = (await channel.getPlaylists()) as Continuable & {
-      playlists?: unknown[]
-      results?: unknown[]
-    }
-    const nodes = feed.playlists ?? feed.results ?? []
-    const items = nodes
-      .map((n) => this.toPlaylistSummary(n))
-      .filter((p): p is PlaylistSummary => p !== null)
+    const feed = (await channel.getPlaylists()) as PlaylistFeed
     return {
-      items,
+      items: this.feedPlaylists(feed),
       continuation: feed.has_continuation
         ? this.token({ kind: 'channel:playlists', feed })
         : null
@@ -906,18 +1000,167 @@ export class YoutubeService {
   async channelPlaylistsMore(token: string): Promise<{ items: PlaylistSummary[]; continuation: string | null }> {
     const entry = this.continuations.get(token)
     if (!entry) return { items: [], continuation: null }
-    const next = (await entry.feed.getContinuation()) as Continuable & {
-      playlists?: unknown[]
-      results?: unknown[]
-    }
+    const next = (await entry.feed.getContinuation()) as PlaylistFeed
     this.continuations.delete(token)
-    const nodes = next.playlists ?? next.results ?? []
     return {
-      items: nodes
-        .map((n) => this.toPlaylistSummary(n))
-        .filter((p): p is PlaylistSummary => p !== null),
+      items: this.feedPlaylists(next),
       continuation: next.has_continuation
         ? this.token({ kind: 'channel:playlists', feed: next })
+        : null
+    }
+  }
+
+  /**
+   * The `Memo` indexes of a parsed `browse` response. `Parser.parseResponse`
+   * returns a plain object keyed by response field (`contents_memo`,
+   * `on_response_received_endpoints_memo`, …), each a `Memo extends Map` of
+   * node type → nodes.
+   */
+  private browseMemos(response: unknown): NodeMemo[] {
+    if (!response || typeof response !== 'object') return []
+    return Object.values(response).filter(
+      (value): value is NodeMemo => value instanceof Map
+    )
+  }
+
+  /** Playlist/album nodes of a raw browse response (what youtubei.js `Feed` collects). */
+  private memoPlaylists(memos: NodeMemo[]): unknown[] {
+    const out: unknown[] = []
+    for (const memo of memos) {
+      for (const type of PLAYLIST_NODE_TYPES) out.push(...(memo.get(type) ?? []))
+      out.push(
+        ...(memo.get('LockupView') ?? []).filter((lockup) =>
+          PLAYLIST_LOCKUP_TYPES.includes((lockup as { content_type?: string })?.content_type ?? '')
+        )
+      )
+    }
+    return out
+  }
+
+  /** Continuation token of a raw browse response, when it has another page. */
+  private memoContinuation(memos: NodeMemo[]): string | null {
+    for (const memo of memos) {
+      for (const type of CONTINUATION_NODE_TYPES) {
+        for (const item of memo.get(type) ?? []) {
+          const token =
+            (item as { endpoint?: { payload?: { token?: string } } }).endpoint?.payload?.token ??
+            (item as { token?: string }).token
+          if (typeof token === 'string' && token) return token
+        }
+      }
+    }
+    return null
+  }
+
+  /**
+   * Presents a raw `browse` response as a `Feed`, so listings that only exist
+   * behind a one-off endpoint (a "- Topic" discography, say) feed the same
+   * mappers and continuation bookkeeping as a real tab.
+   */
+  private feedFrom(response: unknown): PlaylistFeed {
+    const memos = this.browseMemos(response)
+    const nextToken = this.memoContinuation(memos)
+    const svc = this
+    return {
+      get playlists() {
+        return svc.memoPlaylists(memos)
+      },
+      has_continuation: Boolean(nextToken),
+      getContinuation: () =>
+        nextToken ? svc.continuationFeed(nextToken) : Promise.resolve({ playlists: [] })
+    }
+  }
+
+  /** Follows a raw `browse` continuation token and wraps the page as a feed. */
+  private async continuationFeed(continuation: string): Promise<PlaylistFeed> {
+    const yt = await this.client()
+    const response = await yt.actions.execute('/browse', { continuation, parse: true })
+    return this.feedFrom(response)
+  }
+
+  /**
+   * Continuation token of a "- Topic" channel's discography.
+   *
+   * Auto-generated topic channels have a single `Home` tab and no `/releases`
+   * route — YouTube hides their albums behind an "Albums & Singles" shelf whose
+   * title links to an engagement panel holding a continuation token. The shelf
+   * only ever previews a dozen `LockupView`s with no playlist id, so the panel is
+   * the first place the real `OLAK5uy_` ids show up.
+   */
+  private albumsShelfToken(channel: unknown): string | null {
+    type Run = { endpoint?: { name?: string; payload?: unknown } }
+    type Shelf = { title?: { toString?: () => string; runs?: Run[] } }
+    type Panel = {
+      engagementPanel?: {
+        engagementPanelSectionListRenderer?: {
+          content?: {
+            sectionListRenderer?: {
+              contents?: { itemSectionRenderer?: { contents?: { continuationItemRenderer?: unknown }[] } }[]
+            }
+          }
+        }
+      }
+    }
+    const shelves: Shelf[] = (channel as { shelves?: Shelf[] })?.shelves ?? []
+    for (const shelf of shelves) {
+      const title = shelf.title?.toString?.() ?? ''
+      if (!ALBUMS_SHELF_TITLE.test(title)) continue
+      for (const run of shelf.title?.runs ?? []) {
+        if (run.endpoint?.name !== 'showEngagementPanelEndpoint') continue
+        const sectionList = (run.endpoint.payload as Panel | undefined)?.engagementPanel
+          ?.engagementPanelSectionListRenderer?.content?.sectionListRenderer
+        const token = (
+          sectionList?.contents?.[0]?.itemSectionRenderer?.contents?.[0]
+            ?.continuationItemRenderer as
+            | { continuationEndpoint?: { continuationCommand?: { token?: string } } }
+            | undefined
+        )?.continuationEndpoint?.continuationCommand?.token
+        if (token) return token
+      }
+    }
+    return null
+  }
+
+  /**
+   * Albums of a music channel: its "Releases" tab, or — for auto-generated
+   * "- Topic" channels, which have no such tab — the discography shelf on the
+   * channel home page.
+   *
+   * `getReleases()` throws when the tab is missing, which is every non-music
+   * channel, so failures degrade to an empty list rather than an error the
+   * renderer would have to special-case.
+   */
+  async getChannelReleases(id: string): Promise<{ items: PlaylistSummary[]; continuation: string | null }> {
+    const channel = await this.getChannel(id)
+    let feed: PlaylistFeed | null = null
+    try {
+      feed = (await channel.getReleases()) as PlaylistFeed
+    } catch {
+      try {
+        const token = this.albumsShelfToken(channel)
+        if (token) feed = await this.continuationFeed(token)
+      } catch {
+        /* no discography we can reach — same as a channel without one */
+      }
+    }
+    if (!feed) return { items: [], continuation: null }
+    return {
+      items: this.feedPlaylists(feed, true),
+      continuation: feed.has_continuation
+        ? this.token({ kind: 'channel:releases', feed })
+        : null
+    }
+  }
+
+  async channelReleasesMore(token: string): Promise<{ items: PlaylistSummary[]; continuation: string | null }> {
+    const entry = this.continuations.get(token)
+    if (!entry) return { items: [], continuation: null }
+    const next = (await entry.feed.getContinuation()) as PlaylistFeed
+    this.continuations.delete(token)
+    return {
+      items: this.feedPlaylists(next, true),
+      continuation: next.has_continuation
+        ? this.token({ kind: 'channel:releases', feed: next })
         : null
     }
   }

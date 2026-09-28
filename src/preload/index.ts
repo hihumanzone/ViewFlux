@@ -29,6 +29,8 @@ const api: AppApi = {
   getChannelPlaylists: (id: string) => ipcRenderer.invoke('channel:playlists', id),
   channelPlaylistsMore: (token: string) =>
     ipcRenderer.invoke('channel:playlists-more', token),
+  getChannelReleases: (id: string) => ipcRenderer.invoke('channel:releases', id),
+  channelReleasesMore: (token: string) => ipcRenderer.invoke('channel:releases-more', token),
   getChannelAbout: (id: string) => ipcRenderer.invoke('channel:about', id),
   getRemotePlaylist: (id: string) => ipcRenderer.invoke('playlist:get', id),
   remotePlaylistMore: (token: string) => ipcRenderer.invoke('playlist:more', token),

@@ -113,6 +113,10 @@ function registerIpc(): void {
   ipcMain.handle('channel:playlists-more', (_e, token: string) =>
     youtube.channelPlaylistsMore(token)
   )
+  ipcMain.handle('channel:releases', (_e, id: string) => youtube.getChannelReleases(id))
+  ipcMain.handle('channel:releases-more', (_e, token: string) =>
+    youtube.channelReleasesMore(token)
+  )
   ipcMain.handle('channel:about', (_e, id: string) => youtube.getChannelAbout(id))
   ipcMain.handle('channel:avatar', (_e, ids: string[]) => youtube.getChannelAvatars(ids))
   ipcMain.handle('playlist:get', (_e, id: string) => youtube.getRemotePlaylist(id))

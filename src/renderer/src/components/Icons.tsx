@@ -55,6 +55,8 @@ const paths: Record<string, string> = {
   graphic_eq:
     'M7 4h2v16H7V4zm4 4h2v8h-2V8zm4-4h2v16h-2V4zm-12 6h2v4H3v-4zm16 0h2v4h-2v-4z',
   playlist: 'M3 6h12v2H3V6zm0 4h12v2H3v-2zm0 4h8v2H3v-2zm14-1v6l5-3-5-3z',
+  album:
+    'M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 14.5c-1.93 0-3.5-1.57-3.5-3.5s1.57-3.5 3.5-3.5 3.5 1.57 3.5 3.5-1.57 3.5-3.5 3.5zm2.5-6h-5V9h5v1.5z',
   globe:
     'M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20zm-1 17.93c-3.95-.49-7-3.85-7-7.93 0-.62.08-1.21.21-1.79L9 15v1c0 1.1.9 2 2 2v1.93zm6.9-2.54c-.26-.78-.98-1.39-1.9-1.39h-1v-3c0-.55-.45-1-1-1H8v-2h2c.55 0 1-.45 1-1V7h2c1.1 0 2-.9 2-2v-.25a8.02 8.02 0 0 1 4.9 7.25c0 1.5-.42 2.9-1.15 4.09z',
   tune: 'M3 17v2h6v-2H3zM3 5v2h10V5H3zm10 16v-2h8v-2h-8v-2h-2v6h2zM7 9v2H3v2h4v2h2V9H7zm14 4v-2H11v2h10zm-6-4h2V7h4V5h-4V3h-2v6z',
@@ -103,5 +105,24 @@ export function Icon({
     >
       <path d={paths[name]} />
     </svg>
+  )
+}
+
+/**
+ * YouTube's note-in-circle logo, shown next to the name of a music channel.
+ *
+ * The tooltip lives on a wrapper because the icon itself is `aria-hidden`.
+ */
+export function MusicBadge({
+  size = 16,
+  className
+}: {
+  size?: number
+  className?: string
+}): React.JSX.Element {
+  return (
+    <span className={`music-badge${className ? ` ${className}` : ''}`} title="Music channel">
+      <Icon name="music_note" size={size} />
+    </span>
   )
 }

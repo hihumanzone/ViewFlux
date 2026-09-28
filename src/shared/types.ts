@@ -36,6 +36,8 @@ export interface ChannelSummary {
   /** e.g. '536 videos' */
   videoCount: string | null
   description: string | null
+  /** Music channel — YouTube shows its note logo next to the channel name. */
+  isMusic?: boolean
 }
 
 export interface PlaylistSummary {
@@ -51,6 +53,10 @@ export interface PlaylistSummary {
   /** Raw count text, e.g. '30 videos'. */
   countText: string | null
   thumbnail: string | null
+  /** Music release (a channel's "Releases" tab) rather than a regular playlist. */
+  isAlbum?: boolean
+  /** Release year, e.g. '2026'. */
+  year?: string | null
 }
 
 export type SearchItem =
@@ -208,6 +214,8 @@ export interface ChannelInfo {
   description: string | null
   /** Tab names available on the channel, e.g. ['Videos', 'Playlists']. */
   tabs: string[]
+  /** Music channel — YouTube shows its note logo next to the channel name. */
+  isMusic?: boolean
 }
 
 export type ChannelSort = 'newest' | 'oldest' | 'popular'
@@ -403,6 +411,9 @@ export interface AppApi {
   channelVideosMore(continuation: string): Promise<ChannelVideosPage>
   getChannelPlaylists(id: string): Promise<{ items: PlaylistSummary[]; continuation: string | null }>
   channelPlaylistsMore(continuation: string): Promise<{ items: PlaylistSummary[]; continuation: string | null }>
+  /** Music releases (albums) of a music channel. */
+  getChannelReleases(id: string): Promise<{ items: PlaylistSummary[]; continuation: string | null }>
+  channelReleasesMore(continuation: string): Promise<{ items: PlaylistSummary[]; continuation: string | null }>
   getChannelAbout(id: string): Promise<AboutInfo>
   getRemotePlaylist(id: string): Promise<RemotePlaylist>
   remotePlaylistMore(continuation: string): Promise<RemotePlaylist>

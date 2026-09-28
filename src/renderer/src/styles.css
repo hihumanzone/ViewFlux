@@ -689,6 +689,14 @@ select.input {
   color: var(--on-primary);
 }
 
+/* ---- Music channel note logo ---- */
+.music-badge {
+  display: inline-flex;
+  align-items: center;
+  flex: none;
+  color: var(--on-surface-variant);
+}
+
 /* ---- Chips ---- */
 .chip {
   display: inline-flex;
@@ -1583,8 +1591,15 @@ select.input {
 
 .channel-card__name {
   margin: 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
   font-size: 17px;
   font-weight: 800;
+  min-width: 0;
+}
+
+.channel-card__name-text {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -1661,6 +1676,11 @@ select.input {
   overflow: hidden;
   background: var(--surface-2);
   box-shadow: var(--shadow-1);
+}
+
+/* Music releases ship square cover art, so they are not cropped to 16:9. */
+.pl-card--album .pl-card__thumb-wrap {
+  aspect-ratio: 1;
 }
 
 .pl-card__thumb {
@@ -1743,9 +1763,11 @@ select.input {
   margin: 0;
   font-size: 12.5px;
   color: var(--on-surface-variant);
-  display: -webkit-box;
-  -webkit-line-clamp: 1;
-  -webkit-box-orient: vertical;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  white-space: nowrap;
   overflow: hidden;
 }
 
@@ -1754,6 +1776,7 @@ select.input {
   align-items: center;
   gap: 6px;
   min-width: 0;
+  flex: 1 1 auto;
 }
 
 .pl-card__author .list-row__channel-avatar {
@@ -1763,6 +1786,10 @@ select.input {
 
 .pl-card__author .list-row__channel-name {
   font-size: 12.5px;
+}
+
+.pl-card__year {
+  flex: none;
 }
 
 /* ---- States: empty / loader (Material 3 Expressive Scallop Rosette) ---- */
@@ -2460,9 +2487,16 @@ select.input {
 
 .channel__name {
   margin: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
   font-size: 24px;
   font-weight: 800;
   letter-spacing: -0.01em;
+  min-width: 0;
+}
+
+.channel__name-text {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;

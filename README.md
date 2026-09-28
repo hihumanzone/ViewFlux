@@ -64,8 +64,15 @@ Built with **Electron + Vite + React + TypeScript**, extracting data with
   All / Videos / Channels / Playlists / Music filter chips; live search suggestions; infinite
   scroll (continuation); **search history** with configurable storage limits, reuse, per-item delete, and clear-all.
 - **Channels** — open any channel from search or the watch page: banner, avatar, handle and
-  subscriber count; Videos / Playlists / About tabs; native server-side video sorting (Newest, Most popular, Oldest)
-  and public channel playlists (openable as remote playlists).
+  subscriber count; Videos / Releases / Playlists / About tabs (only the ones the channel actually
+  has); native server-side video sorting (Newest, Most popular, Oldest) and public channel playlists
+  (openable as remote playlists).
+- **Music channels** — music channels are flagged with YouTube's note logo next to the channel name,
+  on both the channel page and in search results, and get a **Releases** tab listing their albums and
+  EPs with square cover art, artist and release year. Official Artist Channels serve that tab from
+  their `/releases` route; auto-generated "- Topic" channels have no such route, so their discography
+  is read from the "Albums & Singles" shelf on the channel home page. An album opens and plays like
+  any other YouTube playlist, so **Play all** and the in-page queue work straight from the channel page.
 - **Saved Channels & Recent Videos Feed** — bookmark channels into custom folders and tags/labels; browse an
   on-demand recent uploads feed filtered by folder, label, and recency window (past 24h, past week, past month).
 - **High-quality player** — DASH adaptive streaming (up to 2160p) with a
@@ -177,6 +184,11 @@ YouTube (for extraction/media), SponsorBlock, and Return YouTube Dislike.
   the broadcast — up to 4 hours — is scrubbable, and the LIVE badge in the control bar doubles as a
   jump-to-edge button whenever playback drifts behind. Chapters, description timestamps and SponsorBlock
   are disabled while live, since a moving presentation timeline has no fixed positions.
+- The music-channel note logo is read from the badge YouTube attaches to a channel name, so it appears on
+  Official Artist Channels and "- Topic" channels. Auto-generated topic channels carry no such badge in
+  search results, so the logo is missing there. Channels YouTube gives no releases tab and no discography
+  shelf get no **Releases** tab. An album page shows the album's own YouTube metadata, which is limited
+  to its title, track count and views.
 
 ## License & attribution
 

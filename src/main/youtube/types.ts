@@ -50,6 +50,21 @@ export interface Continuable {
   getContinuation(): Promise<unknown>
 }
 
+/**
+ * The per-type node index youtubei.js builds while parsing (`Memo extends Map`).
+ * Populated from `Parser.parseResponse`'s `*_memo` fields.
+ */
+export type NodeMemo = Map<string, unknown[]>
+
+/**
+ * A feed that lists playlists. Either a youtubei.js `Feed` or a raw `browse`
+ * response adapted to the same shape, so both feed the same mappers.
+ */
+export interface PlaylistFeed extends Continuable {
+  playlists?: unknown[]
+  results?: unknown[]
+}
+
 export interface ContinuationEntry {
   kind:
     | 'search:all'
@@ -59,6 +74,7 @@ export interface ContinuationEntry {
     | 'search:music'
     | 'channel:videos'
     | 'channel:playlists'
+    | 'channel:releases'
     | 'remote:playlist'
   feed: Continuable
   ctx?: Record<string, unknown>

@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { VideoCard } from '../components/VideoCard'
 import { PlaylistCard } from '../components/ResultCards'
 import { BookmarkChannelDialog } from '../components/BookmarkChannelDialog'
-import { Icon } from '../components/Icons'
+import { Icon, MusicBadge } from '../components/Icons'
 import { Menu, MenuItem } from '../components/Menu'
 import { EmptyState, Loader } from '../components/EmptyState'
 import { useApp } from '../state/AppContext'
@@ -18,7 +18,7 @@ import type {
   VideoSummary
 } from '../../../shared/types'
 
-const KNOWN_TABS = ['videos', 'playlists', 'about']
+const KNOWN_TABS = ['videos', 'releases', 'playlists', 'about']
 
 const SORTS: { id: ChannelSort; label: string }[] = [
   { id: 'newest', label: 'Newest' },
@@ -31,6 +31,14 @@ interface VideosState {
   continuation: string | null
   loading: boolean
 }
+
+interface PlaylistState {
+  items: PlaylistSummary[]
+  continuation: string | null
+  loading: boolean
+}
+
+const EMPTY_LIST: PlaylistState = { items: [], continuation: null, loading: false }
 
 export function ChannelPage({
   channelId,
@@ -89,11 +97,8 @@ export function ChannelPage({
   // Paginated, so it keeps its own continuation rather than going through
   // useAsync — the hook models "fetch once per input", this is "fetch then
   // append".
-  const [playlists, setPlaylists] = useState<{ items: PlaylistSummary[]; continuation: string | null; loading: boolean }>({
-    items: [],
-    continuation: null,
-    loading: false
-  })
+  const [playlists, setPlaylists] = useState<PlaylistState>(EMPTY_LIST)
+  const [releases, setReleases] = useState<PlaylistState>(EMPTY_LIST)
 
   const sentinelRef = useRef<HTMLDivElement>(null)
   const videoReqRef = useRef(0)
@@ -133,7 +138,7 @@ export function ChannelPage({
     }
   }, [videos.continuation, videos.loading])
 
-  // ---- Playlists (lazy, cached) ------------------------------------------------
+  // ---- Playlists / releases (lazy, cached) --------------------------------------
   useEffect(() => {
     if (tab !== 'playlists' || playlists.items.length > 0 || playlists.loading) return
     setPlaylists((prev) => ({ ...prev, loading: true }))
@@ -142,9 +147,38 @@ export function ChannelPage({
       .then((page) =>
         setPlaylists({ items: page.items, continuation: page.continuation, loading: false })
       )
-      .catch(() => setPlaylists({ items: [], continuation: null, loading: false }))
+      .catch(() => setPlaylists(EMPTY_LIST))
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tab, channelId])
+
+  // Music channels list their albums on a "Releases" tab; only music channels
+  // get the tab in the first place, so an empty response is a normal outcome.
+  useEffect(() => {
+    if (tab !== 'releases' || releases.items.length > 0 || releases.loading) return
+    setReleases((prev) => ({ ...prev, loading: true }))
+    void window.api
+      .getChannelReleases(channelId)
+      .then((page) =>
+        setReleases({ items: page.items, continuation: page.continuation, loading: false })
+      )
+      .catch(() => setReleases(EMPTY_LIST))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tab, channelId])
+
+  const loadMoreReleases = useCallback(async () => {
+    if (!releases.continuation || releases.loading) return
+    setReleases((prev) => ({ ...prev, loading: true }))
+    try {
+      const page = await window.api.channelReleasesMore(releases.continuation as string)
+      setReleases((prev) => ({
+        items: [...prev.items, ...page.items],
+        continuation: page.continuation,
+        loading: false
+      }))
+    } catch {
+      setReleases((prev) => ({ ...prev, continuation: null, loading: false }))
+    }
+  }, [releases.continuation, releases.loading])
 
   // ---- About (lazy) ------------------------------------------------------------
   // Only requested when the tab is open. A failure renders as a channel with no
@@ -163,12 +197,13 @@ export function ChannelPage({
       (entries) => {
         if (!entries[0]?.isIntersecting) return
         if (tab === 'videos') void loadMoreVideos()
+        else if (tab === 'releases') void loadMoreReleases()
       },
       { rootMargin: '600px' }
     )
     observer.observe(el)
     return () => observer.disconnect()
-  }, [tab, loadMoreVideos])
+  }, [tab, loadMoreVideos, loadMoreReleases])
 
   if (error) {
     // Transient network failures are common here, so offer a retry rather than
@@ -228,7 +263,10 @@ export function ChannelPage({
             </div>
           )}
           <div className="channel__head-text">
-            <h1 className="channel__name">{info?.name ?? '…'}</h1>
+            <h1 className="channel__name">
+              <span className="channel__name-text">{info?.name ?? '…'}</span>
+              {info?.isMusic && <MusicBadge size={20} />}
+            </h1>
             <div className="channel__meta">
               {info?.handle && <span>{info.handle}</span>}
               {info?.subscribers && <span>{info.subscribers}</span>}
@@ -378,6 +416,38 @@ export function ChannelPage({
           />
         ))}
       </Menu>
+
+      {/* ---- Releases tab ---- */}
+      {tab === 'releases' && (
+        <section className="channel__section">
+          {releases.loading && releases.items.length === 0 && (
+            <div className="loader">
+              <div className="spinner" />
+            </div>
+          )}
+          {!releases.loading && releases.items.length === 0 && (
+            <div className="empty">
+              <div className="empty__icon">
+                <Icon name="album" size={30} />
+              </div>
+              <div className="empty__title">No releases</div>
+            </div>
+          )}
+          {releases.items.length > 0 && (
+            <div className="video-grid">
+              {releases.items.map((album, index) => (
+                <PlaylistCard key={`${album.id}-${index}`} playlist={album} />
+              ))}
+            </div>
+          )}
+          <div ref={sentinelRef} />
+          {releases.loading && releases.items.length > 0 && (
+            <div className="loader">
+              <div className="spinner" />
+            </div>
+          )}
+        </section>
+      )}
 
       {/* ---- Playlists tab ---- */}
       {tab === 'playlists' && (

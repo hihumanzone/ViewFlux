@@ -1,5 +1,5 @@
 import { memo, useState } from 'react'
-import { Icon } from './Icons'
+import { Icon, MusicBadge } from './Icons'
 import { Menu, MenuItem } from './Menu'
 import { ChannelLine } from './ChannelLine'
 import { BookmarkChannelDialog } from './BookmarkChannelDialog'
@@ -44,7 +44,10 @@ export const ChannelCard = memo(function ChannelCard({ channel }: { channel: Cha
         )}
       </div>
       <div className="channel-card__body">
-        <h3 className="channel-card__name">{channel.name}</h3>
+        <h3 className="channel-card__name">
+          <span className="channel-card__name-text">{channel.name}</span>
+          {channel.isMusic && <MusicBadge />}
+        </h3>
         <div className="channel-card__meta">
           {channel.handle && <span>{channel.handle}</span>}
           {channel.subscribers && <span>{channel.subscribers}</span>}
@@ -130,24 +133,35 @@ export const PlaylistCard = memo(function PlaylistCard({
   const open = (): void => navigate(`#/ytpl/${playlist.id}`)
   // Prefer removal once it is saved, so the menu never lies about the state.
   const canRemove = Boolean(saved && onRemove)
+  // A music release is still a YouTube playlist under the hood, so it reuses
+  // this card and the existing playlist route — only its labels differ.
+  const countLabel =
+    playlist.countText ??
+    (playlist.count != null
+      ? `${playlist.count} ${playlist.isAlbum ? 'songs' : 'videos'}`
+      : '')
 
   return (
-    <article className="pl-card" onClick={open} {...activationProps(open)}>
+    <article
+      className={`pl-card${playlist.isAlbum ? ' pl-card--album' : ''}`}
+      onClick={open}
+      {...activationProps(open)}
+    >
       <div className="pl-card__thumb-wrap">
         {playlist.thumbnail ? (
           <img className="pl-card__thumb" src={playlist.thumbnail} alt="" loading="lazy" />
         ) : (
           <div className="pl-card__thumb pl-card__thumb--fallback">
-            <Icon name="playlist" size={26} />
+            <Icon name={playlist.isAlbum ? 'album' : 'playlist'} size={26} />
           </div>
         )}
         <span className="pl-card__type">
-          <Icon name="playlist" size={14} />
-          Playlist
+          <Icon name={playlist.isAlbum ? 'album' : 'playlist'} size={14} />
+          {playlist.isAlbum ? 'Album' : 'Playlist'}
         </span>
         <div className="pl-card__overlay">
-          <Icon name="playlist" size={18} />
-          <span>{playlist.countText ?? (playlist.count != null ? `${playlist.count} videos` : '')}</span>
+          <Icon name={playlist.isAlbum ? 'album' : 'playlist'} size={18} />
+          <span>{countLabel}</span>
         </div>
       </div>
       <div className="pl-card__body">
@@ -160,13 +174,19 @@ export const PlaylistCard = memo(function PlaylistCard({
           />
         </div>
         <div className="pl-card__meta">
-          <ChannelLine
-            className="pl-card__author"
-            name={playlist.author ?? ''}
-            channelId={playlist.authorId ?? null}
-            avatar={playlist.authorAvatar ?? null}
-          />
-          {!playlist.author && <span>YouTube playlist</span>}
+          {playlist.author ? (
+            <>
+              <ChannelLine
+                className="pl-card__author"
+                name={playlist.author}
+                channelId={playlist.authorId ?? null}
+                avatar={playlist.authorAvatar ?? null}
+              />
+              {playlist.year && <span className="pl-card__year">{playlist.year}</span>}
+            </>
+          ) : (
+            <span>{playlist.isAlbum ? 'Music release' : 'YouTube playlist'}</span>
+          )}
         </div>
       </div>
       <Menu
@@ -177,7 +197,7 @@ export const PlaylistCard = memo(function PlaylistCard({
       >
         <MenuItem
           icon="queue"
-          label="Open playlist"
+          label={playlist.isAlbum ? 'Open album' : 'Open playlist'}
           onSelect={() => {
             setMenuAnchor(null)
             open()

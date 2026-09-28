@@ -200,6 +200,104 @@ export function classifyChannelTexts(candidates: (string | null | undefined)[]):
 }
 
 // ---------------------------------------------------------------------------
+// Music channel detection
+// ---------------------------------------------------------------------------
+
+/**
+ * YouTube marks music channels with a note-in-circle logo. It reaches us in
+ * three different shapes depending on where the channel was parsed from, and
+ * they are all normalised onto this one image name.
+ */
+const MUSIC_BADGE = 'AUDIO_BADGE'
+
+interface BadgeLike {
+  icon_type?: string
+  iconType?: string
+  imageName?: string
+  clientResource?: { imageName?: string }
+}
+
+function isMusicBadge(badge: unknown): boolean {
+  if (!badge || typeof badge !== 'object') return false
+  const b = badge as BadgeLike
+  return (
+    b.icon_type === MUSIC_BADGE ||
+    b.iconType === MUSIC_BADGE ||
+    b.imageName === MUSIC_BADGE ||
+    b.clientResource?.imageName === MUSIC_BADGE
+  )
+}
+
+/**
+ * True when any of the given badges is the music-channel logo.
+ *
+ * Search results and the legacy `C4TabbedHeader` carry `MetadataBadge` entries
+ * on the channel's `Author` (`icon_type: 'AUDIO_BADGE'`, style
+ * `BADGE_STYLE_TYPE_VERIFIED_ARTIST`).
+ */
+export function hasMusicBadge(badges: unknown): boolean {
+  return Array.isArray(badges) && badges.some(isMusicBadge)
+}
+
+/** Title runs of a `Text` / `DynamicTextView` node. */
+function titleRuns(title: unknown): unknown[] {
+  if (!title || typeof title !== 'object') return []
+  const t = title as { runs?: unknown[]; text?: { runs?: unknown[] } }
+  if (Array.isArray(t.runs)) return t.runs
+  if (Array.isArray(t.text?.runs)) return t.text.runs
+  return []
+}
+
+/**
+ * True when a channel header name carries the music logo.
+ *
+ * On the current `PageHeader` layout the logo is an `attachment` on the title
+ * run — `header.author` (and therefore its badges) is empty there, so this
+ * attachment is the only signal available on the channel page. A verified
+ * (non-music) channel carries the same structure with `CHECK_CIRCLE_FILLED`,
+ * which is why only `AUDIO_BADGE` counts here.
+ */
+export function hasMusicTitleBadge(title: unknown): boolean {
+  return titleRuns(title).some((run) => {
+    const image = (
+      run as {
+        attachment?: {
+          element?: { type?: { imageType?: { image?: { sources?: unknown } } } }
+        }
+      }
+    )?.attachment?.element?.type?.imageType?.image
+    return hasMusicBadge(image?.sources)
+  })
+}
+
+const BYLINE_DELIMITER = /\s+·\s+/
+const YEAR_REGEX = /\b(?:19|20)\d{2}\b/
+/** `Jun 26, 2026` or a bare year — the tail YouTube appends to a byline. */
+const RELEASE_DATE_REGEX = /^(?:[A-Za-z]{3,9}\.?\s+\d{1,2},?\s+\d{4}|\d{4})$/
+
+/**
+ * Splits a release byline into its artist names and release year.
+ *
+ * YouTube formats music releases as `Artist, Featured · Jun 26, 2026` — the
+ * trailing date is noise next to the artist names, and the year is the most
+ * useful bit for an album card. Anything that doesn't end in a date is handed
+ * back untouched.
+ */
+export function splitReleaseByline(raw: string | null | undefined): {
+  artist: string | null
+  year: string | null
+} {
+  const value = text(raw)
+  if (!value) return { artist: null, year: null }
+  const parts = value.split(BYLINE_DELIMITER).map((p) => p.trim()).filter(Boolean)
+  if (parts.length < 2) return { artist: value, year: null }
+  const tail = parts[parts.length - 1]
+  if (!RELEASE_DATE_REGEX.test(tail)) return { artist: value, year: null }
+  const artist = parts.slice(0, -1).join(', ').trim()
+  return { artist: artist || value, year: YEAR_REGEX.exec(tail)?.[0] ?? null }
+}
+
+// ---------------------------------------------------------------------------
 // Chapter parsing helpers
 // ---------------------------------------------------------------------------
 
