@@ -49,13 +49,23 @@ export function usePlayerAudioGraph({
   const rateRef = useRef(safeInitialSpeed)
   const pitchRef = useRef(preservePitch)
   pitchRef.current = preservePitch
+  const volumeRef = useRef(volume)
+  volumeRef.current = volume
+  const mutedRef = useRef(muted)
+  mutedRef.current = muted
 
   rateRef.current = Number.isFinite(rate) && rate >= 0.25 ? rate : 1
 
+  // Keep rate synchronized if initialSpeed changes
+  useEffect(() => {
+    if (Number.isFinite(initialSpeed) && initialSpeed >= 0.25) {
+      setRate(initialSpeed)
+      rateRef.current = initialSpeed
+    }
+  }, [initialSpeed])
+
   const boostTarget = (): number => {
-    const video = videoRef.current
     const baseRate = Number.isFinite(rateRef.current) && rateRef.current >= 0.25 ? rateRef.current : 1
-    if (!video) return baseRate
     return Math.min(3.5, Math.max(2.25, baseRate * SILENCE_SKIP_MULTIPLIER))
   }
 
@@ -65,12 +75,15 @@ export function usePlayerAudioGraph({
     boostRef.current = on
     const baseRate = Number.isFinite(rateRef.current) && rateRef.current >= 0.25 ? rateRef.current : 1
     if (on) {
-      const target = boostTarget()
-      if (video.playbackRate !== target) {
-        video.playbackRate = target
+      // Only speed up if video is currently playing and not seeking
+      if (!video.paused && !video.seeking) {
+        const target = boostTarget()
+        if (Math.abs(video.playbackRate - target) > 0.01) {
+          video.playbackRate = target
+        }
       }
     } else {
-      if (video.playbackRate !== baseRate) {
+      if (Math.abs(video.playbackRate - baseRate) > 0.01) {
         video.playbackRate = baseRate
       }
     }
@@ -81,10 +94,36 @@ export function usePlayerAudioGraph({
     boostRef.current = false
     const video = videoRef.current
     const baseRate = Number.isFinite(rateRef.current) && rateRef.current >= 0.25 ? rateRef.current : 1
-    if (video && wasBoosting && video.playbackRate !== baseRate) {
+    if (video && wasBoosting && Math.abs(video.playbackRate - baseRate) > 0.01) {
       video.playbackRate = baseRate
     }
   }, [])
+
+  // Listen to seeking, waiting, stalling, and pausing to immediately flush the skipper
+  // delay line and restore normal playback rate so no stale pops or jumps occur.
+  useEffect(() => {
+    const video = videoRef.current
+    if (!video) return
+
+    const handleInterrupt = (): void => {
+      endBoost()
+      skipperRef.current?.flush()
+    }
+
+    video.addEventListener('seeking', handleInterrupt)
+    video.addEventListener('seeked', handleInterrupt)
+    video.addEventListener('waiting', handleInterrupt)
+    video.addEventListener('pause', handleInterrupt)
+    video.addEventListener('stalled', handleInterrupt)
+
+    return () => {
+      video.removeEventListener('seeking', handleInterrupt)
+      video.removeEventListener('seeked', handleInterrupt)
+      video.removeEventListener('waiting', handleInterrupt)
+      video.removeEventListener('pause', handleInterrupt)
+      video.removeEventListener('stalled', handleInterrupt)
+    }
+  }, [videoRef, endBoost])
 
   // Initialize Web Audio graph
   const initAudioGraph = useCallback(() => {
@@ -110,7 +149,7 @@ export function usePlayerAudioGraph({
       sourceNodeRef.current = source
 
       const gain = ctx.createGain()
-      gain.gain.value = muted ? 0 : volume
+      gain.gain.value = mutedRef.current ? 0 : volumeRef.current
       gainNodeRef.current = gain
 
       // DynamicsCompressor acts as a brickwall limiter to ensure 300% volume sounds clean
@@ -166,7 +205,7 @@ export function usePlayerAudioGraph({
     } catch {
       return null
     }
-  }, [muted, volume, setBoost, videoRef])
+  }, [setBoost, videoRef])
 
   useEffect(() => {
     if (status === 'ready') {
@@ -232,7 +271,7 @@ export function usePlayerAudioGraph({
   const changeRate = useCallback(
     (value: number) => {
       const video = videoRef.current
-      const clamped = Math.min(5, Math.max(0.25, value))
+      const clamped = Number.isFinite(value) && value >= 0.25 ? Math.min(5, Math.max(0.25, value)) : 1
       rateRef.current = clamped
       setRate(clamped)
       if (!video) return
@@ -248,15 +287,16 @@ export function usePlayerAudioGraph({
 
   const stepSpeed = useCallback(
     (direction: -1 | 1) => {
-      const currentIndex = SPEEDS.findIndex((s) => Math.abs(s - rate) < 0.01)
+      const currentRate = Number.isFinite(rate) && rate >= 0.25 ? rate : 1
+      const currentIndex = SPEEDS.findIndex((s) => Math.abs(s - currentRate) < 0.01)
       if (currentIndex !== -1) {
         const nextIndex = Math.max(0, Math.min(SPEEDS.length - 1, currentIndex + direction))
         changeRate(SPEEDS[nextIndex])
       } else {
         const target =
           direction > 0
-            ? SPEEDS.find((s) => s > rate) ?? 5
-            : [...SPEEDS].reverse().find((s) => s < rate) ?? 0.25
+            ? SPEEDS.find((s) => s > currentRate) ?? 5
+            : [...SPEEDS].reverse().find((s) => s < currentRate) ?? 0.25
         changeRate(target)
       }
     },
@@ -278,10 +318,12 @@ export function usePlayerAudioGraph({
     onOsd?.(`Skip silence: ${next ? 'On' : 'Off'}`, 'tune')
   }, [skipSilence, onSkipSilenceChange, onOsd])
 
+  const safeRate = Number.isFinite(rate) && rate >= 0.25 ? rate : safeInitialSpeed
+
   return {
     volume,
     muted,
-    rate,
+    rate: safeRate,
     changeVolume,
     toggleMute,
     changeRate,

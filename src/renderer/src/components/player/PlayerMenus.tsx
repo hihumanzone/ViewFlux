@@ -63,6 +63,8 @@ export const PlayerMenus = memo(function PlayerMenus({
   onSelectAudio,
   onSelectAudioTier
 }: PlayerMenusProps): React.JSX.Element {
+  const safeRate = Number.isFinite(rate) && rate >= 0.25 ? rate : 1
+
   return (
     <>
       {/* 1. Playback Settings Sheet */}
@@ -81,14 +83,14 @@ export const PlayerMenus = memo(function PlayerMenus({
           <div className="sheet__row-head">
             <span className="sheet__label">Speed</span>
             <span className="sheet__value">
-              {rate === 1 ? 'Normal' : `${rate.toFixed(2)}×`}
+              {safeRate === 1 ? 'Normal' : `${safeRate.toFixed(2)}×`}
             </span>
           </div>
           <div className="speed-chips">
             {SPEEDS.map((s) => (
               <button
                 key={s}
-                className={`speed-chips__chip${rate === s ? ' speed-chips__chip--active' : ''}`}
+                className={`speed-chips__chip${safeRate === s ? ' speed-chips__chip--active' : ''}`}
                 onClick={() => onChangeRate(s)}
               >
                 {s === 1 ? 'Normal' : `${s}×`}
@@ -96,7 +98,7 @@ export const PlayerMenus = memo(function PlayerMenus({
             ))}
           </div>
           <SliderField
-            value={rate}
+            value={safeRate}
             min={0.25}
             max={5}
             step={0.05}
