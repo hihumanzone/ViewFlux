@@ -84,8 +84,20 @@ export class YoutubeService {
     if (this.yt) return this.yt
     if (!this.initPromise) {
       this.initPromise = (async () => {
-        const { Innertube, Log, Platform } = await import('youtubei.js')
+        const { Innertube, Log, Parser, Platform } = await import('youtubei.js')
         Log.setLevel(Log.Level.NONE)
+        // youtubei.js hands every unparseable node to a global reporter that
+        // interpolates `packageInfo.bugs.url` into its "please report this"
+        // text. electron-builder rewrites a dependency's package.json when it
+        // packs it into app.asar and drops `bugs`, so in an installed build
+        // `packageInfo.bugs` is undefined and the reporter itself throws
+        // `TypeError: Cannot read properties of undefined (reading 'url')`.
+        // That escapes the try/catch wrapping the node parse, so one unknown
+        // renderer (which mixed "All" search surfaces constantly) took down the
+        // whole request — packaged builds only, since `npm run dev` reads the
+        // intact package.json off disk. `parseItem` already drops nodes it
+        // cannot build, so a silent reporter restores the dev behaviour.
+        Parser.setParserErrorHandler(() => {})
         // Lets youtubei.js execute YouTube's decipher function (base.js) in
         // the main process. `data.output` is a function body ending with
         // `return process(...)`, so wrapping it in `new Function` and calling
