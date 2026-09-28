@@ -19,10 +19,15 @@ const requested = new Set<string>()
 let batch: string[] = []
 
 let scheduled = false
-const listeners = new Set<() => void>()
+const channelListeners = new Map<string, Set<(url: string | null) => void>>()
 
-function publish(): void {
-  for (const listener of listeners) listener()
+function publish(resolvedMap: Record<string, string | null>): void {
+  for (const [id, url] of Object.entries(resolvedMap)) {
+    const subs = channelListeners.get(id)
+    if (subs) {
+      for (const listener of subs) listener(url ?? null)
+    }
+  }
 }
 
 function flush(): void {
@@ -34,13 +39,13 @@ function flush(): void {
     .getChannelAvatars(ids)
     .then((resolved) => {
       for (const id of ids) cache.set(id, resolved[id] ?? null)
+      publish(resolved)
     })
     .catch(() => {
       // Best-effort enhancement: a failed batch leaves the initials fallback in
       // place and lets a later mount ask again.
       for (const id of ids) requested.delete(id)
     })
-    .finally(publish)
 }
 
 function request(ids: string[]): void {
@@ -92,14 +97,24 @@ export function useChannelAvatar(
     }
 
     setResolved(null)
-    const onChange = (): void => {
-      const next = cache.get(channelId)
-      if (next !== undefined) setResolved(next)
+    const onChange = (url: string | null): void => {
+      setResolved(url)
     }
-    listeners.add(onChange)
+    let subs = channelListeners.get(channelId)
+    if (!subs) {
+      subs = new Set()
+      channelListeners.set(channelId, subs)
+    }
+    subs.add(onChange)
     request([channelId])
     return () => {
-      listeners.delete(onChange)
+      const currentSubs = channelListeners.get(channelId)
+      if (currentSubs) {
+        currentSubs.delete(onChange)
+        if (currentSubs.size === 0) {
+          channelListeners.delete(channelId)
+        }
+      }
     }
   }, [channelId, initial])
 

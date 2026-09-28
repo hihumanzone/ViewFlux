@@ -14,6 +14,7 @@ import {
   type Settings,
   DEFAULT_SETTINGS
 } from '../shared/types'
+import { normalizeSubtitleStyle } from '../shared/subtitles'
 
 /**
  * Bumped whenever the on-disk shape changes in a way that needs a migration.
@@ -34,6 +35,19 @@ function defaultData(): AppData {
 }
 
 /**
+ * Fills in missing settings keys. The top level is a shallow merge, so nested
+ * objects (the subtitle style) need their own normalisation to survive a file
+ * written by an older build, a partial object, or hand-edited values.
+ */
+function withSettingDefaults(raw: Partial<Settings> | undefined): Settings {
+  return {
+    ...DEFAULT_SETTINGS,
+    ...(raw ?? {}),
+    subtitleStyle: normalizeSubtitleStyle(raw?.subtitleStyle)
+  }
+}
+
+/**
  * Tiny dependency-free persistence layer. The whole dataset is held in memory and
  * written atomically (temp file + rename) with debounced saves, so rapid updates
  * (e.g. playback position ticks) never thrash the disk.
@@ -43,11 +57,21 @@ export class Store {
   private readonly legacyFile: string
   private readonly backupFile: string
   private data: AppData = defaultData()
+  private historyMap = new Map<string, HistoryEntry>()
   private loaded = false
   private loadPromise: Promise<void>
   private saveTimer: NodeJS.Timeout | null = null
   private saving = false
   private dirty = false
+  private isStructuralDirty = false
+  private lastBackupAt = 0
+
+  private rebuildHistoryIndex(): void {
+    this.historyMap.clear()
+    for (const h of this.data.history) {
+      this.historyMap.set(h.videoId, h)
+    }
+  }
 
   constructor() {
     this.file = join(app.getPath('userData'), 'viewflux-data.json')
@@ -66,6 +90,7 @@ export class Store {
         try {
           raw = await fs.readFile(this.legacyFile, 'utf8')
           this.dirty = true // trigger saving to viewflux-data.json
+          this.isStructuralDirty = true
         } catch {
           raw = null
         }
@@ -85,6 +110,7 @@ export class Store {
             this.adopt(JSON.parse(await fs.readFile(this.backupFile, 'utf8')) as Partial<AppData>)
             console.warn('[store] recovered from backup')
             this.dirty = true
+            this.isStructuralDirty = true
             return
           } catch (backupErr) {
             console.error('[store] no usable backup, starting fresh', backupErr)
@@ -96,7 +122,7 @@ export class Store {
       }
     } finally {
       this.loaded = true
-      if (this.dirty) this.scheduleSave()
+      if (this.dirty) this.scheduleSave(this.isStructuralDirty)
     }
   }
 
@@ -106,11 +132,12 @@ export class Store {
       history: Array.isArray(parsed.history) ? parsed.history : [],
       playlists: Array.isArray(parsed.playlists) ? parsed.playlists : [],
       searchHistory: Array.isArray(parsed.searchHistory) ? parsed.searchHistory : [],
-      settings: { ...DEFAULT_SETTINGS, ...(parsed.settings ?? {}) },
+      settings: withSettingDefaults(parsed.settings),
       savedChannels: Array.isArray(parsed.savedChannels) ? parsed.savedChannels : [],
       channelFolders: Array.isArray(parsed.channelFolders) ? parsed.channelFolders : []
     }
     this.trimToLimits()
+    this.rebuildHistoryIndex()
   }
 
   async ready(): Promise<void> {
@@ -118,32 +145,59 @@ export class Store {
     await fs.mkdir(join(app.getPath('userData')), { recursive: true }).catch(() => undefined)
   }
 
-  private scheduleSave(): void {
+  private scheduleSave(structural = true): void {
     if (!this.loaded) return
     this.dirty = true
-    if (this.saveTimer) return
+    if (structural) {
+      this.isStructuralDirty = true
+    }
+    // If a timer is already queued and a structural modification comes in,
+    // collapse to a fast 400ms save instead of waiting for a relaxed tick timer.
+    if (this.saveTimer) {
+      if (structural) {
+        clearTimeout(this.saveTimer)
+        this.saveTimer = setTimeout(() => {
+          this.saveTimer = null
+          void this.flush()
+        }, 400)
+      }
+      return
+    }
+    // High-frequency playback ticks coalesce over 15s to prevent SSD/disk thrashing;
+    // structural edits (playlists, channels, settings) flush promptly within 400ms.
+    const delay = structural ? 400 : 15_000
     this.saveTimer = setTimeout(() => {
       this.saveTimer = null
       void this.flush()
-    }, 400)
+    }, delay)
   }
 
   async flush(): Promise<void> {
+    if (this.saveTimer) {
+      clearTimeout(this.saveTimer)
+      this.saveTimer = null
+    }
     if (this.saving || !this.dirty) return
     this.saving = true
     this.dirty = false
+    const structural = this.isStructuralDirty
+    this.isStructuralDirty = false
     const tmp = `${this.file}.tmp`
     try {
       await fs.writeFile(
         tmp,
-        JSON.stringify({ version: SCHEMA_VERSION, ...this.data }, null, 2),
+        JSON.stringify({ version: SCHEMA_VERSION, ...this.data }),
         'utf8'
       )
-      // Keep the last known-good file as `.bak` before replacing it, so a crash
-      // or a full disk during the rename still leaves something recoverable.
-      await fs
-        .copyFile(this.file, this.backupFile)
-        .catch(() => undefined)
+      // Only refresh the backup copy on structural modifications or once every 10 minutes,
+      // avoiding redundant file duplication on periodic playback position ticks.
+      const now = Date.now()
+      if (structural || now - this.lastBackupAt > 10 * 60 * 1000) {
+        this.lastBackupAt = now
+        await fs
+          .copyFile(this.file, this.backupFile)
+          .catch(() => undefined)
+      }
       try {
         await fs.rename(tmp, this.file)
       } catch (renameErr: unknown) {
@@ -160,20 +214,20 @@ export class Store {
       await fs.unlink(tmp).catch(() => undefined)
     } finally {
       this.saving = false
-      if (this.dirty) this.scheduleSave()
+      if (this.dirty) this.scheduleSave(this.isStructuralDirty)
     }
   }
 
   // ---- Settings -----------------------------------------------------------
   getSettings(): Settings {
-    return structuredClone(this.data.settings)
+    return { ...this.data.settings }
   }
 
   saveSettings(settings: Settings): Settings {
-    this.data.settings = { ...DEFAULT_SETTINGS, ...settings }
+    this.data.settings = withSettingDefaults(settings)
     this.trimToLimits()
     this.scheduleSave()
-    return this.getSettings()
+    return { ...this.data.settings }
   }
 
   /**
@@ -194,58 +248,67 @@ export class Store {
 
   // ---- History ------------------------------------------------------------
   getHistory(): HistoryEntry[] {
-    return structuredClone(this.data.history)
+    return this.data.history
   }
 
   addHistory(entry: HistoryEntry): void {
     if (!this.data.settings.saveWatchHistory) return
     const idx = this.data.history.findIndex((h) => h.videoId === entry.videoId)
+    let finalEntry: HistoryEntry
     if (idx !== -1) {
       const existing = this.data.history[idx]
       this.data.history.splice(idx, 1)
-      this.data.history.unshift({
+      finalEntry = {
         ...existing,
         ...entry,
         // Channel details resolve a tick after the video info does, so never let
         // a late `null` wipe an id/avatar an earlier pass already stored.
         authorId: entry.authorId ?? existing.authorId ?? null,
         authorAvatar: entry.authorAvatar ?? existing.authorAvatar ?? null
-      })
+      }
+      this.data.history.unshift(finalEntry)
     } else {
-      this.data.history.unshift(entry)
+      finalEntry = entry
+      this.data.history.unshift(finalEntry)
     }
+    this.historyMap.set(entry.videoId, finalEntry)
     const limit = this.data.settings.maxWatchHistory || 500
     if (this.data.history.length > limit) {
-      this.data.history.length = limit
+      const removed = this.data.history.pop()
+      if (removed) this.historyMap.delete(removed.videoId)
     }
     this.scheduleSave()
   }
 
   updateHistoryPosition(videoId: string, position: number): void {
     if (!this.data.settings.saveWatchHistory) return
-    const entry = this.data.history.find((h) => h.videoId === videoId)
+    const entry = this.historyMap.get(videoId)
     if (!entry) return
+    // Skip if position hasn't changed noticeably (>0.5s) unless reset to 0
+    if (position > 0 && Math.abs(entry.position - position) < 0.5) return
     entry.position = position
     entry.watchedAt = Date.now()
-    this.scheduleSave()
+    this.scheduleSave(false)
   }
 
   removeHistory(videoId: string): void {
     const idx = this.data.history.findIndex((h) => h.videoId === videoId)
     if (idx !== -1) {
       this.data.history.splice(idx, 1)
+      this.historyMap.delete(videoId)
       this.scheduleSave()
     }
   }
 
   clearHistory(): void {
     this.data.history = []
+    this.historyMap.clear()
     this.scheduleSave()
   }
 
   // ---- Search history -----------------------------------------------------
   getSearchHistory(): SearchHistoryEntry[] {
-    return structuredClone(this.data.searchHistory)
+    return this.data.searchHistory
   }
 
   addSearchHistory(query: string): void {
@@ -276,7 +339,7 @@ export class Store {
 
   // ---- Playlists ----------------------------------------------------------
   getPlaylists(): Playlist[] {
-    return structuredClone(this.data.playlists)
+    return this.data.playlists
   }
 
   createPlaylist(name: string, source?: PlaylistSource): Playlist {
@@ -372,7 +435,7 @@ export class Store {
 
   // ---- Saved Channels (Bookmarks) -----------------------------------------
   getSavedChannels(): SavedChannel[] {
-    return structuredClone(this.data.savedChannels)
+    return this.data.savedChannels
   }
 
   saveChannel(channel: SavedChannel): SavedChannel {
@@ -383,7 +446,7 @@ export class Store {
       this.data.savedChannels.unshift(channel)
     }
     this.scheduleSave()
-    return structuredClone(this.data.savedChannels[idx !== -1 ? idx : 0])
+    return { ...this.data.savedChannels[idx !== -1 ? idx : 0] }
   }
 
   updateSavedChannel(channelId: string, patch: Partial<SavedChannel>): SavedChannel | undefined {
@@ -391,7 +454,7 @@ export class Store {
     if (!channel) return undefined
     Object.assign(channel, patch)
     this.scheduleSave()
-    return structuredClone(channel)
+    return { ...channel }
   }
 
   removeSavedChannel(channelId: string): void {
@@ -404,7 +467,7 @@ export class Store {
 
   // ---- Channel Folders ----------------------------------------------------
   getChannelFolders(): ChannelFolder[] {
-    return structuredClone(this.data.channelFolders)
+    return this.data.channelFolders
   }
 
   createChannelFolder(name: string): ChannelFolder {

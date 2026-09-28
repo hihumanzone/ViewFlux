@@ -5,8 +5,9 @@ import type {
   Settings,
   SponsorSegment
 } from '../../../../shared/types'
+import type { SubtitleStyle } from '../../../../shared/subtitles'
 
-export type { CaptionTrack, Chapter, Settings, SponsorSegment }
+export type { CaptionTrack, Chapter, Settings, SponsorSegment, SubtitleStyle }
 
 export interface PlayerHandle {
   seekTo: (time: number) => void
@@ -34,6 +35,14 @@ export interface MediaSessionMeta {
 export interface PlayerProps {
   videoId: string
   manifestUrl: string
+  /**
+   * Hint from the main process (`basic_info.is_live`). It selects the Shaka
+   * configuration *before* the manifest is parsed, because the manifest-level
+   * live settings (presentation delay, `hls.sequenceMode`, `disableText`) are
+   * only read during parsing and cannot be changed afterwards. Shaka's own
+   * `player.isLive()` stays authoritative once the manifest is loaded.
+   */
+  isLive: boolean
   poster?: string
   captions: CaptionTrack[]
   chapters?: Chapter[]
@@ -43,6 +52,8 @@ export interface PlayerProps {
   autoSkip: boolean
   sponsorBlockEnabled: boolean
   alwaysShowCaptions: boolean
+  /** Caption size, colour and background. */
+  subtitleStyle: SubtitleStyle
   initialVolume: number
   initialSpeed: number
   preferredQuality: Settings['preferredQuality']
@@ -56,11 +67,22 @@ export interface PlayerProps {
   defaultAudioLanguage: string | null
   onPitchChange: (value: boolean) => void
   onSkipSilenceChange: (value: boolean) => void
+  onSubtitleStyleChange: (style: SubtitleStyle) => void
   onTimeUpdate: (position: number, duration: number) => void
   onEnded: () => void
   onSkipped: (segment: SponsorSegment) => void
   /** Optional OS media-session metadata; omit to hide the Windows "now playing" card. */
   mediaSession?: MediaSessionMeta | null
+}
+
+/**
+ * The seekable (DVR) window of a live stream, in presentation time. Both ends
+ * move: `start` advances as the window slides, `end` is the live edge minus the
+ * presentation delay Shaka keeps us behind.
+ */
+export interface LiveWindow {
+  start: number
+  end: number
 }
 
 export type VariantTrack = ReturnType<shaka.Player['getVariantTracks']>[number]

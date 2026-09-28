@@ -1,4 +1,4 @@
-import { useMemo, type ReactNode } from 'react'
+import { memo, useMemo, type ReactNode } from 'react'
 import { formatDuration } from '../lib/format'
 import { navigate, routeLinkProps } from '../lib/router'
 import { useApp } from '../state/AppContext'
@@ -34,7 +34,7 @@ export interface ListRowProps {
  * controls (the channel button, the trailing actions) are lifted above the
  * stretched link by CSS so they stay clickable.
  */
-export function ListRow({
+export const ListRow = memo(function ListRow({
   to,
   thumbnail,
   title,
@@ -45,18 +45,23 @@ export function ListRow({
   thumbnailOverlay,
   actions
 }: ListRowProps): React.JSX.Element {
-  const { history } = useApp()
+  const { getHistoryEntry } = useApp()
   const hasDuration = duration != null && duration > 0
 
   const resolvedVideoId = useMemo(() => {
     if (videoId) return videoId
-    const match = to.match(/#\/watch\/([^?&]+)/)
-    return match ? match[1] : null
+    const idx = to.indexOf('#/watch/')
+    if (idx !== -1) {
+      const rest = to.slice(idx + 8)
+      const end = rest.search(/[?&#]/)
+      return end === -1 ? rest : rest.slice(0, end)
+    }
+    return null
   }, [videoId, to])
 
   const historyProgress = useMemo(() => {
-    if (!resolvedVideoId) return null
-    const match = history.find((h) => h.videoId === resolvedVideoId)
+    if (thumbnailOverlay !== undefined || !resolvedVideoId) return null
+    const match = getHistoryEntry(resolvedVideoId)
     if (!match || match.position <= 0) return null
     const dur = match.duration || duration
     if (!dur || dur <= 0) return null
@@ -65,7 +70,7 @@ export function ListRow({
       percent: pct,
       position: match.position
     }
-  }, [resolvedVideoId, history, duration])
+  }, [thumbnailOverlay, resolvedVideoId, getHistoryEntry, duration])
 
   const effectiveHasProgress =
     hasProgress ?? (historyProgress != null && historyProgress.percent > 0)
@@ -115,4 +120,4 @@ export function ListRow({
       {actions && <div className="list-row__actions">{actions}</div>}
     </li>
   )
-}
+})

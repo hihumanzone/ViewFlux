@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import type { Innertube } from 'youtubei.js'
-import { rewriteHls } from './proxy'
+import { rewriteDash, rewriteHls } from './proxy'
+import { ORIGIN, REFERER, USER_AGENT } from './http'
 import type {
   AboutInfo,
   CaptionTrack,
@@ -72,6 +73,8 @@ export class YoutubeService {
   private readonly infoCache = new Map<string, CachedInfo>()
   private readonly manifestCache = new Map<string, CachedManifest>()
   private readonly channelCache = new Map<string, CachedChannel>()
+  private readonly inFlightChannels = new Map<string, Promise<any>>()
+  private readonly inFlightInfo = new Map<string, Promise<any>>()
 
   setProxyBase(base: string): void {
     this.proxyBase = base
@@ -267,10 +270,12 @@ export class YoutubeService {
 
     let viewsText: string | null = null
     let published: string | null = null
-    for (const part of rows.flat()) {
-      if (author && part === author) continue
-      if (!published && /ago|streamed|premiered/i.test(part)) published = part
-      else if (!viewsText && /\d/.test(part) && !/^@/.test(part)) viewsText = part
+    for (const row of rows) {
+      for (const part of row) {
+        if (author && part === author) continue
+        if (!published && /ago|streamed|premiered/i.test(part)) published = part
+        else if (!viewsText && /\d/.test(part) && !part.startsWith('@')) viewsText = part
+      }
     }
 
     return {
@@ -578,12 +583,26 @@ export class YoutubeService {
 
   private async getChannel(id: string): Promise<any> {
     const cached = this.channelCache.get(id)
-    if (cached && Date.now() - cached.fetchedAt < CHANNEL_TTL_MS) return cached.channel
-    const yt = await this.client()
-    const channel = await yt.getChannel(id)
-    this.channelCache.set(id, { channel, fetchedAt: Date.now() })
-    this.pruneMap(this.channelCache, 40)
-    return channel
+    if (cached && Date.now() - cached.fetchedAt < CHANNEL_TTL_MS) {
+      this.channelCache.delete(id)
+      this.channelCache.set(id, cached)
+      return cached.channel
+    }
+    const pending = this.inFlightChannels.get(id)
+    if (pending) return pending
+
+    const promise = (async () => {
+      const yt = await this.client()
+      const channel = await yt.getChannel(id)
+      this.channelCache.set(id, { channel, fetchedAt: Date.now() })
+      this.pruneMap(this.channelCache, 40)
+      return channel
+    })().finally(() => {
+      this.inFlightChannels.delete(id)
+    })
+
+    this.inFlightChannels.set(id, promise)
+    return promise
   }
 
   async getChannelInfo(id: string): Promise<ChannelInfo> {
@@ -770,55 +789,71 @@ export class YoutubeService {
   ): Promise<VideoSummary[]> {
     if (!channelIds || channelIds.length === 0) return []
     const uniqueIds = Array.from(new Set(channelIds))
-    const CHUNK_SIZE = 5
+    const CONCURRENCY = 5
     const allVideos: VideoSummary[] = []
     const seenVideoIds = new Set<string>()
     const total = uniqueIds.length
     let done = 0
     onProgress?.(done, total)
 
-    for (let i = 0; i < uniqueIds.length; i += CHUNK_SIZE) {
-      const chunk = uniqueIds.slice(i, i + CHUNK_SIZE)
-      const results = await Promise.allSettled(
-        chunk.map(async (id) => {
-          return Promise.race([
-            this.getChannelVideos(id, 'newest'),
-            new Promise<ChannelVideosPage>((_, reject) =>
-              setTimeout(() => reject(new Error('Channel feed fetch timed out')), 8000)
-            )
-          ])
+    const fetchChannelWithTimeout = async (id: string): Promise<ChannelVideosPage | null> => {
+      let timer: NodeJS.Timeout | null = null
+      try {
+        const timeoutPromise = new Promise<never>((_, reject) => {
+          timer = setTimeout(() => reject(new Error('Channel feed fetch timed out')), 8000)
         })
-      )
-      for (const res of results) {
+        const result = await Promise.race([
+          this.getChannelVideos(id, 'newest'),
+          timeoutPromise
+        ])
+        return result
+      } catch {
+        return null
+      } finally {
+        if (timer) clearTimeout(timer)
+      }
+    }
+
+    let currentIndex = 0
+    const worker = async (): Promise<void> => {
+      while (currentIndex < uniqueIds.length) {
+        const idx = currentIndex++
+        const id = uniqueIds[idx]
+        const page = await fetchChannelWithTimeout(id)
         done += 1
-        if (res.status === 'fulfilled' && res.value?.items) {
-          for (const item of res.value.items) {
+        if (page?.items) {
+          for (const item of page.items) {
             if (!seenVideoIds.has(item.videoId)) {
               seenVideoIds.add(item.videoId)
               allVideos.push(item)
             }
           }
         }
+        onProgress?.(done, total)
       }
-      onProgress?.(done, total)
     }
 
-    let filtered = allVideos
-    if (typeof maxAgeDays === 'number' && maxAgeDays > 0) {
-      filtered = allVideos.filter((v) => {
-        const days = parseAgoDays(v.published)
-        return days == null || days <= maxAgeDays
-      })
-    }
+    const workerCount = Math.min(CONCURRENCY, uniqueIds.length)
+    const workers = Array.from({ length: workerCount }, () => worker())
+    await Promise.all(workers)
 
-    // Sort newest first (smallest days ago first)
-    filtered.sort((a, b) => {
-      const da = parseAgoDays(a.published) ?? 99999
-      const db = parseAgoDays(b.published) ?? 99999
-      return da - db
-    })
+    // Precompute age in days for all videos in a single O(N) pass to avoid
+    // running regex parsing repeatedly inside the sort comparator.
+    const withAge = allVideos.map((v) => ({
+      video: v,
+      age: parseAgoDays(v.published) ?? 99999
+    }))
 
-    return filtered
+    // Filter by maxAgeDays if requested
+    const filtered =
+      typeof maxAgeDays === 'number' && maxAgeDays > 0
+        ? withAge.filter((item) => item.age <= maxAgeDays)
+        : withAge
+
+    // Sort newest first using precomputed numeric age
+    filtered.sort((a, b) => a.age - b.age)
+
+    return filtered.map((item) => item.video)
   }
 
   async channelVideosMore(token: string): Promise<ChannelVideosPage> {
@@ -989,17 +1024,31 @@ export class YoutubeService {
 
   private async getInfo(videoId: string) {
     const cached = this.infoCache.get(videoId)
-    if (cached && Date.now() - cached.fetchedAt < INFO_TTL_MS) return cached.info
-    const yt = await this.client()
-    let info: Awaited<ReturnType<Innertube['getInfo']>>
-    try {
-      info = await yt.getInfo(videoId, { client: CLIENT })
-    } catch {
-      info = await yt.getBasicInfo(videoId, { client: CLIENT })
+    if (cached && Date.now() - cached.fetchedAt < INFO_TTL_MS) {
+      this.infoCache.delete(videoId)
+      this.infoCache.set(videoId, cached)
+      return cached.info
     }
-    this.infoCache.set(videoId, { info, fetchedAt: Date.now() })
-    this.pruneMap(this.infoCache, 50)
-    return info
+    const pending = this.inFlightInfo.get(videoId)
+    if (pending) return pending
+
+    const promise = (async () => {
+      const yt = await this.client()
+      let info: Awaited<ReturnType<Innertube['getInfo']>>
+      try {
+        info = await yt.getInfo(videoId, { client: CLIENT })
+      } catch {
+        info = await yt.getBasicInfo(videoId, { client: CLIENT })
+      }
+      this.infoCache.set(videoId, { info, fetchedAt: Date.now() })
+      this.pruneMap(this.infoCache, 50)
+      return info
+    })().finally(() => {
+      this.inFlightInfo.delete(videoId)
+    })
+
+    this.inFlightInfo.set(videoId, promise)
+    return promise
   }
 
   /**
@@ -1126,7 +1175,11 @@ export class YoutubeService {
       this.manifestCache.delete(videoId)
     } else {
       const cached = this.manifestCache.get(videoId)
-      if (cached && Date.now() - cached.fetchedAt < cached.ttl) return cached.xml
+      if (cached && Date.now() - cached.fetchedAt < cached.ttl) {
+        this.manifestCache.delete(videoId)
+        this.manifestCache.set(videoId, cached)
+        return cached.xml
+      }
     }
 
     // Always use fresh streaming data here: the cached `getInfo` copy may
@@ -1140,17 +1193,19 @@ export class YoutubeService {
       dash_manifest_url?: string
       hls_manifest_url?: string
     }
-    const providedManifest = sd.dash_manifest_url ?? sd.hls_manifest_url
-    const adaptive = info.streaming_data.adaptive_formats
-    const isLive = info.basic_info?.is_live || (providedManifest && !adaptive?.length)
+    // Live streams are served from YouTube's HLS master playlist, which provides
+    // clean separate audio (ADTS AAC) and video (MPEG-TS) renditions with
+    // valid presentation timestamps. Shaka Player uses built-in transmuxers
+    // (AacTransmuxer and TsTransmuxer) to package them into fMP4 on the fly.
+    // VISIONOS hands out `hls_manifest_url` token-free; if unavailable,
+    // we fall back across VISIONOS, ANDROID, and ANDROID_VR.
+    const providedManifest = sd.hls_manifest_url ?? sd.dash_manifest_url
+    // `is_live` is the authoritative marker. The adaptive-format count is *not*
+    // a live signal: VISIONOS returns 8 adaptive formats for a live stream
+    // (137/136/135/134/133/160 + 139/140), so an emptiness test would only ever
+    // fire on genuinely broken responses and misroute those to the live path.
+    const isLive = Boolean(info.basic_info?.is_live)
 
-    // Live / post-live-DVR streams carry no adaptive formats, so `toDash`
-    // throws. Like NewPipe/LibreTube (ExoPlayer) and FreeTube, serve the
-    // manifest YouTube provides instead — fetched here and rewritten so every
-    // segment request keeps flowing through our localhost proxy.
-    // The IOS client returns no provided manifest for live, but VISIONOS and
-    // ANDROID do (verified live) — so fall back to those player responses
-    // when IOS has nothing to serve.
     if (isLive) {
       const xml =
         (providedManifest ? await this.fetchLiveManifest(providedManifest) : null) ??
@@ -1190,17 +1245,14 @@ export class YoutubeService {
   }
 
   /**
-   * Live-manifest fallback through alternate clients. IOS returns playability
-   * OK for live but no `dash/hls_manifest_url` (verified live), so ask
-   * elsewhere: VISIONOS first (token-free live HLS — the same source NewPipe
-   * uses exclusively for running live), then ANDROID. HLS is preferred over
-   * server DASH because running-live DASH rots/403s quickly while HLS is what
-   * NewPipe, yt-dlp and FreeTube all play for ongoing live. Returns null on
-   * any failure — callers treat that as "manifest unavailable".
+   * Live-manifest fallback through alternate clients.
+   *
+   * Queries VISIONOS, ANDROID, and ANDROID_VR for a valid live manifest (HLS
+   * preferred, DASH as secondary fallback). Returns null on failure.
    */
   private async liveFallbackManifest(videoId: string): Promise<string | null> {
     const yt = await this.client()
-    for (const client of ['VISIONOS', 'ANDROID'] as const) {
+    for (const client of ['VISIONOS', 'ANDROID', 'ANDROID_VR'] as const) {
       try {
         const info = await yt.getBasicInfo(videoId, { client })
         if (info.playability_status?.status !== 'OK' || !info.streaming_data) continue
@@ -1210,14 +1262,7 @@ export class YoutubeService {
         }
         const provided = sd.hls_manifest_url ?? sd.dash_manifest_url
         if (!provided) continue
-        // Decipher the `n` (throttle) param, like `toDash` does for formats.
-        let url = provided
-        try {
-          url = (await yt.session.player?.decipher(provided)) ?? provided
-        } catch {
-          /* play the undeciphered URL rather than failing outright */
-        }
-        const xml = await this.fetchLiveManifest(url)
+        const xml = await this.fetchLiveManifest(provided)
         if (xml) return xml
       } catch {
         /* try the next client */
@@ -1227,19 +1272,32 @@ export class YoutubeService {
   }
 
   /**
-   * Fetches a YouTube-provided live manifest (DASH MPD or HLS playlist) and
-   * rewrites every googlevideo URL inside it to our localhost media proxy so
-   * the segments are requested with the Referer/Origin/UA headers YouTube
-   * expects. Returns null when the body is not XML/text we can rewrite.
+   * Fetches a YouTube-provided live manifest (HLS master playlist or DASH MPD)
+   * and rewrites every googlevideo URL inside it to our localhost media proxy,
+   * so the nested playlists and segments are requested with the
+   * Referer/Origin/User-Agent YouTube expects. Returns null when the body
+   * cannot be fetched — callers treat that as "manifest unavailable".
    */
   private async fetchLiveManifest(manifestUrl: string): Promise<string | null> {
+    // Decipher the `n` (throttle) parameter the same way `toDash` does for
+    // formats. It is a no-op for the current YouTube live manifests (the
+    // `n` values arrive undeciphered and are accepted as-is), but skipping it
+    // is exactly the kind of shortcut that rots the day YouTube starts
+    // throttling, and a failed decipher must never sink the whole manifest.
+    let target = manifestUrl
     try {
-      const res = await fetch(manifestUrl, {
+      const decipher = (await this.client()).session.player
+      if (decipher) target = (await decipher.decipher(manifestUrl)) ?? manifestUrl
+    } catch {
+      /* play the undeciphered URL rather than failing outright */
+    }
+
+    try {
+      const res = await fetch(target, {
         headers: {
-          'User-Agent':
-            'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
-          Referer: 'https://www.youtube.com/',
-          Origin: 'https://www.youtube.com'
+          'User-Agent': USER_AGENT,
+          Referer: REFERER,
+          Origin: ORIGIN
         }
       })
       if (!res.ok) return null
@@ -1247,12 +1305,21 @@ export class YoutubeService {
       if (!this.proxyBase) return body
       if (body.trimStart().startsWith('#EXTM3U')) {
         try {
-          return rewriteHls(body, this.proxyBase, new URL(manifestUrl))
+          return rewriteHls(body, this.proxyBase, new URL(target))
         } catch {
           // fallback to regex if target URL parsing fails
         }
       }
-      // MPD uses <BaseURL>https://…</BaseURL>; HLS uses bare URI lines.
+      // DASH MPD. YouTube's live MPDs put every `<SegmentURL media="…"/>` in a
+      // *relative* form that only resolves against the enclosing
+      // `<Representation>`'s `<BaseURL>`, so the representation-scoped rewriter
+      // is required here — a bare absolute-URL regex would leave every segment
+      // pointing at googlevideo and the renderer CSP would block them all.
+      try {
+        return rewriteDash(body, this.proxyBase, new URL(target))
+      } catch {
+        // fall through to the absolute-URL sweep
+      }
       return body.replace(/https:\/\/[^\s"'<>\]]+/g, (url) =>
         url.includes('.googlevideo.com') || url.includes('.youtube.com')
           ? `${this.proxyBase}/media?u=${encodeURIComponent(url)}`

@@ -288,6 +288,11 @@ export class MediaProxy {
         break
       } catch (err) {
         if (clientClosed) return
+        const isAbort =
+          controller.signal.aborted ||
+          (err instanceof DOMException && err.name === 'AbortError') ||
+          (err as { name?: string })?.name === 'AbortError'
+        if (isAbort) return
         if (attempt < 2) {
           await new Promise((resolve) => setTimeout(resolve, 300 * 2 ** attempt))
           continue
@@ -324,12 +329,23 @@ export class MediaProxy {
     // corrupted bytes (Shaka stalls with no error). Suspected playlists are
     // therefore confirmed by their own `#EXTM3U` magic (RFC 8216 §4.1) before
     // a single byte is reinterpreted; everything else streams through verbatim.
+    const isSegment =
+      url.pathname.endsWith('.ts') ||
+      url.pathname.endsWith('.aac') ||
+      target.pathname.includes('/sq/') ||
+      target.pathname.includes('/file/seg.ts') ||
+      target.pathname.includes('/seg.ts') ||
+      target.pathname.includes('/govp/') ||
+      target.pathname.includes('/goap/')
+
     const contentType = upstream.headers.get('content-type') ?? ''
     const maybePlaylist =
-      contentType.includes('mpegurl') ||
-      target.pathname.endsWith('.m3u8') ||
-      target.pathname.includes('/playlist/') ||
-      target.pathname.includes('/hls_playlist/')
+      !isSegment &&
+      (url.pathname === '/media.m3u8' ||
+        contentType.includes('mpegurl') ||
+        target.pathname.endsWith('.m3u8') ||
+        target.pathname.includes('/playlist/') ||
+        target.pathname.includes('/hls_playlist/'))
 
     let sniffed: Sniffed | null = null
     if (upstream.status === 200 && maybePlaylist) {
@@ -365,27 +381,34 @@ export class MediaProxy {
     }
 
     const isAac =
-      url.pathname.endsWith('.aac') || isAudioItagUrl(target.href)
+      url.pathname.endsWith('.aac') ||
+      (!url.pathname.endsWith('.ts') &&
+        (target.pathname.includes('/goap/') ||
+          (isAudioItagUrl(target.href) &&
+            (target.pathname.includes('/sq/') || target.pathname.includes('/file/seg.')))))
 
     const isTsSegment =
-      !isAac &&
-      (url.pathname.endsWith('.ts') ||
-        target.pathname.endsWith('.ts') ||
-        target.pathname.includes('/seg.ts') ||
-        target.pathname.includes('/sq/'))
+      url.pathname.endsWith('.ts') ||
+      (!isAac &&
+        (target.pathname.endsWith('.ts') ||
+          target.pathname.includes('/seg.ts') ||
+          target.pathname.includes('/govp/') ||
+          (target.pathname.includes('/sq/') && !isAudioItagUrl(target.href))))
 
     for (const name of PASSTHROUGH_HEADERS) {
       let value = upstream.headers.get(name)
-      if (name === 'content-type' && (!value || value.includes('octet-stream'))) {
-        if (isAac) value = 'audio/aac'
-        else if (isTsSegment) value = 'video/mp2t'
-      }
       if (value) res.setHeader(name, value)
     }
-    if (isAac && (!res.getHeader('content-type') || res.getHeader('content-type') === 'application/octet-stream')) {
-      res.setHeader('content-type', 'audio/aac')
-    } else if (isTsSegment && (!res.getHeader('content-type') || res.getHeader('content-type') === 'application/octet-stream')) {
-      res.setHeader('content-type', 'video/mp2t')
+    if (isAac) {
+      const ct = res.getHeader('content-type')
+      if (!ct || ct === 'application/octet-stream') {
+        res.setHeader('content-type', 'audio/aac')
+      }
+    } else if (isTsSegment) {
+      const ct = res.getHeader('content-type')
+      if (!ct || ct === 'application/octet-stream') {
+        res.setHeader('content-type', 'video/mp2t')
+      }
     }
     res.writeHead(upstream.status)
 
@@ -518,14 +541,20 @@ export function rewriteHls(content: string, proxyBase: string, targetUrl: URL): 
     }
     try {
       const resolved = new URL(trimmed, targetUrl).toString()
+      const isSegment =
+        resolved.includes('/sq/') ||
+        resolved.includes('/file/seg.ts') ||
+        resolved.includes('/seg.ts') ||
+        resolved.includes('/govp/') ||
+        resolved.includes('/goap/')
       const isAudio = forceAudio || isAudioPlaylist || isAudioItagUrl(resolved)
 
       let ext = ''
-      if (resolved.includes('.m3u8')) {
+      if (resolved.includes('.m3u8') && !isSegment) {
         ext = '.m3u8'
       } else if (isAudio) {
         ext = '.aac'
-      } else if (resolved.includes('.ts') || resolved.includes('/seg.ts') || resolved.includes('/sq/')) {
+      } else {
         ext = '.ts'
       }
       return `${proxyBase}/media${ext}?u=${encodeURIComponent(resolved)}`
@@ -560,5 +589,77 @@ export function rewriteHls(content: string, proxyBase: string, targetUrl: URL): 
   }
 
   return out.join('\n')
+}
+
+/**
+ * Rewrites a DASH MPD so every media reference routes through the local proxy.
+ *
+ * YouTube's *live* MPDs use `<SegmentList><SegmentTimeline>` and give each
+ * `<Representation>` a `<BaseURL>`, with every `<SegmentURL media="…"/>` holding
+ * a **relative** path (e.g. `sq/2317/lmt/1`). A plain absolute-URL regex misses
+ * all of them, and the renderer CSP (`media-src 'self' http://127.0.0.1:* blob:`)
+ * then blocks every segment — the manifest parses and the stream never plays.
+ * So the rewrite is representation-scoped: inside each `<Representation>` the
+ * `<BaseURL>` becomes the resolution base, and both the `<BaseURL>` and the
+ * `media`/`init` attributes are wrapped.
+ */
+export function rewriteDash(content: string, proxyBase: string, targetUrl: URL): string {
+  // Base for references outside any <Representation> (the MPD's own location).
+  const documentBase = targetUrl.toString()
+  let base = documentBase
+
+  const wrap = (raw: string): string => {
+    const trimmed = raw.trim()
+    if (!trimmed || trimmed.startsWith(proxyBase) || trimmed.startsWith('/media')) {
+      return trimmed
+    }
+    let resolved: string
+    try {
+      if (trimmed.startsWith('https://') || trimmed.startsWith('http://')) {
+        resolved = trimmed
+      } else if (trimmed.startsWith('//')) {
+        resolved = `https:${trimmed}`
+      } else if (trimmed.startsWith('/')) {
+        resolved = `${new URL(base).origin}${trimmed}`
+      } else {
+        resolved = new URL(trimmed, base).toString()
+      }
+    } catch {
+      return trimmed
+    }
+    return `${proxyBase}/media?u=${encodeURIComponent(resolved)}`
+  }
+
+  return content.replace(
+    /<BaseURL>([\s\S]*?)<\/BaseURL>|<Representation\b[^>]*>|<\/Representation>|<SegmentURL\b[^>]*\/?>/g,
+    (match, baseUrl) => {
+      if (baseUrl !== undefined) {
+        const inner = baseUrl.trim()
+        if (inner) {
+          // Adopt the *original* googlevideo URL as the resolution base for the
+          // relative <SegmentURL> refs that follow it in this representation.
+          try {
+            base = new URL(inner, documentBase).toString()
+          } catch {
+            /* keep the previous base */
+          }
+        }
+        return `<BaseURL>${wrap(inner)}</BaseURL>`
+      }
+      if (match.startsWith('<Representation')) {
+        // A new representation begins; wait for its own <BaseURL>.
+        base = documentBase
+        return match
+      }
+      if (match.startsWith('</')) {
+        base = documentBase
+        return match
+      }
+      return match.replace(
+        /\b(media|init|index)="([^"]*)"/g,
+        (_m, attr: string, value: string) => `${attr}="${wrap(value)}"`
+      )
+    }
+  )
 }
 

@@ -1,4 +1,4 @@
-import { memo } from 'react'
+import { memo, useCallback, useEffect, useState } from 'react'
 import { Icon } from '../Icons'
 import { formatTime as fmt } from '../../lib/format'
 import type { AudioTrack, Chapter, MenuKind, TextTrack } from './types'
@@ -9,6 +9,10 @@ export interface PlayerControlsProps {
   volume: number
   displayTime: number
   duration: number
+  /** Live stream: `duration` is 0 and the clock is replaced by a LIVE badge. */
+  isLive: boolean
+  /** Seconds between the playhead and the live edge. */
+  behindLive: number
   hasChapters: boolean
   currentChapter: Chapter | null
   textTracks: TextTrack[]
@@ -16,13 +20,25 @@ export interface PlayerControlsProps {
   audioTracks: AudioTrack[]
   skipSilence: boolean
   fullscreen: boolean
+  activeMenu?: MenuKind | null
   onTogglePlay: () => void
   onToggleMute: () => void
   onChangeVolume: (volume: number) => void
   onToggleMenu: (kind: MenuKind, anchor: HTMLElement) => void
   onTogglePip: () => void
   onToggleFullscreen: () => void
+  onGoToLive: () => void
 }
+
+/**
+ * Normal live streaming latency naturally fluctuates between ~2s and ~6s as chunks
+ * buffer and download. We apply hysteresis with an enter/exit threshold so the
+ * UI never flickers or oscillates between "Live" and "Behind live":
+ * - Drop out of live only when falling more than 8 seconds behind.
+ * - Recover to live once within 4.5 seconds (or immediately upon clicking "Go Live").
+ */
+const LIVE_BEHIND_THRESHOLD = 8
+const LIVE_RECOVER_THRESHOLD = 4.5
 
 export const PlayerControls = memo(function PlayerControls({
   playing,
@@ -30,6 +46,8 @@ export const PlayerControls = memo(function PlayerControls({
   volume,
   displayTime,
   duration,
+  isLive,
+  behindLive,
   hasChapters,
   currentChapter,
   textTracks,
@@ -37,13 +55,34 @@ export const PlayerControls = memo(function PlayerControls({
   audioTracks,
   skipSilence,
   fullscreen,
+  activeMenu,
   onTogglePlay,
   onToggleMute,
   onChangeVolume,
   onToggleMenu,
   onTogglePip,
-  onToggleFullscreen
+  onToggleFullscreen,
+  onGoToLive
 }: PlayerControlsProps): React.JSX.Element {
+  const [isBehind, setIsBehind] = useState(false)
+
+  useEffect(() => {
+    if (!isLive) {
+      setIsBehind(false)
+      return
+    }
+    if (!isBehind && behindLive > LIVE_BEHIND_THRESHOLD) {
+      setIsBehind(true)
+    } else if (isBehind && behindLive <= LIVE_RECOVER_THRESHOLD) {
+      setIsBehind(false)
+    }
+  }, [isLive, behindLive, isBehind])
+
+  const handleGoToLive = useCallback(() => {
+    setIsBehind(false)
+    onGoToLive()
+  }, [onGoToLive])
+
   return (
     <div className="player__controls">
       {/* Play/Pause */}
@@ -86,10 +125,48 @@ export const PlayerControls = memo(function PlayerControls({
         </span>
       </div>
 
-      {/* Time display */}
-      <span className="player__time">
-        {fmt(displayTime)} <span className="player__time-total">/ {fmt(duration)}</span>
-      </span>
+      {/* Time display — a live stream has no total, so show the edge offset */}
+      {isLive ? (
+        <>
+          <span
+            className={`player__live-pill${isBehind ? ' player__live-pill--behind' : ''}`}
+            title={isBehind ? 'Behind live — click to jump to live edge' : 'Playing at the live edge'}
+            onClick={isBehind ? handleGoToLive : undefined}
+            role={isBehind ? 'button' : undefined}
+            tabIndex={isBehind ? 0 : undefined}
+            onKeyDown={
+              isBehind
+                ? (e) => {
+                    if (e.key === 'Enter' || e.key === ' ') {
+                      e.preventDefault()
+                      handleGoToLive()
+                    }
+                  }
+                : undefined
+            }
+            style={isBehind ? { cursor: 'pointer' } : undefined}
+          >
+            LIVE
+          </span>
+          {isBehind && (
+            <button
+              type="button"
+              className="player__go-live"
+              onClick={handleGoToLive}
+              title="Jump to the live edge"
+            >
+              {behindLive >= 60
+                ? `${fmt(Math.round(behindLive))} behind`
+                : `${Math.round(behindLive)}s behind`}{' '}
+              — go live
+            </button>
+          )}
+        </>
+      ) : (
+        <span className="player__time">
+          {fmt(displayTime)} <span className="player__time-total">/ {fmt(duration)}</span>
+        </span>
+      )}
 
       {/* Current chapter pill */}
       {hasChapters && currentChapter && (
@@ -111,6 +188,8 @@ export const PlayerControls = memo(function PlayerControls({
           className={`icon-btn${textVisible ? ' icon-btn--active' : ''}`}
           aria-label="Subtitles"
           title="Subtitles"
+          aria-haspopup="menu"
+          aria-expanded={activeMenu === 'captions'}
           onClick={(event) => onToggleMenu('captions', event.currentTarget)}
         >
           <Icon name="captions" size={22} />
@@ -119,9 +198,11 @@ export const PlayerControls = memo(function PlayerControls({
 
       {/* Playback settings button */}
       <button
-        className={`icon-btn${skipSilence ? ' icon-btn--active' : ''}`}
+        className={`icon-btn${!isLive && skipSilence ? ' icon-btn--active' : ''}`}
         aria-label="Playback settings"
         title="Playback settings"
+        aria-haspopup="menu"
+        aria-expanded={activeMenu === 'settings'}
         onClick={(event) => onToggleMenu('settings', event.currentTarget)}
       >
         <Icon name="tune" size={22} />
@@ -133,6 +214,8 @@ export const PlayerControls = memo(function PlayerControls({
           className="icon-btn"
           aria-label="Audio track"
           title="Audio track"
+          aria-haspopup="menu"
+          aria-expanded={activeMenu === 'audio'}
           onClick={(event) => onToggleMenu('audio', event.currentTarget)}
         >
           <Icon name="volume" size={22} />
@@ -144,6 +227,8 @@ export const PlayerControls = memo(function PlayerControls({
         className="icon-btn"
         aria-label="Quality"
         title="Quality"
+        aria-haspopup="menu"
+        aria-expanded={activeMenu === 'quality'}
         onClick={(event) => onToggleMenu('quality', event.currentTarget)}
       >
         <Icon name="hd" size={22} />

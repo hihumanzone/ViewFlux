@@ -25,7 +25,9 @@ Built with **Electron + Vite + React + TypeScript**, extracting data with
   Material 3 Expressive control bar: play/pause, a full-width seek bar with buffered +
   SponsorBlock markers and hover time preview, volume with a live percentage readout, video
   quality, **audio track selection (original audio selected by default)** plus audio bitrate,
-  captions (when available), Picture-in-Picture, fullscreen, and keyboard shortcuts. A playback
+  **customizable subtitles** (track selection plus size, colour and background — from the captions
+  menu or Settings, with a live preview) that automatically lift above the control bar when it appears,
+  Picture-in-Picture, fullscreen, and keyboard shortcuts. A playback
   sheet offers **speed presets + editable slider**, **preserve-pitch toggle**, and **Skip
   Silence** (real-time silence detection that speeds through quiet passages and restores when
   audio resumes). Every menu is an **adaptive popover** — it opens where there is room and
@@ -119,9 +121,15 @@ YouTube (for extraction/media), SponsorBlock, and Return YouTube Dislike.
 
 ## Known limitations
 
-- Live streams are not supported (the `VISIONOS` client marks them unplayable); the UI reports this clearly.
 - Captions depend on the video exposing caption tracks to the `VISIONOS` client; when none exist, the
   caption menu is hidden.
+- Subtitles are rendered by the player itself (so they can be styled and repositioned) and therefore do
+  not appear in the Picture-in-Picture window, matching YouTube's own web player.
+- Live streams play through YouTube's own dynamic DASH manifest (the same source LibreTube prefers) and
+  start about 10 s behind the edge, matching YouTube's own player. Whatever rewind window YouTube grants
+  the broadcast — up to 4 hours — is scrubbable, and the LIVE badge in the control bar doubles as a
+  jump-to-edge button whenever playback drifts behind. Chapters, description timestamps and SponsorBlock
+  are disabled while live, since a moving presentation timeline has no fixed positions.
 
 ## License & attribution
 

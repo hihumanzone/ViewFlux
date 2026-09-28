@@ -596,13 +596,7 @@ export function SavedChannelsPage({ initialTab }: { initialTab?: string | null }
                     onClick={() => navigate(`#/channel/${channel.channelId}`)}
                     {...activationProps(() => navigate(`#/channel/${channel.channelId}`))}
                   >
-                    <button
-                      type="button"
-                      className="saved-channel__avatar"
-                      title={channel.title}
-                      aria-label={`Open ${channel.title}`}
-                      onClick={(e) => e.stopPropagation()}
-                    >
+                    <div className="saved-channel__avatar" aria-hidden="true">
                       {channel.avatar ? (
                         <img src={channel.avatar} alt="" />
                       ) : (
@@ -610,17 +604,12 @@ export function SavedChannelsPage({ initialTab }: { initialTab?: string | null }
                           {channel.title.slice(0, 1).toUpperCase()}
                         </span>
                       )}
-                    </button>
+                    </div>
 
                     <div className="saved-channel__body">
-                      <button
-                        type="button"
-                        className="saved-channel__name"
-                        title={channel.title}
-                        onClick={(e) => e.stopPropagation()}
-                      >
+                      <div className="saved-channel__name">
                         {channel.title}
-                      </button>
+                      </div>
                       {channel.handle && (
                         <div className="saved-channel__handle">{channel.handle}</div>
                       )}

@@ -9,6 +9,7 @@ import { PLAYBACK_SPEEDS as SPEEDS } from '../../../../shared/media'
 
 export interface UsePlayerAudioGraphProps {
   videoRef: React.RefObject<HTMLVideoElement | null>
+  isLive?: boolean
   initialVolume: number
   initialSpeed: number
   preservePitch: boolean
@@ -22,6 +23,7 @@ export interface UsePlayerAudioGraphProps {
 
 export function usePlayerAudioGraph({
   videoRef,
+  isLive = false,
   initialVolume,
   initialSpeed,
   preservePitch,
@@ -215,7 +217,7 @@ export function usePlayerAudioGraph({
 
   // Silence skipping worklet toggling
   useEffect(() => {
-    const wanted = skipSilence && playing
+    const wanted = !isLive && skipSilence && playing
     skipperEnabledRef.current = wanted
     if (wanted) {
       initAudioGraph()
@@ -226,7 +228,7 @@ export function usePlayerAudioGraph({
     if (!skipper) return
     skipper.setEnabled(wanted)
     skipper.flush()
-  }, [skipSilence, playing, initAudioGraph, endBoost])
+  }, [isLive, skipSilence, playing, initAudioGraph, endBoost])
 
   // Volume control
   const changeVolume = useCallback(
@@ -313,10 +315,11 @@ export function usePlayerAudioGraph({
   }, [preservePitch, onPitchChange, onOsd, videoRef])
 
   const toggleSkipSilence = useCallback(() => {
+    if (isLive) return
     const next = !skipSilence
     onSkipSilenceChange(next)
     onOsd?.(`Skip silence: ${next ? 'On' : 'Off'}`, 'tune')
-  }, [skipSilence, onSkipSilenceChange, onOsd])
+  }, [isLive, skipSilence, onSkipSilenceChange, onOsd])
 
   const safeRate = Number.isFinite(rate) && rate >= 0.25 ? rate : safeInitialSpeed
 

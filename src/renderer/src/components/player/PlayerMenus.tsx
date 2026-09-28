@@ -1,14 +1,16 @@
 import { memo } from 'react'
 import { Menu, MenuItem } from '../Menu'
 import { SliderField } from '../SliderField'
+import { SubtitleStyleControls } from '../SubtitleStyleControls'
 import { Switch } from '../Switch'
 import { PLAYBACK_SPEEDS as SPEEDS } from '../../../../shared/media'
-import type { AudioTrack, MenuKind, TextTrack } from './types'
+import type { AudioTrack, MenuKind, SubtitleStyle, TextTrack } from './types'
 
 export interface PlayerMenusProps {
   menu: MenuKind | null
   menuAnchor: HTMLElement | null
   onClose: () => void
+  isLive?: boolean
   // Settings menu props
   rate: number
   onChangeRate: (rate: number) => void
@@ -27,6 +29,8 @@ export interface PlayerMenusProps {
   textVisible: boolean
   activeTextId: number | null
   onSelectCaption: (id: number | null) => void
+  subtitleStyle: SubtitleStyle
+  onSubtitleStyleChange: (style: SubtitleStyle) => void
   // Audio menu props
   audioTracks: AudioTrack[]
   audioLanguages: { code: string; label: string }[]
@@ -41,6 +45,7 @@ export const PlayerMenus = memo(function PlayerMenus({
   menu,
   menuAnchor,
   onClose,
+  isLive = false,
   rate,
   onChangeRate,
   preservePitch,
@@ -56,6 +61,8 @@ export const PlayerMenus = memo(function PlayerMenus({
   textVisible,
   activeTextId,
   onSelectCaption,
+  subtitleStyle,
+  onSubtitleStyleChange,
   audioLanguages,
   selectedAudioLang,
   audioTiers,
@@ -121,17 +128,19 @@ export const PlayerMenus = memo(function PlayerMenus({
           />
         </div>
 
-        <div className="sheet__row sheet__row--toggle">
-          <div>
-            <div className="sheet__label">Skip silence</div>
-            <div className="sheet__hint">Fast-forward through silent passages.</div>
+        {!isLive && (
+          <div className="sheet__row sheet__row--toggle">
+            <div>
+              <div className="sheet__label">Skip silence</div>
+              <div className="sheet__hint">Fast-forward through silent passages.</div>
+            </div>
+            <Switch
+              on={skipSilence}
+              label="Skip silence"
+              onClick={onToggleSkipSilence}
+            />
           </div>
-          <Switch
-            on={skipSilence}
-            label="Skip silence"
-            onClick={onToggleSkipSilence}
-          />
-        </div>
+        )}
       </Menu>
 
       {/* 2. Quality Menu */}
@@ -191,6 +200,15 @@ export const PlayerMenus = memo(function PlayerMenus({
             />
           ))
         )}
+        <div className="menu__divider" />
+        <div className="menu__title">Appearance</div>
+        {/* No preview here: the real captions are on screen right behind the
+            panel, and a second sample would push the popover into a scroll. */}
+        <SubtitleStyleControls
+          style={subtitleStyle}
+          onChange={onSubtitleStyleChange}
+          showPreview={false}
+        />
       </Menu>
 
       {/* 4. Audio Tracks Menu */}

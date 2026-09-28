@@ -81,6 +81,7 @@
   /* Layout dimensions */
   --titlebar-h: 44px;
   --sidebar-w: 232px;
+  --sidebar-collapsed-w: 72px;
   --content-pad: 32px;
   --bottom-nav-h: 68px;
 
@@ -324,9 +325,10 @@ html.keyboard-nav .app:focus-visible {
   grid-row: 2;
   overflow-y: auto;
   overflow-x: hidden;
-  padding: 24px var(--content-pad) 48px;
+  padding: 24px var(--content-pad) 24px;
   scroll-behavior: smooth;
 }
+
 
 /* ---- Title bar ---- */
 .titlebar {
@@ -890,41 +892,62 @@ select.input {
   color: var(--on-surface-variant);
 }
 
-/* ---- Collapsed sidebar: icon rail ---- */
-[data-sidebar='collapsed'] .app {
-  --sidebar-w: 74px;
-}
+/* ---- Collapsed sidebar: Minimal Icon Rail (Material 3 Expressive) ---- */
+@media (min-width: 769px) {
+  /* Manual collapse on desktop */
+  [data-sidebar='collapsed'] .app {
+    --sidebar-w: var(--sidebar-collapsed-w);
+  }
 
-[data-sidebar='collapsed'] .sidebar {
-  padding: 10px;
-  align-items: center;
-}
+  [data-sidebar='collapsed'] .sidebar {
+    padding: 10px 8px;
+    align-items: center;
+  }
 
-[data-sidebar='collapsed'] .sidebar__brand {
-  width: 100%;
-  justify-content: center;
-  padding: 6px 0 16px;
-  gap: 0;
-}
+  [data-sidebar='collapsed'] .sidebar__brand {
+    width: 100%;
+    justify-content: center;
+    padding: 6px 0 16px;
+    gap: 0;
+  }
 
-[data-sidebar='collapsed'] .sidebar__brand-text,
-[data-sidebar='collapsed'] .sidebar__title,
-[data-sidebar='collapsed'] .nav-item__label {
-  display: none;
-}
+  [data-sidebar='collapsed'] .sidebar__brand-text,
+  [data-sidebar='collapsed'] .sidebar__title,
+  [data-sidebar='collapsed'] .nav-item__label {
+    display: none;
+  }
 
-[data-sidebar='collapsed'] .sidebar__nav,
-[data-sidebar='collapsed'] .sidebar__footer {
-  width: 100%;
-}
+  [data-sidebar='collapsed'] .sidebar__nav,
+  [data-sidebar='collapsed'] .sidebar__footer {
+    width: 100%;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+  }
 
-/* Square-ish buttons, icons centred in the rail. */
-[data-sidebar='collapsed'] .nav-item {
-  justify-content: center;
-  width: 54px;
-  padding: 0;
-  gap: 0;
-  border-radius: var(--r-md);
+  [data-sidebar='collapsed'] .sidebar__nav > li {
+    display: flex;
+    justify-content: center;
+    width: 100%;
+  }
+
+  /* Centered square/rounded icon buttons in the rail */
+  [data-sidebar='collapsed'] .nav-item {
+    justify-content: center;
+    width: 52px;
+    height: 48px;
+    padding: 0;
+    gap: 0;
+    border-radius: var(--r-md);
+  }
+
+  [data-sidebar='collapsed'] .nav-item:hover {
+    transform: scale(1.05);
+  }
+
+  [data-sidebar='collapsed'] .nav-item:active {
+    transform: scale(0.96);
+  }
 }
 
 /* ---- Page scaffolding ---- */
@@ -978,6 +1001,8 @@ select.input {
 
 /* ---- Search bar (Material 3 Expressive Floating Capsule) ---- */
 .search-bar {
+  position: relative;
+  z-index: 20;
   display: flex;
   align-items: center;
   gap: 12px;
@@ -985,8 +1010,13 @@ select.input {
   max-width: none;
 }
 
+.search-bar:focus-within {
+  z-index: 60;
+}
+
 .search-bar__field {
   position: relative;
+  z-index: 2;
   display: flex;
   align-items: center;
   gap: 12px;
@@ -1077,6 +1107,10 @@ select.input {
   left: 0;
   right: 0;
   z-index: 40;
+  max-height: min(440px, calc(100vh - 160px));
+  overflow-y: auto;
+  overflow-x: hidden;
+  overscroll-behavior: contain;
   padding: 10px;
   border-radius: var(--r-lg);
   background: var(--surface-3);
@@ -1084,7 +1118,8 @@ select.input {
   box-shadow: var(--shadow-3);
   backdrop-filter: blur(24px) saturate(180%);
   animation: menu-pop var(--t-med) var(--ease-spring);
-  overflow: hidden;
+  scrollbar-width: thin;
+  scrollbar-color: var(--surface-variant) transparent;
 }
 
 .suggestions__item {
@@ -1939,10 +1974,24 @@ select.input {
   gap: 8px;
 }
 
+.watch__actions .chip--split {
+  padding: 0;
+  gap: 0;
+}
+
 .watch__actions .chip__part {
   height: 40px;
-  padding: 0 16px;
-  gap: 8px;
+  padding: 0 12px;
+  gap: 7px;
+  border-radius: 0;
+}
+
+.watch__actions .chip__part:first-child {
+  padding-left: 14px;
+}
+
+.watch__actions .chip__part:last-child {
+  padding-right: 14px;
 }
 
 /* ---- Watch page chapters bar ---- */
@@ -2172,15 +2221,17 @@ select.input {
   display: flex;
   flex-direction: column;
   min-width: 0;
-  height: 100%;
-  max-height: 100%;
+  position: sticky;
+  top: 0;
+  height: calc(100dvh - var(--titlebar-h) - 48px);
+  max-height: calc(100dvh - var(--titlebar-h) - 48px);
   background: var(--surface-1);
   border: 1px solid var(--outline-variant);
   border-radius: var(--r-lg);
   padding: 14px 12px;
   box-sizing: border-box;
   overflow: hidden;
-  position: static;
+  overscroll-behavior: contain;
 }
 
 .watch__side-title {
@@ -2235,30 +2286,55 @@ select.input {
   overflow-x: hidden;
   overscroll-behavior: contain;
   padding-right: 4px;
+  scrollbar-width: thin;
+  scrollbar-color: var(--surface-variant) transparent;
 }
 
 .queue__item {
   display: flex;
   align-items: center;
   gap: 12px;
-  padding: 8px;
+  padding: 8px 10px;
   border-radius: var(--r-md);
   text-align: left;
   width: 100%;
-  transition: background var(--t-fast) var(--ease-out);
+  background: transparent;
+  cursor: pointer;
+  border: none;
+  transition: background var(--t-fast) var(--ease-out),
+    transform var(--t-fast) var(--ease-spring);
 }
 
-.queue__item:hover {
-  background: var(--surface-1);
+.queue__item:not(.queue__item--active):hover {
+  background: var(--surface-2);
+}
+
+.queue__item:not(.queue__item--active):active {
+  background: var(--surface-3);
+  transform: scale(0.99);
 }
 
 .queue__item--active {
   background: var(--secondary-container);
 }
 
+.queue__item--active:hover {
+  background: color-mix(in srgb, var(--secondary-container) 85%, var(--primary));
+  filter: brightness(1.06);
+}
+
+.queue__item--active:active {
+  transform: scale(0.99);
+}
+
 .queue__item--active .queue__title,
 .queue__item--active .queue__meta {
   color: var(--on-secondary-container);
+}
+
+.queue__item--active .queue__index {
+  color: var(--primary);
+  font-weight: 800;
 }
 
 .queue__index {
@@ -3278,8 +3354,7 @@ button.list-row__channel-name:hover {
 }
 
 /* The whole card is the hit target for opening the channel, so it carries a
-   pointer cursor and its own focus ring. The inner avatar/name buttons stop
-   their clicks from bubbling here; the card handles the rest of the surface. */
+   pointer cursor and its own focus ring. */
 .saved-channel {
   display: flex;
   align-items: center;
@@ -3350,6 +3425,7 @@ button.list-row__channel-name:hover {
   transition: color var(--t-fast) var(--ease-out);
 }
 
+.saved-channel:hover .saved-channel__name,
 .saved-channel__name:hover {
   color: var(--primary);
 }
@@ -3778,6 +3854,58 @@ button.list-row__channel-name:hover {
   font-weight: 500;
 }
 
+/* ---- Live badge & catch-up affordance ---- */
+.player__live-pill {
+  margin-left: 6px;
+  padding: 5px 9px;
+  border-radius: var(--r-sm);
+  background: #ff3b30;
+  color: #fff;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.09em;
+  line-height: 1;
+  text-transform: uppercase;
+  user-select: none;
+  box-shadow: 0 0 0 1px rgb(255 255 255 / 0.14);
+  animation: live-pulse 2.4s var(--ease-out) infinite;
+}
+
+/* Behind the edge: the badge stops pulsing so the two states read differently
+   even for someone who cannot make out the colour. */
+.player__live-pill--behind {
+  background: rgb(255 255 255 / 0.16);
+  color: rgb(255 255 255 / 0.8);
+  animation: none;
+  cursor: pointer;
+  transition: background var(--t-fast) var(--ease-out), color var(--t-fast) var(--ease-out);
+}
+
+.player__live-pill--behind:hover {
+  background: rgb(255 255 255 / 0.28);
+  color: #fff;
+}
+
+.player__go-live {
+  margin-left: 6px;
+  padding: 6px 12px;
+  border-radius: var(--r-full);
+  background: var(--primary);
+  color: var(--on-primary);
+  font-size: 12px;
+  font-weight: 700;
+  white-space: nowrap;
+  transition: filter var(--t-fast) var(--ease-out), transform var(--t-fast) var(--ease-out);
+}
+
+.player__go-live:hover {
+  filter: brightness(1.1);
+}
+
+.player__go-live:active {
+  transform: scale(0.97);
+}
+
 .player__chapter-indicator {
   display: inline-flex;
   align-items: center;
@@ -3979,6 +4107,47 @@ button.list-row__channel-name:hover {
   background: var(--primary);
 }
 
+/* Live stream: the bar spans the sliding DVR window, so the fill runs from the
+   playhead forward to the live edge. What is behind the playhead is already
+   gone, and the edge itself is marked so "am I live?" is readable at a glance. */
+.seek__live-ahead {
+  position: absolute;
+  top: 50%;
+  height: 5px;
+  margin-top: -2.5px;
+  border-radius: var(--r-full);
+  background: var(--primary);
+  transform: scaleY(1);
+  transform-origin: center;
+  pointer-events: none;
+  transition: transform var(--t-fast) var(--ease-out);
+}
+
+.seek__live-edge {
+  position: absolute;
+  top: 50%;
+  right: 0;
+  width: 3px;
+  height: 12px;
+  margin-top: -6px;
+  border-radius: var(--r-full);
+  background: #ff3b30;
+  transform: scaleY(0.6);
+  transform-origin: center;
+  pointer-events: none;
+  transition: transform var(--t-fast) var(--ease-out);
+}
+
+.seek:hover .seek__live-ahead,
+.seek--scrubbing .seek__live-ahead {
+  transform: scaleY(1.6);
+}
+
+.seek:hover .seek__live-edge,
+.seek--scrubbing .seek__live-edge {
+  transform: scaleY(1);
+}
+
 .seek__sponsor {
   border-radius: var(--r-full);
   opacity: 0.85;
@@ -4045,6 +4214,11 @@ button.list-row__channel-name:hover {
   color: var(--on-surface);
   font-variant-numeric: tabular-nums;
   letter-spacing: 0.02em;
+}
+
+/* Live hover: a negative offset from the edge, so it gets the live accent. */
+.seek__tooltip-time--live {
+  color: #ff6b63;
 }
 
 .seek__tooltip-chapter {
@@ -4300,7 +4474,7 @@ button.list-row__channel-name:hover {
 /* ---- Player settings sheet (portalled, adaptively positioned) ---- */
 .sheet {
   width: min(388px, calc(100vw - 24px));
-  padding: 8px 8px 12px;
+  padding: 16px 10px 14px;
   border-radius: var(--r-lg);
   background: color-mix(in srgb, var(--surface-3) 94%, transparent);
   backdrop-filter: blur(18px) saturate(1.3);
@@ -4311,7 +4485,7 @@ button.list-row__channel-name:hover {
 }
 
 .sheet__title {
-  padding: 0 14px 8px;
+  padding: 2px 14px 12px;
   font-size: 12px;
   font-weight: 800;
   text-transform: uppercase;
@@ -4328,7 +4502,7 @@ button.list-row__channel-name:hover {
   transition: background var(--t-fast) var(--ease-out);
 }
 
-.sheet__row:hover {
+.sheet__row:not(.sheet__row--stack):hover {
   background: var(--surface-4);
 }
 
@@ -4340,6 +4514,11 @@ button.list-row__channel-name:hover {
   flex-direction: column;
   align-items: stretch;
   gap: 10px;
+  background: transparent;
+}
+
+.sheet__row--stack:hover {
+  background: transparent;
 }
 
 .sheet__row-head {
@@ -4374,11 +4553,22 @@ button.list-row__channel-name:hover {
   flex: 1;
 }
 
+.sheet .slider::-webkit-slider-runnable-track {
+  height: 8px;
+  border-radius: var(--r-full);
+  background: linear-gradient(
+    to right,
+    var(--primary) var(--p, 0%),
+    color-mix(in srgb, var(--on-surface) 18%, transparent) var(--p, 0%)
+  );
+  box-shadow: inset 0 1px 2px rgb(0 0 0 / 0.25);
+}
+
 .speed-chips {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 6px;
-  padding: 2px 14px 8px;
+  padding: 2px 0 6px;
 }
 
 .speed-chips__chip {
@@ -4418,21 +4608,202 @@ button.list-row__channel-name:hover {
   color: var(--on-primary);
 }
 
-/* Shaka renders captions into the video container; lift them above our
-   custom control bar so subtitles never sit underneath the progress bar.
-   The bottom margin adjusts dynamically via --subtitles-bottom. */
+/* ---- Subtitles ---- */
+/* Shaka's UITextDisplayer appends this container to the player root, so it is
+   positioned (and restyled) entirely from here. `--subtitles-bottom` tracks the
+   control overlay's height and grows while the seek bar and buttons are on
+   screen, which is what keeps captions clear of them. */
 .player .shaka-text-container {
-  position: absolute;
-  top: 8px !important;
-  bottom: var(--subtitles-bottom, 118px) !important;
+  position: absolute !important;
+  top: 5% !important;
+  bottom: var(--subtitles-bottom, 12px) !important;
   left: 0 !important;
   right: 0 !important;
+  font-size: var(--subtitle-font-size, 20px) !important;
+  font-weight: 600;
+  line-height: 1.35;
+  padding: 0 4% !important;
   pointer-events: none !important;
+  overflow: hidden !important;
   transition: bottom var(--t-med) var(--ease-out);
+  z-index: 4;
 }
 
 .player .shaka-text-container * {
   pointer-events: none !important;
+}
+
+/* Every Shaka cue is wrapped in a full-viewport region element that is
+   absolutely positioned inside the container. Left alone it offsets the text
+   away from the bottom edge, so it is flattened into a plain pass-through: the
+   container's own bottom offset stays the single source of truth. */
+.player .shaka-text-container .shaka-text-region {
+  position: static !important;
+  top: auto !important;
+  right: auto !important;
+  bottom: auto !important;
+  left: auto !important;
+  width: auto !important;
+  height: 100% !important;
+  padding: 0 !important;
+  margin: 0 !important;
+}
+
+/* Cue roots and the text leaf inside them both carry inline styles written by
+   Shaka (its own colour, text shadow, font weight), so the user preference has
+   to win with !important. */
+.player .shaka-text-container :is(div, span) {
+  color: var(--subtitle-color, #fff) !important;
+  text-shadow: var(--subtitle-shadow, 0 2px 4px rgb(0 0 0 / 0.9)) !important;
+  font-weight: 600 !important;
+  line-height: 1.35 !important;
+}
+
+/* Only the element that actually holds the text gets the background box —
+   `:not(:has(> *))` skips the cue wrappers, which would otherwise paint a
+   full-size box behind the whole caption area. */
+.player .shaka-text-container :is(div, span):not(:has(> *)) {
+  background: var(--subtitle-background, transparent) !important;
+  border-radius: 0.28em !important;
+  padding: 0.12em 0.3em !important;
+  margin: 0.1em 0 !important;
+}
+
+/* Shared by the player captions menu and the settings page. Every option is a
+   small uppercase label above a full-width control — the same shape the
+   playback sheet uses for its speed row, so the block reads as part of the app
+   in a wide settings section and inside a 240px popover alike. */
+.subtitle-style {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  width: 100%;
+}
+
+.subtitle-style__field {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+
+.subtitle-style__head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  min-width: 0;
+}
+
+/* Matches the popover section heading, so the fields read as part of the menu. */
+.subtitle-style__label {
+  color: var(--on-surface-variant);
+  font-size: 11.5px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+/* Colour swatches fill the row and only wrap when the next one would not fit,
+   so the settings page gets the whole palette on one line. */
+.subtitle-style__swatches {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+/* A popover places this block straight under a section heading, so pad it to
+   the same 12px the menu items and headings use — otherwise every control here
+   sits 12px to the left of the text above it. */
+.menu .subtitle-style {
+  padding: 6px 12px 4px;
+}
+
+/* The popover is a shrink-to-fit box, so an uncapped palette would dictate its
+   width and stretch it until all eight colours sat on one line. Capping the row
+   just under the width a fifth swatch needs (5 × 28 + 4 × 8 = 172px) keeps the
+   palette a tidy 4 + 4 block and leaves the panel sized by its track list. */
+.menu .subtitle-style__swatches {
+  max-width: 168px;
+  justify-content: space-between;
+}
+
+/* The shared slider floor is 220px, wider than a popover, which clipped the
+   track and the value box. These controls may shrink; the value box keeps its
+   size and the track gives up the difference. */
+.subtitle-style .slider-field {
+  min-width: 0;
+}
+
+/* The three background modes are exclusive, so they share a row evenly and
+   reuse the speed-preset chips for their look. Capped to the swatch row's
+   width so the two lines end together — without it a wide settings column
+   stretches each chip to a third of the window. */
+.subtitle-style__options {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 6px;
+  max-width: 280px;
+}
+
+/* Shaped like the app's other square controls (`.menu__item` uses the same
+   radius) rather than a colour dot, so it reads as a button you can press. */
+.subtitle-swatch {
+  flex: none;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border-radius: var(--r-xs);
+  box-shadow: inset 0 0 0 1px rgb(255 255 255 / 0.22);
+  transition: transform var(--t-fast) var(--ease-spring),
+    box-shadow var(--t-fast) var(--ease-out);
+}
+
+.subtitle-swatch:hover {
+  transform: scale(1.08);
+}
+
+.subtitle-swatch:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+}
+
+.subtitle-swatch--active {
+  box-shadow:
+    inset 0 0 0 1px rgb(255 255 255 / 0.22),
+    0 0 0 2px var(--primary);
+}
+
+/* Live sample of the current caption style, styled from the same custom
+   properties the player uses. Centred in the settings column so the sample reads
+   as a preview rather than a full-width banner. */
+.subtitle-preview {
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  min-height: 84px;
+  width: 100%;
+  max-width: 520px;
+  /* Auto margins would otherwise drop the stretch and collapse the box to the
+     width of its own caption, so keep the width explicit and centre it. */
+  margin-inline: auto;
+  padding: 12px 16px;
+  border-radius: var(--r-md);
+  background: radial-gradient(120% 140% at 50% 0%, #3a3f4b 0%, #14161b 100%);
+  box-shadow: inset 0 0 0 1px rgb(255 255 255 / 0.06);
+  overflow: hidden;
+}
+
+.subtitle-preview > span {
+  padding: 0.12em 0.3em;
+  border-radius: 0.28em;
+  background: var(--subtitle-background, transparent);
+  color: var(--subtitle-color, #fff);
+  font-size: var(--subtitle-font-size, 20px);
+  font-weight: 600;
+  line-height: 1.35;
+  text-align: center;
+  text-shadow: var(--subtitle-shadow, 0 2px 4px rgb(0 0 0 / 0.9));
 }
 
 /* ---- Toasts ---- */
@@ -5318,7 +5689,16 @@ button.list-row__channel-name:hover {
 }
 
 /* ---- Responsive (Mobile-First Material 3 Expressive Architecture) ---- */
-@media (max-width: 1280px) {
+/*
+ * Between 1080px and 1280px the sidebar narrows but the columns still sit side
+ * by side. The explicit lower bound matters: as a plain `max-width` query this
+ * block also matched *below* 1080px, where its `.watch:not(.watch--solo)`
+ * (specificity 0-2-0) outranked the plain `.watch` (0-1-0) in the stacking
+ * block below — so the watch page never actually stacked, and squeezed the
+ * video into a ~335px column beside the playlist instead. Disjoint ranges
+ * settle it on order rather than on specificity.
+ */
+@media (min-width: 1081px) and (max-width: 1280px) {
   .watch:not(.watch--solo) {
     grid-template-columns: minmax(0, 1fr) 340px;
     gap: 20px;
@@ -5326,22 +5706,12 @@ button.list-row__channel-name:hover {
 }
 
 @media (max-width: 1080px) {
-  .content:has(.watch) {
-    overflow-y: auto;
-    padding-bottom: 48px;
-  }
   .watch {
     grid-template-columns: minmax(0, 1fr);
-    height: auto;
-    max-height: none;
-    overflow: visible;
-  }
-  .watch__main {
-    height: auto;
-    overflow: visible;
-    padding-right: 0;
+    gap: 20px;
   }
   .watch__side {
+    position: static;
     height: 480px;
     max-height: 480px;
   }
@@ -5349,27 +5719,7 @@ button.list-row__channel-name:hover {
 
 @media (max-width: 960px) {
   :root {
-    --sidebar-w: 78px;
     --content-pad: 20px;
-  }
-  .nav-item {
-    flex-direction: column;
-    justify-content: center;
-    gap: 4px;
-    height: 60px;
-    padding: 0;
-    font-size: 11px;
-    border-radius: var(--r-md);
-  }
-  .sidebar__brand-text,
-  .sidebar__title,
-  .sidebar__footer {
-    display: none;
-  }
-  .sidebar__brand {
-    justify-content: center;
-    padding: 8px 0 18px;
-    gap: 0;
   }
   .video-grid {
     grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
@@ -5381,6 +5731,62 @@ button.list-row__channel-name:hover {
   .ytpl-header img,
   .ytpl-header__thumb--fallback {
     width: 100%;
+  }
+}
+
+/* Tablet viewports (769px–960px): automatic responsive collapse to the identical minimal icon rail */
+@media (min-width: 769px) and (max-width: 960px) {
+  .app {
+    --sidebar-w: var(--sidebar-collapsed-w);
+  }
+
+  .sidebar {
+    padding: 10px 8px;
+    align-items: center;
+  }
+
+  .sidebar__brand {
+    width: 100%;
+    justify-content: center;
+    padding: 6px 0 16px;
+    gap: 0;
+  }
+
+  .sidebar__brand-text,
+  .sidebar__title,
+  .sidebar__footer,
+  .nav-item__label {
+    display: none;
+  }
+
+  .sidebar__nav {
+    width: 100%;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+  }
+
+  .sidebar__nav > li {
+    display: flex;
+    justify-content: center;
+    width: 100%;
+  }
+
+  .nav-item {
+    justify-content: center;
+    width: 52px;
+    height: 48px;
+    padding: 0;
+    gap: 0;
+    border-radius: var(--r-md);
+  }
+
+  .nav-item:hover {
+    transform: scale(1.05);
+  }
+
+  .nav-item:active {
+    transform: scale(0.96);
   }
 }
 

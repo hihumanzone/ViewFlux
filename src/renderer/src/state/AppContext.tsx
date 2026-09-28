@@ -59,6 +59,8 @@ interface AppContextValue {
   clearSearchHistory: () => Promise<void>
   /** Returns 0-1 playback progress for a video, or 0 if unplayed / completed */
   getHistoryProgress: (videoId: string, fallbackDuration?: number | null) => number
+  /** Returns the full HistoryEntry if watched, otherwise undefined. Fast O(1) lookup. */
+  getHistoryEntry: (videoId: string) => HistoryEntry | undefined
   /** True when this channel is bookmarked in saved channels. */
   isChannelSaved: (channelId: string) => boolean
   /** Bookmarks a real YouTube playlist so it shows up in the app's playlists. */
@@ -268,8 +270,9 @@ export function AppProvider({ children }: { children: ReactNode }): React.JSX.El
     [refreshPlaylists, toast]
   )
 
-  // Fast O(1) lookup map for video watch history
-  const historyMap = useMemo(() => {
+  // Fast O(1) lookup map for video watch history, kept referentially stable
+  const historyMapRef = useRef<Map<string, HistoryEntry>>(new Map())
+  historyMapRef.current = useMemo(() => {
     const map = new Map<string, HistoryEntry>()
     for (const h of history) {
       map.set(h.videoId, h)
@@ -279,36 +282,43 @@ export function AppProvider({ children }: { children: ReactNode }): React.JSX.El
 
   const getHistoryProgress = useCallback(
     (videoId: string, fallbackDuration?: number | null): number => {
-      const match = historyMap.get(videoId)
+      const match = historyMapRef.current.get(videoId)
       if (!match || match.position <= 0) return 0
       const duration = match.duration || fallbackDuration
       if (!duration || duration <= 0) return 0
       return Math.min(1, Math.max(0, match.position / duration))
     },
-    [historyMap]
+    []
   )
 
-  // Fast O(1) set for saved channels
-  const savedChannelsSet = useMemo(
+  const getHistoryEntry = useCallback(
+    (videoId: string): HistoryEntry | undefined => historyMapRef.current.get(videoId),
+    []
+  )
+
+  // Fast O(1) set for saved channels, kept referentially stable
+  const savedChannelsSetRef = useRef<Set<string>>(new Set())
+  savedChannelsSetRef.current = useMemo(
     () => new Set(savedChannels.map((c) => c.channelId)),
     [savedChannels]
   )
 
   const isChannelSaved = useCallback(
-    (channelId: string): boolean => savedChannelsSet.has(channelId),
-    [savedChannelsSet]
+    (channelId: string): boolean => savedChannelsSetRef.current.has(channelId),
+    []
   )
 
-  // Fast O(1) set for saved YouTube playlists
-  const savedPlaylistsSet = useMemo(
+  // Fast O(1) set for saved YouTube playlists, kept referentially stable
+  const savedPlaylistsSetRef = useRef<Set<string>>(new Set())
+  savedPlaylistsSetRef.current = useMemo(
     () => new Set(playlists.map((p) => p.youtubeId).filter((id): id is string => Boolean(id))),
     [playlists]
   )
 
   /** Whether a YouTube playlist is already bookmarked, so buttons can flip to "Remove". */
   const isYoutubePlaylistSaved = useCallback(
-    (youtubeId: string): boolean => savedPlaylistsSet.has(youtubeId),
-    [savedPlaylistsSet]
+    (youtubeId: string): boolean => savedPlaylistsSetRef.current.has(youtubeId),
+    []
   )
 
   /** Undoes `saveYoutubePlaylist`, used by the "Remove from playlists" affordances. */
@@ -392,6 +402,7 @@ export function AppProvider({ children }: { children: ReactNode }): React.JSX.El
       removeSearch,
       clearSearchHistory,
       getHistoryProgress,
+      getHistoryEntry,
       isChannelSaved,
       saveYoutubePlaylist,
       saveYoutubePlaylistSummary,
@@ -425,6 +436,7 @@ export function AppProvider({ children }: { children: ReactNode }): React.JSX.El
       removeSearch,
       clearSearchHistory,
       getHistoryProgress,
+      getHistoryEntry,
       isChannelSaved,
       saveYoutubePlaylist,
       saveYoutubePlaylistSummary,

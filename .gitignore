@@ -5,6 +5,9 @@ release/
 # TypeScript incremental build caches
 *.tsbuildinfo
 
+# Throwaway visual-verification harness (see docs/preview-harness.md)
+.tmp-ui-preview/
+
 # OS / editor cruft
 .DS_Store
 Thumbs.db

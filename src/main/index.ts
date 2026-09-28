@@ -77,7 +77,11 @@ function createWindow(): void {
   if (devUrl) {
     void mainWindow.loadURL(devUrl)
   } else {
-    void mainWindow.loadFile(join(__dirname, '../renderer/index.html'))
+    const hash = process.env['INITIAL_HASH']
+    void mainWindow.loadFile(
+      join(__dirname, '../renderer/index.html'),
+      hash ? { hash } : undefined
+    )
   }
 }
 

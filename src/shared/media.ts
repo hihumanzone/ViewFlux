@@ -25,7 +25,11 @@ const AUDIO_ITAG_QUERY = new RegExp(`[?&]itag=(?:${ITAG_ALTERNATION})\\b`)
  * interchangeably depending on which CDN and container it picked.
  */
 export function isAudioItagUrl(href: string): boolean {
+  if (href.includes('/sgovp/') || href.includes('/govp/')) {
+    return false
+  }
   return (
+    href.includes('/goap/') ||
     href.includes('/sgoap/') ||
     AUDIO_ITAG_PATH.test(href) ||
     AUDIO_ITAG_QUERY.test(href)
@@ -34,6 +38,7 @@ export function isAudioItagUrl(href: string): boolean {
 
 /** The audio itag encoded in `href`, or `null` when it is not an audio rendition. */
 export function audioItagFromUrl(href: string): number | null {
+  if (href.includes('/sgovp/') || href.includes('/govp/')) return null
   const match =
     AUDIO_ITAG_PATH.exec(href) ?? AUDIO_ITAG_QUERY.exec(href)
   if (!match) return null

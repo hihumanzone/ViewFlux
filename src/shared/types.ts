@@ -3,6 +3,8 @@
  * Everything that crosses the IPC boundary is a plain, structured-cloneable object.
  */
 
+import { DEFAULT_SUBTITLE_STYLE, type SubtitleStyle } from './subtitles'
+
 export interface Thumb {
   url: string
   width: number
@@ -273,6 +275,8 @@ export interface Settings {
   preferredQuality: 'auto' | 'max' | '2160' | '1440' | '1080' | '720' | '480' | '360'
   preferredSpeed: number
   alwaysShowCaptions: boolean
+  /** Caption size, colour and background. */
+  subtitleStyle: SubtitleStyle
   /** Keep audio pitch when changing playback speed. */
   preservePitch: boolean
   /** Auto-skip silent parts (experimental). */
@@ -366,6 +370,7 @@ export const DEFAULT_SETTINGS: Settings = {
   preferredQuality: 'auto',
   preferredSpeed: 1,
   alwaysShowCaptions: false,
+  subtitleStyle: DEFAULT_SUBTITLE_STYLE,
   preservePitch: true,
   skipSilence: false,
   accent: 'purple',

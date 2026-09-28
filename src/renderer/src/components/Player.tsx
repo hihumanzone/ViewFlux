@@ -17,14 +17,25 @@ import { usePlayerAudioGraph } from './player/usePlayerAudioGraph'
 import { useShakaPlayer } from './player/useShakaPlayer'
 import { usePlayerHotkeys } from './player/usePlayerHotkeys'
 import type {
+  Chapter,
   MenuKind,
   OsdState,
   PlayerHandle,
   PlayerProps
 } from './player/types'
 import type { SponsorSegment } from '../../../shared/types'
+import { DEFAULT_SUBTITLE_STYLE, subtitleCssVars } from '../../../shared/subtitles'
 
 export type { PlayerHandle, PlayerProps }
+
+/** Stable empty collections so live mode never re-renders downstream children. */
+const EMPTY_CHAPTERS: Chapter[] = []
+const EMPTY_SEGMENTS: SponsorSegment[] = []
+
+/** Breathing room between the top of the control overlay and the captions. */
+const SUBTITLE_CLEARANCE = 12
+/** Resting gap between the bottom of the stage and the captions when controls hide. */
+const SUBTITLE_RESTING_GAP = 12
 
 export const Player = forwardRef<PlayerHandle, PlayerProps>(function Player(
   props,
@@ -33,6 +44,7 @@ export const Player = forwardRef<PlayerHandle, PlayerProps>(function Player(
   const {
     videoId,
     manifestUrl,
+    isLive,
     captions,
     poster,
     startPosition,
@@ -41,6 +53,7 @@ export const Player = forwardRef<PlayerHandle, PlayerProps>(function Player(
     autoSkip,
     sponsorBlockEnabled,
     alwaysShowCaptions,
+    subtitleStyle = DEFAULT_SUBTITLE_STYLE,
     initialVolume,
     initialSpeed = 1,
     preferredQuality,
@@ -49,7 +62,8 @@ export const Player = forwardRef<PlayerHandle, PlayerProps>(function Player(
     defaultAudioLanguage,
     chapters = [],
     onPitchChange,
-    onSkipSilenceChange
+    onSkipSilenceChange,
+    onSubtitleStyleChange
   } = props
 
   const safeInitialSpeed =
@@ -79,7 +93,11 @@ export const Player = forwardRef<PlayerHandle, PlayerProps>(function Player(
   const [menuAnchor, setMenuAnchor] = useState<HTMLElement | null>(null)
   const [fullscreen, setFullscreen] = useState(false)
   const [posterVisible, setPosterVisible] = useState(true)
-  const [subtitlesBottom, setSubtitlesBottom] = useState(118)
+  /** Measured heights of the stage and the control overlay, see the effect below. */
+  const [{ controls: controlsHeight, stage: stageHeight }, setStageMetrics] = useState({
+    controls: 0,
+    stage: 0
+  })
   const [osd, setOsd] = useState<OsdState | null>(null)
   const osdTimerRef = useRef<number | null>(null)
 
@@ -105,38 +123,49 @@ export const Player = forwardRef<PlayerHandle, PlayerProps>(function Player(
     }
   }, [])
 
-  // Audio Graph Hook (Gain 0-300%, DynamicsCompressor, SilenceSkipper)
-  const audioGraph = usePlayerAudioGraph({
-    videoRef,
-    initialVolume,
-    initialSpeed: safeInitialSpeed,
-    preservePitch,
-    skipSilence,
-    playing: false, // updated below
-    status: 'loading', // updated below
-    onPitchChange,
-    onSkipSilenceChange,
-    onOsd: showOsd
-  })
-
   // Shaka Player Hook (DASH, Variant tracks, Audio tracks, Captions, Watchdog)
   const shaka = useShakaPlayer({
     videoRef,
+    containerRef,
     videoId,
     manifestUrl,
+    isLive,
     startPosition,
     autoplay,
     preferredQuality,
     alwaysShowCaptions,
     defaultAudioLanguage,
     captions,
-    initialVolume: audioGraph.volume,
+    initialVolume: initialVolume ?? 1,
     safeInitialSpeed,
     preservePitch,
     scrubbingRef,
     onTimeUpdate: props.onTimeUpdate,
     onEnded: props.onEnded,
     maybeSkip,
+    onOsd: showOsd
+  })
+
+  // Shaka's own `isLive()` is authoritative once the manifest is parsed; the
+  // `isLive` prop is only a parse-time configuration hint. Everything below is
+  // keyed off the runtime value so a mislabelled hint cannot produce a VOD UI
+  // on a live stream (or vice versa).
+  const liveStream = shaka.status === 'ready' ? shaka.live : Boolean(isLive || shaka.live)
+  const visibleChapters = liveStream ? EMPTY_CHAPTERS : chapters
+  const visibleSegments = liveStream ? EMPTY_SEGMENTS : segments
+
+  // Audio Graph Hook (Gain 0-300%, DynamicsCompressor, SilenceSkipper)
+  const audioGraph = usePlayerAudioGraph({
+    videoRef,
+    isLive: liveStream,
+    initialVolume,
+    initialSpeed: safeInitialSpeed,
+    preservePitch,
+    skipSilence: liveStream ? false : skipSilence,
+    playing: shaka.playing,
+    status: shaka.status,
+    onPitchChange,
+    onSkipSilenceChange,
     onOsd: showOsd
   })
 
@@ -173,45 +202,102 @@ export const Player = forwardRef<PlayerHandle, PlayerProps>(function Player(
     }
   }, [showOsd])
 
-  // Controls auto-hide
+  const menuRef = useRef<MenuKind | null>(menu)
+  menuRef.current = menu
+
+  // Controls auto-hide: while any menu is open, the overlay must stay visible and not auto-hide
   const revealControls = useCallback((): void => {
     setControlsVisible(true)
-    if (hideTimerRef.current != null) window.clearTimeout(hideTimerRef.current)
-    if (shaka.playing && !menu) {
-      hideTimerRef.current = window.setTimeout(() => setControlsVisible(false), 2600)
+    if (hideTimerRef.current != null) {
+      window.clearTimeout(hideTimerRef.current)
+      hideTimerRef.current = null
+    }
+    if (shaka.playing && menu === null) {
+      hideTimerRef.current = window.setTimeout(() => {
+        setControlsVisible(false)
+        hideTimerRef.current = null
+      }, 2600)
     }
   }, [shaka.playing, menu])
 
+  const onScrubStart = useCallback(() => {
+    scrubbingRef.current = true
+    if (hideTimerRef.current != null) {
+      window.clearTimeout(hideTimerRef.current)
+      hideTimerRef.current = null
+    }
+    setControlsVisible(true)
+  }, [])
+
+  const onScrubEnd = useCallback(() => {
+    scrubbingRef.current = false
+    revealControls()
+  }, [revealControls])
+
   useEffect(() => {
-    if (!shaka.playing) {
+    if (hideTimerRef.current != null) {
+      window.clearTimeout(hideTimerRef.current)
+      hideTimerRef.current = null
+    }
+
+    if (!shaka.playing || menu !== null) {
       setControlsVisible(true)
-      if (hideTimerRef.current != null) window.clearTimeout(hideTimerRef.current)
-    } else if (!menu) {
-      hideTimerRef.current = window.setTimeout(() => setControlsVisible(false), 2600)
+      return
+    }
+
+    hideTimerRef.current = window.setTimeout(() => {
+      setControlsVisible(false)
+      hideTimerRef.current = null
+    }, 2600)
+
+    return () => {
+      if (hideTimerRef.current != null) {
+        window.clearTimeout(hideTimerRef.current)
+        hideTimerRef.current = null
+      }
     }
   }, [shaka.playing, menu])
 
   // Subtitle positioning relative to controls
   useEffect(() => {
+    const container = containerRef.current
     const overlay = overlayRef.current
-    if (!overlay) return
+    if (!container || !overlay) return
     const update = (): void => {
-      const h = overlay.getBoundingClientRect().height
-      setSubtitlesBottom(Math.max(72, Math.round(h + 20)))
+      // The overlay's top padding is only the gradient fade, not content, so
+      // captions clear the seek bar and buttons instead of the whole box.
+      const style = getComputedStyle(overlay)
+      const padTop = Number.parseFloat(style.paddingTop) || 0
+      setStageMetrics({
+        controls: Math.max(0, Math.round(overlay.getBoundingClientRect().height - padTop)),
+        stage: Math.round(container.getBoundingClientRect().height)
+      })
     }
     update()
+    // The stage changes size on window resize and on fullscreen toggles, the
+    // overlay changes height when a menu opens or captions are enabled.
     const observer = new ResizeObserver(update)
+    observer.observe(container)
     observer.observe(overlay)
     return () => observer.disconnect()
-  }, [])
+    // The overlay only exists once the player is ready, so this has to re-run
+    // when the status flips or the observer would never attach.
+  }, [containerRef, overlayRef, shaka.status])
 
   // Hide poster once video advances
   useEffect(() => {
-    if (shaka.currentTime > 0.1) setPosterVisible(false)
-  }, [shaka.currentTime])
+    if (posterVisible && shaka.currentTime > 0.1) setPosterVisible(false)
+  }, [posterVisible, shaka.currentTime])
 
   // Chapter navigation
   const seekToPreviousChapter = useCallback(() => {
+    // A live stream has no chapter markers and its presentation timeline is a
+    // sliding DVR window, so "previous" means "back to the start of the window
+    // we can still seek into" — the same affordance the DVR scrubber gives.
+    if (shaka.live) {
+      if (shaka.liveWindow) shaka.seekTo(shaka.liveWindow.start)
+      return
+    }
     if (chapters.length === 0) {
       shaka.seekTo(0)
       return
@@ -235,6 +321,11 @@ export const Player = forwardRef<PlayerHandle, PlayerProps>(function Player(
   }, [chapters, shaka, showOsd])
 
   const seekToNextChapter = useCallback(() => {
+    // Symmetrically, "next" for a live stream is "catch up to the live edge".
+    if (shaka.live) {
+      shaka.goToLive()
+      return
+    }
     if (chapters.length === 0) return
     const current = chapters.find(
       (c) => shaka.currentTime >= c.start && shaka.currentTime < c.end
@@ -272,6 +363,19 @@ export const Player = forwardRef<PlayerHandle, PlayerProps>(function Player(
 
   // Media Session (SMTC)
   const media = props.mediaSession
+  const mediaHandlers = useMemo(
+    () => ({
+      play: () => videoRef.current?.play().catch(() => undefined),
+      pause: () => videoRef.current?.pause(),
+      seekBackward: (seconds: number) => shaka.seekBy(-seconds),
+      seekForward: (seconds: number) => shaka.seekBy(seconds),
+      seekTo: (time: number) => shaka.seekTo(time),
+      previous: media?.onPreviousTrack ?? seekToPreviousChapter,
+      next: media?.onNextTrack ?? seekToNextChapter
+    }),
+    [shaka.seekBy, shaka.seekTo, media?.onPreviousTrack, media?.onNextTrack, seekToPreviousChapter, seekToNextChapter]
+  )
+
   useMediaSession(
     {
       title: media?.title ?? props.videoId,
@@ -283,15 +387,30 @@ export const Player = forwardRef<PlayerHandle, PlayerProps>(function Player(
       duration: shaka.duration,
       active: Boolean(media) && shaka.status === 'ready'
     },
-    {
-      play: () => videoRef.current?.play().catch(() => undefined),
-      pause: () => videoRef.current?.pause(),
-      seekBackward: (seconds) => shaka.seekBy(-seconds),
-      seekForward: (seconds) => shaka.seekBy(seconds),
-      seekTo: (time) => shaka.seekTo(time),
-      previous: media?.onPreviousTrack ?? seekToPreviousChapter,
-      next: media?.onNextTrack ?? seekToNextChapter
-    }
+    mediaHandlers
+  )
+
+  // Menus
+  const closeMenu = useCallback((): void => {
+    setMenu(null)
+    setMenuAnchor(null)
+  }, [])
+
+  const toggleMenu = useCallback(
+    (kind: MenuKind, element: HTMLElement): void => {
+      if (hideTimerRef.current != null) {
+        window.clearTimeout(hideTimerRef.current)
+        hideTimerRef.current = null
+      }
+      setControlsVisible(true)
+      if (menu === kind) {
+        closeMenu()
+        return
+      }
+      setMenu(kind)
+      setMenuAnchor(element)
+    },
+    [menu, closeMenu]
   )
 
   // Hotkeys Hook
@@ -312,12 +431,16 @@ export const Player = forwardRef<PlayerHandle, PlayerProps>(function Player(
     onToggleCaptions: shaka.toggleCaptions,
     onTogglePip: togglePip,
     onStepSpeed: audioGraph.stepSpeed,
-    onCloseMenu: () => setMenu(null),
+    onCloseMenu: closeMenu,
     onRevealControls: revealControls
   })
 
   // Stage click/double click
   const onStageClick = useCallback((): void => {
+    if (menuRef.current !== null) {
+      closeMenu()
+      return
+    }
     if (clickTimerRef.current != null) {
       window.clearTimeout(clickTimerRef.current)
       clickTimerRef.current = null
@@ -327,7 +450,7 @@ export const Player = forwardRef<PlayerHandle, PlayerProps>(function Player(
       clickTimerRef.current = null
       shaka.togglePlay()
     }, 240)
-  }, [shaka])
+  }, [shaka, closeMenu])
 
   const onStageDoubleClick = useCallback((): void => {
     if (clickTimerRef.current != null) {
@@ -337,41 +460,68 @@ export const Player = forwardRef<PlayerHandle, PlayerProps>(function Player(
     toggleFullscreen()
   }, [toggleFullscreen])
 
-  // Menus
-  const closeMenu = useCallback((): void => {
-    setMenu(null)
-    setMenuAnchor(null)
-  }, [])
+  const isControlsVisible = controlsVisible || menu !== null
 
-  const toggleMenu = useCallback(
-    (kind: MenuKind, element: HTMLElement): void => {
-      if (menu === kind) {
-        closeMenu()
-        return
-      }
-      setMenu(kind)
-      setMenuAnchor(element)
-    },
-    [menu, closeMenu]
-  )
+  /**
+   * Captions are absolutely positioned inside the stage, so their bottom offset
+   * has to track the control overlay: it grows while the seek bar and buttons
+   * are on screen, which is exactly when it would otherwise cover the text.
+   */
+  const subtitleVars = useMemo<React.CSSProperties>(() => {
+    const resting = Math.max(SUBTITLE_RESTING_GAP, Math.round(stageHeight * 0.04))
+    const bottom = isControlsVisible
+      ? Math.max(resting, controlsHeight + SUBTITLE_CLEARANCE)
+      : resting
+    return {
+      '--subtitles-bottom': `${bottom}px`,
+      ...subtitleCssVars(subtitleStyle, stageHeight)
+    } as React.CSSProperties
+  }, [controlsHeight, isControlsVisible, stageHeight, subtitleStyle])
 
+  const activeChapterRef = useRef<Chapter | null>(null)
   const currentChapter = useMemo(() => {
-    if (!chapters || chapters.length === 0) return null
-    return (
-      chapters.find((c) => shaka.currentTime >= c.start && shaka.currentTime < c.end) ??
+    if (!chapters || chapters.length === 0 || !isControlsVisible) return null
+    const time = shaka.currentTime
+    const prev = activeChapterRef.current
+    if (prev && time >= prev.start && time < prev.end) {
+      return prev
+    }
+    const found =
+      chapters.find((c) => time >= c.start && time < c.end) ??
       chapters[chapters.length - 1] ??
       null
-    )
-  }, [chapters, shaka.currentTime])
+    activeChapterRef.current = found
+    return found
+  }, [chapters, shaka.currentTime, isControlsVisible])
+
+  const onSelectHeightMenu = useCallback((h: number) => {
+    shaka.selectHeight(h)
+    closeMenu()
+  }, [shaka.selectHeight, closeMenu])
+
+  const onSelectCaptionMenu = useCallback((id: number | null) => {
+    shaka.selectCaption(id)
+    closeMenu()
+  }, [shaka.selectCaption, closeMenu])
+
+  const onSelectAudioMenu = useCallback((code: string) => {
+    shaka.selectAudio(code)
+    closeMenu()
+  }, [shaka.selectAudio, closeMenu])
+
+  const onSelectAudioTierMenu = useCallback((tier: string | null) => {
+    shaka.selectAudioTier(tier)
+    closeMenu()
+  }, [shaka.selectAudioTier, closeMenu])
 
   return (
     <div
       ref={containerRef}
       className={`player${fullscreen ? ' player--fullscreen' : ''}`}
-      style={{ '--subtitles-bottom': `${subtitlesBottom}px` } as React.CSSProperties}
+      style={subtitleVars}
       onPointerMove={revealControls}
       onPointerLeave={() => {
-        if (shaka.playing && !menu) setControlsVisible(false)
+        if (shaka.playing && menu === null) setControlsVisible(false)
       }}
     >
       <video ref={videoRef} className="player__video" playsInline />
@@ -431,87 +581,87 @@ export const Player = forwardRef<PlayerHandle, PlayerProps>(function Player(
           <div
             ref={overlayRef}
             className={`player__overlay${
-              controlsVisible ? '' : ' player__overlay--hidden'
+              isControlsVisible ? '' : ' player__overlay--hidden'
             }`}
           >
             <SeekBar
               duration={shaka.duration}
-              currentTime={shaka.currentTime}
+              currentTime={isControlsVisible ? shaka.currentTime : 0}
               buffered={shaka.buffered}
-              chapters={chapters}
-              segments={segments}
+              chapters={visibleChapters}
+              segments={visibleSegments}
+              live={
+                liveStream && shaka.liveWindow
+                  ? {
+                      ...shaka.liveWindow,
+                      behind: shaka.behindLive
+                    }
+                  : null
+              }
               onSeek={shaka.seekTo}
-              onScrubStart={() => {
-                scrubbingRef.current = true
-              }}
-              onScrubEnd={() => {
-                scrubbingRef.current = false
-                revealControls()
-              }}
+              onScrubStart={onScrubStart}
+              onScrubEnd={onScrubEnd}
             />
 
             <PlayerControls
               playing={shaka.playing}
               muted={audioGraph.muted}
               volume={audioGraph.volume}
-              displayTime={shaka.currentTime}
+              displayTime={isControlsVisible ? shaka.currentTime : 0}
               duration={shaka.duration}
-              hasChapters={Boolean(chapters && chapters.length > 0)}
+              isLive={liveStream}
+              behindLive={shaka.behindLive}
+              hasChapters={visibleChapters.length > 0}
               currentChapter={currentChapter}
               textTracks={shaka.textTracks}
               textVisible={shaka.textVisible}
               audioTracks={shaka.audioTracks}
-              skipSilence={skipSilence}
+              skipSilence={liveStream ? false : skipSilence}
               fullscreen={fullscreen}
+              activeMenu={menu}
               onTogglePlay={shaka.togglePlay}
               onToggleMute={audioGraph.toggleMute}
               onChangeVolume={audioGraph.changeVolume}
               onToggleMenu={toggleMenu}
               onTogglePip={togglePip}
               onToggleFullscreen={toggleFullscreen}
+              onGoToLive={shaka.goToLive}
             />
           </div>
 
-          {/* Popover Menus & Sheets */}
-          <PlayerMenus
-            menu={menu}
-            menuAnchor={menuAnchor}
-            onClose={closeMenu}
-            rate={audioGraph.rate}
-            onChangeRate={audioGraph.changeRate}
-            preservePitch={preservePitch}
-            onTogglePitch={audioGraph.togglePitch}
-            skipSilence={skipSilence}
-            onToggleSkipSilence={audioGraph.toggleSkipSilence}
-            levelHeights={shaka.levelHeights}
-            selectedHeight={shaka.selectedHeight}
-            selectedAudioTier={shaka.selectedAudioTier}
-            onSelectStream={shaka.selectStream}
-            onSelectHeight={(h) => {
-              shaka.selectHeight(h)
-              closeMenu()
-            }}
-            textTracks={shaka.textTracks}
-            textVisible={shaka.textVisible}
-            activeTextId={shaka.activeTextId}
-            onSelectCaption={(id) => {
-              shaka.selectCaption(id)
-              closeMenu()
-            }}
-            audioTracks={shaka.audioTracks}
-            audioLanguages={shaka.audioLanguages}
-            selectedAudioLang={shaka.selectedAudioLang}
-            audioTiers={shaka.audioTiers}
-            isOriginalLanguage={shaka.isOriginalLanguage}
-            onSelectAudio={(code) => {
-              shaka.selectAudio(code)
-              closeMenu()
-            }}
-            onSelectAudioTier={(tier) => {
-              shaka.selectAudioTier(tier)
-              closeMenu()
-            }}
-          />
+          {/* Popover Menus & Sheets - only mounted when actively opened */}
+          {menu !== null && (
+            <PlayerMenus
+              menu={menu}
+              menuAnchor={menuAnchor}
+              onClose={closeMenu}
+              isLive={liveStream}
+              rate={audioGraph.rate}
+              onChangeRate={audioGraph.changeRate}
+              preservePitch={preservePitch}
+              onTogglePitch={audioGraph.togglePitch}
+              skipSilence={liveStream ? false : skipSilence}
+              onToggleSkipSilence={audioGraph.toggleSkipSilence}
+              levelHeights={shaka.levelHeights}
+              selectedHeight={shaka.selectedHeight}
+              selectedAudioTier={shaka.selectedAudioTier}
+              onSelectStream={shaka.selectStream}
+              onSelectHeight={onSelectHeightMenu}
+              textTracks={shaka.textTracks}
+              textVisible={shaka.textVisible}
+              activeTextId={shaka.activeTextId}
+              onSelectCaption={onSelectCaptionMenu}
+              subtitleStyle={subtitleStyle}
+              onSubtitleStyleChange={onSubtitleStyleChange}
+              audioTracks={shaka.audioTracks}
+              audioLanguages={shaka.audioLanguages}
+              selectedAudioLang={shaka.selectedAudioLang}
+              audioTiers={shaka.audioTiers}
+              isOriginalLanguage={shaka.isOriginalLanguage}
+              onSelectAudio={onSelectAudioMenu}
+              onSelectAudioTier={onSelectAudioTierMenu}
+            />
+          )}
         </>
       )}
     </div>

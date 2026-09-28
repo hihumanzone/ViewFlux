@@ -1,9 +1,11 @@
 import { Icon } from '../components/Icons'
 import { SelectField } from '../components/SelectField'
 import { SliderField } from '../components/SliderField'
+import { SubtitleStyleControls } from '../components/SubtitleStyleControls'
 import { useApp } from '../state/AppContext'
 import { Switch } from '../components/Switch'
 import { ACCENTS, SPONSOR_CATEGORIES, type Settings } from '../../../shared/types'
+import { DEFAULT_SUBTITLE_STYLE } from '../../../shared/subtitles'
 import { PLAYBACK_SPEEDS as SPEEDS } from '../../../shared/media'
 import { APP_VERSION_LABEL } from '../../../shared/appInfo'
 import { formatExact } from '../lib/format'
@@ -167,13 +169,38 @@ export function SettingsPage(): React.JSX.Element {
               onClick={() => update({ skipSilence: !settings.skipSilence })}
             />
           </Row>
-          <Row label="Always show subtitles" hint="Turn on the first available caption track by default.">
+        </section>
+
+        <section className="settings-section">
+          <div className="settings-section__heading">
+            <Icon name="captions" size={18} />
+            Subtitles
+          </div>
+          <Row
+            label="Always show subtitles"
+            hint="Turn on the first available caption track by default."
+          >
             <Switch
               on={settings.alwaysShowCaptions}
               label="Always show subtitles"
               onClick={() => update({ alwaysShowCaptions: !settings.alwaysShowCaptions })}
             />
           </Row>
+          <div className="setting setting--column">
+            <div className="setting__text">
+              <div className="setting__label">Caption appearance</div>
+              <div className="setting__hint">
+                Size is a percentage of the automatic size, which itself scales with the video.
+                Also editable from the player's subtitle menu.
+              </div>
+            </div>
+            <SubtitleStyleControls
+              style={settings.subtitleStyle ?? DEFAULT_SUBTITLE_STYLE}
+              previewHeight={620}
+              onChange={(subtitleStyle) => updateQuietly({ subtitleStyle })}
+              onCommit={() => toast('Settings saved')}
+            />
+          </div>
         </section>
 
         <section className="settings-section">

@@ -8,6 +8,7 @@ import { useApp } from '../state/AppContext'
 import { formatCount, formatTime } from '../lib/format'
 import { toPlaylistVideo } from '../lib/map'
 import { useCopyLink, videoUrl } from '../lib/copyLink'
+import { scrollPageToTop } from '../lib/scroll'
 import { useAsync } from '../lib/useAsync'
 import { useBrokenImage } from '../lib/useBrokenImage'
 import { readStoredWithLegacy, writeStored } from '../lib/storage'
@@ -54,7 +55,7 @@ function renderDescriptionWithTimestamps(
         onClick={(e) => {
           e.stopPropagation()
           onSeek(seconds)
-          window.scrollTo({ top: 0, behavior: 'smooth' })
+          scrollPageToTop()
         }}
         title={`Jump to ${rawTime}`}
       >
@@ -78,7 +79,7 @@ export function WatchPage({
   videoId: string
   listId: string | null
 }): React.JSX.Element {
-  const { history, settings, playlists, refreshHistory, saveSettings, toast } = useApp()
+  const { settings, playlists, refreshHistory, saveSettings, toast, getHistoryProgress } = useApp()
   const playerRef = useRef<PlayerHandle>(null)
 
   // Memoised so the SponsorBlock request only refires when a category is
@@ -97,10 +98,15 @@ export function WatchPage({
     () => window.api.getVideo(videoId),
     [videoId]
   )
+  // A live broadcast's presentation timeline is a sliding DVR window, so the
+  // segments SponsorBlock reports for it (if any) refer to positions that are
+  // already gone. Skip the request entirely rather than render a skip overlay
+  // that can never fire.
+  const isLive = details?.isLive ?? false
   const { data: segments = NO_SEGMENTS } = useAsync<SponsorSegment[]>(
     () => window.api.getSponsorSegments(videoId, enabledCategories),
     [videoId, enabledCategories],
-    { enabled: enabledCategories.length > 0, keepPreviousData: true }
+    { enabled: enabledCategories.length > 0 && !isLive, keepPreviousData: true }
   )
   const { data: ryd = null } = useAsync<RydResult | null>(
     () => window.api.getDislikes(videoId),
@@ -283,8 +289,19 @@ export function WatchPage({
   const activeQueueItemRef = useRef<HTMLButtonElement>(null)
 
   useEffect(() => {
-    if (activeQueueItemRef.current) {
-      activeQueueItemRef.current.scrollIntoView({ block: 'nearest', behavior: 'smooth' })
+    // Keep the playing row inside the playlist pane. A bare `scrollIntoView`
+    // would also scroll every scrollable ancestor — the main column included —
+    // because a row in the right-hand pane sits outside its scrollport, so
+    // changing videos would yank the description out of view.
+    const item = activeQueueItemRef.current
+    const list = item?.closest<HTMLElement>('.queue')
+    if (!item || !list) return
+    const itemRect = item.getBoundingClientRect()
+    const listRect = list.getBoundingClientRect()
+    if (itemRect.top < listRect.top) {
+      list.scrollBy({ top: itemRect.top - listRect.top - 8, behavior: 'smooth' })
+    } else if (itemRect.bottom > listRect.bottom) {
+      list.scrollBy({ top: itemRect.bottom - listRect.bottom + 8, behavior: 'smooth' })
     }
   }, [queueIndex])
 
@@ -348,6 +365,36 @@ export function WatchPage({
 
   const copyLink = useCopyLink()
 
+  // The playlist list is the only scroller in the pane, so a wheel that lands
+  // on the pane's chrome — the header, the padding, the gaps between rows — has
+  // no scrollable ancestor of its own and would do nothing. Hand those deltas
+  // to the list so hovering anywhere in the pane scrolls it.
+  const onQueueWheel = useCallback((event: React.WheelEvent<HTMLElement>) => {
+    const list = event.currentTarget.querySelector<HTMLElement>('.queue')
+    if (!list || event.deltaY === 0) return
+    // Over the list itself the browser scrolls it natively — do not double up.
+    if (event.target === list || list.contains(event.target as Node)) return
+    const max = list.scrollHeight - list.clientHeight
+    const next = Math.min(max, Math.max(0, list.scrollTop + event.deltaY))
+    if (next === list.scrollTop) return
+    list.scrollTop = next
+  }, [])
+
+  const playerMediaSession = useMemo(
+    () =>
+      details
+        ? {
+            title: details.title,
+            artist: details.author,
+            album: queue?.name,
+            artwork: details.thumbnails[0]?.url,
+            onNextTrack: onMediaNext,
+            onPreviousTrack: onMediaPrevious
+          }
+        : undefined,
+    [details, queue?.name, onMediaNext, onMediaPrevious]
+  )
+
   if (loading) {
     return (
       <div className="page">
@@ -385,15 +432,17 @@ export function WatchPage({
               ref={playerRef}
               videoId={videoId}
               manifestUrl={details.manifestUrl}
+              isLive={details.isLive}
               poster={details.thumbnails[0]?.url}
               captions={details.captions}
               chapters={details.chapters}
-              startPosition={resume}
+              startPosition={details.isLive ? 0 : resume}
               autoplay
               segments={segments}
               autoSkip={settings.autoSkip}
               sponsorBlockEnabled={settings.sponsorBlockEnabled}
               alwaysShowCaptions={settings.alwaysShowCaptions}
+              subtitleStyle={settings.subtitleStyle}
               initialVolume={settings.defaultVolume}
               initialSpeed={settings.preferredSpeed}
               preferredQuality={settings.preferredQuality}
@@ -402,17 +451,11 @@ export function WatchPage({
               defaultAudioLanguage={details.defaultAudioLanguage ?? null}
               onPitchChange={(value) => updateSettings({ preservePitch: value })}
               onSkipSilenceChange={(value) => updateSettings({ skipSilence: value })}
+              onSubtitleStyleChange={(subtitleStyle) => updateSettings({ subtitleStyle })}
               onTimeUpdate={onTimeUpdate}
               onEnded={onEnded}
               onSkipped={onSkipped}
-              mediaSession={{
-                title: details.title,
-                artist: details.author,
-                album: queue?.name,
-                artwork: details.thumbnails[0]?.url,
-                onNextTrack: onMediaNext,
-                onPreviousTrack: onMediaPrevious
-              }}
+              mediaSession={playerMediaSession}
             />
           ) : (
             <div className="player__error">
@@ -458,14 +501,7 @@ export function WatchPage({
         </div>
 
         <h1 className="watch__title">{details.title}</h1>
-        {/* Only live state earns a line here. The upload date is deliberately not
-            shown under the title — it is already in the description header, and
-            repeating it just pushes the channel row down. */}
-        {details.isLive && (
-          <div className="watch__meta">
-            <span>Live</span>
-          </div>
-        )}
+
 
         <div className="watch__bar">
           <div className="watch__channel-group">
@@ -578,7 +614,7 @@ export function WatchPage({
                   className="watch__chapter-card"
                   onClick={() => {
                     playerRef.current?.seekTo(ch.start)
-                    window.scrollTo({ top: 0, behavior: 'smooth' })
+                    scrollPageToTop()
                   }}
                   title={`${ch.title} (${formatTime(ch.start)} - ${formatTime(ch.end)})`}
                 >
@@ -640,7 +676,7 @@ export function WatchPage({
       </div>
 
       {showSide && queue && (
-        <aside className="watch__side" onWheel={(e) => e.stopPropagation()}>
+        <aside className="watch__side" onWheel={onQueueWheel}>
           <div className="watch__side-head">
             <h2 className="watch__side-title">
               {queue.name} · {queue.items.length}
@@ -659,11 +695,8 @@ export function WatchPage({
           <div className="queue">
             {queue.items.map((video, index) => {
               const isActive = index === queueIndex
-              const hist = history.find((h) => h.videoId === video.videoId)
-              const histPct =
-                hist && hist.duration && hist.position > 0
-                  ? Math.min(100, Math.max(0, (hist.position / hist.duration) * 100))
-                  : 0
+              const progress = getHistoryProgress(video.videoId, video.duration)
+              const histPct = progress > 0 ? Math.min(100, Math.max(0, progress * 100)) : 0
               return (
                 <button
                   key={`${video.videoId}-${index}`}

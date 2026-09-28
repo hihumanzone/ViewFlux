@@ -33,10 +33,12 @@ export function parseCount(value: TextLike | string | null | undefined): number 
   return Number.isFinite(n) ? n : null
 }
 
+const COMPACT_COUNT_REGEX = /(\d[\d,]*(?:\.\d+)?)\s*([KMB])?\b/i
+
 /** Parses compact counts like "8.1M", "1.8B views", "960". */
 export function parseCompactCount(raw: string | null | undefined): number | null {
   if (!raw) return null
-  const m = /(\d[\d,]*(?:\.\d+)?)\s*([KMB])?\b/i.exec(raw)
+  const m = COMPACT_COUNT_REGEX.exec(raw)
   if (!m) return parseCount(raw)
   const n = Number.parseFloat(m[1].replace(/[,\s]/g, ''))
   if (!Number.isFinite(n)) return parseCount(raw)
@@ -53,23 +55,26 @@ export function parseDurationText(raw: string | null | undefined): number | null
   return parts.reduce((acc, p) => acc * 60 + p, 0)
 }
 
+const AGO_REGEX = /(\d+)\s*(years?|yrs?|y|months?|mo|weeks?|w|days?|d|hours?|h|minutes?|min|m|seconds?|s)\b/i
+
+const AGO_DAYS_MULTIPLIER: Record<string, number> = {
+  y: 365, yr: 365, yrs: 365, year: 365, years: 365,
+  mo: 30, month: 30, months: 30,
+  w: 7, week: 7, weeks: 7,
+  d: 1, day: 1, days: 1,
+  h: 1 / 24, hour: 1 / 24, hours: 1 / 24,
+  m: 1 / 1440, min: 1 / 1440, minute: 1 / 1440, minutes: 1 / 1440,
+  s: 1 / 86400, sec: 1 / 86400, second: 1 / 86400, seconds: 1 / 86400
+}
+
 /** Parses relative dates ("5d ago", "2mo ago", "13 years ago") into days. */
 export function parseAgoDays(raw: string | null | undefined): number | null {
   if (!raw) return null
-  const m = /(\d+)\s*(years?|yrs?|y|months?|mo|weeks?|w|days?|d|hours?|h|minutes?|min|m|seconds?|s)\b/i.exec(raw)
+  const m = AGO_REGEX.exec(raw)
   if (!m) return null
   const n = Number.parseInt(m[1], 10)
   const unit = m[2].toLowerCase()
-  const days: Record<string, number> = {
-    y: 365, yr: 365, yrs: 365, year: 365, years: 365,
-    mo: 30, month: 30, months: 30,
-    w: 7, week: 7, weeks: 7,
-    d: 1, day: 1, days: 1,
-    h: 1 / 24, hour: 1 / 24, hours: 1 / 24,
-    m: 1 / 1440, min: 1 / 1440, minute: 1 / 1440, minutes: 1 / 1440,
-    s: 1 / 86400, sec: 1 / 86400, second: 1 / 86400, seconds: 1 / 86400
-  }
-  return n * (days[unit] ?? 1)
+  return n * (AGO_DAYS_MULTIPLIER[unit] ?? 1)
 }
 
 /** Some thumbnails come protocol-relative ("//yt3.ggpht.com/…"); make them absolute. */
@@ -81,10 +86,17 @@ export function absUrl(url: string | null | undefined): string {
 
 export function pickThumbnail(thumbs: ThumbLike[] | undefined, targetWidth = 480): string {
   if (!thumbs || thumbs.length === 0) return ''
-  const sorted = [...thumbs].sort(
-    (a, b) => Math.abs(a.width - targetWidth) - Math.abs(b.width - targetWidth)
-  )
-  return absUrl(sorted[0]?.url)
+  let best = thumbs[0]
+  let minDiff = Math.abs((best.width || 0) - targetWidth)
+  for (let i = 1; i < thumbs.length; i++) {
+    const t = thumbs[i]
+    const diff = Math.abs((t.width || 0) - targetWidth)
+    if (diff < minDiff) {
+      minDiff = diff
+      best = t
+    }
+  }
+  return absUrl(best?.url)
 }
 
 export function normalizeThumbs(thumbs: { url: string; width: number; height: number }[] | undefined): Thumb[] {

@@ -110,6 +110,7 @@ export function HistoryPage(): React.JSX.Element {
               <ListRow
                 key={`${entry.videoId}-${index}`}
                 to={`#/watch/${entry.videoId}`}
+                videoId={entry.videoId}
                 thumbnail={entry.thumbnail}
                 title={entry.title}
                 duration={entry.duration}

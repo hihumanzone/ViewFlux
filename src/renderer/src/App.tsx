@@ -5,6 +5,7 @@ import { ErrorBoundary } from './components/ErrorBoundary'
 import { ShortcutsDialog } from './components/ShortcutsDialog'
 import { ScrollToTop } from './components/ScrollToTop'
 import { goBack, useRoute, type Route } from './lib/router'
+import { scrollPageToTop } from './lib/scroll'
 import { SearchPage } from './pages/SearchPage'
 import { WatchPage } from './pages/WatchPage'
 import { PlaylistsPage } from './pages/PlaylistsPage'
@@ -48,6 +49,11 @@ export function App(): React.JSX.Element {
   const route = useRoute()
   const key = useMemo(() => routeKey(route), [route])
   const [shortcutsOpen, setShortcutsOpen] = useState(false)
+
+  // Reset page scroller to top on route change
+  useEffect(() => {
+    scrollPageToTop('auto')
+  }, [key])
 
   useEffect(() => {
     // 1. Prevent default native drag ghosts (localhost URLs / images)
@@ -148,10 +154,8 @@ export function App(): React.JSX.Element {
  */
 function focusContent(event: React.MouseEvent<HTMLAnchorElement>): void {
   event.preventDefault()
-  const main = document.getElementById('main-content')
-  if (!main) return
-  main.focus()
-  main.scrollTo({ top: 0 })
+  document.getElementById('main-content')?.focus()
+  scrollPageToTop('auto')
 }
 
 function renderRoute(route: Route): React.JSX.Element | null {

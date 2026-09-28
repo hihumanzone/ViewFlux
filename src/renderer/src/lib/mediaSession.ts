@@ -187,17 +187,26 @@ export function useMediaSession(info: MediaSessionInfo, handlers: MediaSessionHa
 
   const clockRef = useRef({ position, duration, playing })
   clockRef.current = { position, duration, playing }
+  const lastPublishedPosRef = useRef(-1)
 
-  // Publish immediately so a seek while paused is reflected in the OS card.
+  // Publish immediately on state transitions (play/pause), duration changes,
+  // or non-linear jumps (seeks). Routine 4-60Hz timeupdates are handled smoothly
+  // by the 1-second heartbeat and the OS's native playback rate extrapolator.
   useEffect(() => {
-    publishRef.current(clockRef.current.position, duration, playing ? 1 : 0)
+    if (!supports() || !active) return
+    const isSeek = Math.abs(position - lastPublishedPosRef.current) > 2
+    if (!playing || isSeek) {
+      lastPublishedPosRef.current = position
+      publishRef.current(position, duration, playing ? 1 : 0)
+    }
   }, [position, duration, playing, active])
 
   useEffect(() => {
     if (!supports() || !active || !playing) return
     const id = window.setInterval(() => {
       const { position: pos, duration: dur } = clockRef.current
-      publishRef.current(Math.min(pos + 1, dur), dur, 1)
+      lastPublishedPosRef.current = pos
+      publishRef.current(pos, dur, 1)
     }, 1000)
     return () => window.clearInterval(id)
   }, [active, playing])

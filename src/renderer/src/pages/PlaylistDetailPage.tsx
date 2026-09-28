@@ -146,6 +146,7 @@ function LocalPlaylist({ playlist }: { playlist: Playlist }): React.JSX.Element 
             <ListRow
               key={`${video.videoId}-${index}`}
               to={`#/watch/${video.videoId}?list=${current.id}`}
+              videoId={video.videoId}
               thumbnail={video.thumbnail}
               title={video.title}
               duration={video.duration}
@@ -337,6 +338,7 @@ function SavedYouTubePlaylist({ playlist }: { playlist: Playlist }): React.JSX.E
             <ListRow
               key={`${video.videoId}-${index}`}
               to={`#/watch/${video.videoId}?list=yt:${playlist.youtubeId}`}
+              videoId={video.videoId}
               thumbnail={video.thumbnail}
               title={video.title}
               duration={video.duration}

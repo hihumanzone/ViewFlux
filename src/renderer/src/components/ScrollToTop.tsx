@@ -1,26 +1,26 @@
 import { memo, useEffect, useState } from 'react'
 import { Icon } from './Icons'
+import { pageScroller, scrollPageToTop } from '../lib/scroll'
 
 export const ScrollToTop = memo(function ScrollToTop(): React.JSX.Element | null {
   const [visible, setVisible] = useState(false)
 
   useEffect(() => {
-    const main = document.getElementById('main-content')
-    if (!main) return
-
-    const handleScroll = (): void => {
-      setVisible(main.scrollTop > 360)
+    // Element scroll events do not bubble, and on the watch page the page
+    // scroller is the main column rather than `.content` — so listen in the
+    // capture phase on the document, which sees whichever one is moving.
+    const handleScroll = (event: Event): void => {
+      const scroller = pageScroller()
+      if (!scroller) return
+      // Pane-level scrolling (the playlist, menus) must not raise the button.
+      if (event.target !== scroller) return
+      setVisible(scroller.scrollTop > 360)
     }
-
-    main.addEventListener('scroll', handleScroll, { passive: true })
-    return () => main.removeEventListener('scroll', handleScroll)
+    document.addEventListener('scroll', handleScroll, { passive: true, capture: true })
+    return () => document.removeEventListener('scroll', handleScroll, true)
   }, [])
 
-  const scrollToTop = (): void => {
-    const main = document.getElementById('main-content')
-    if (!main) return
-    main.scrollTo({ top: 0, behavior: 'smooth' })
-  }
+  const scrollToTop = (): void => scrollPageToTop()
 
   if (!visible) return null
 
