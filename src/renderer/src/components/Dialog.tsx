@@ -1,4 +1,5 @@
 import { useEffect, useId, useRef } from 'react'
+import { createPortal } from 'react-dom'
 import { hasOpenDismissableLayer } from '../lib/keyboard'
 
 /** Selector for the controls a Tab key should cycle through inside a dialog. */
@@ -29,6 +30,18 @@ const FOCUSABLE =
  * - `initialFocus` lets a caller skip the autofocus step (`'auto'`) when the
  *   dialog already autofocuses a real control, or when focusing the panel
  *   itself is the right announcement for a confirmation.
+ * - The shell is portalled to `document.body`, for the same reason `<Menu>` is.
+ *   A `position: fixed` element is laid out against its *nearest transformed
+ *   ancestor*, not the viewport, and cards lift on hover (`.channel-card:hover
+ *   { transform: translateY(-3px) }`). Rendering the backdrop in place meant
+ *   that opening "Bookmark channel" from a search result captured the modal in
+ *   the card: the scrim and blur were clipped to the card's box and the panel
+ *   was offset by the card's origin, then snapped to a real full-screen dialog
+ *   the moment the pointer left the card and the hover transform animated out.
+ *   That flip-flop read as the dialog flickering between two different menus.
+ *   Portalling also lifts the `z-index` and the `backdrop-filter` out of any
+ *   ancestor stacking context, and keeps the scrim out of reach of an
+ *   `overflow: hidden` page container.
  */
 export function Dialog({
   title,
@@ -99,8 +112,19 @@ export function Dialog({
     return () => window.removeEventListener('keydown', onKeyDown, { capture: true })
   }, [onClose])
 
-  return (
-    <div className="modal-backdrop" onClick={onClose} role="presentation">
+  const shell = (
+    <div
+      className="modal-backdrop"
+      role="presentation"
+      onClick={(event) => {
+        // React portals still bubble events along the React tree, so without this
+        // a scrim click would also reach the clickable card that renders this
+        // dialog (search-result `ChannelCard` navigates to the channel) and open
+        // the page behind the dialog the user just dismissed.
+        event.stopPropagation()
+        onClose()
+      }}
+    >
       <div
         ref={panelRef}
         className={className ? `modal ${className}` : 'modal'}
@@ -117,4 +141,7 @@ export function Dialog({
       </div>
     </div>
   )
+
+  if (typeof document === 'undefined' || !document.body) return shell
+  return createPortal(shell, document.body)
 }

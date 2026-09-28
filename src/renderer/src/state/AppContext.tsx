@@ -19,6 +19,7 @@ import {
   type SearchHistoryEntry,
   type Settings
 } from '../../../shared/types'
+import { Dialog } from '../components/Dialog'
 
 interface ToastItem {
   id: number
@@ -483,43 +484,28 @@ export function AppProvider({ children }: { children: ReactNode }): React.JSX.El
         ))}
       </div>
       {confirmRequest && (
-        <div
-          className="modal-backdrop"
-          role="presentation"
-          onClick={() => respond(false)}
-        >
-          <div
-            className="modal"
-            role="alertdialog"
-            aria-modal="true"
-            aria-labelledby="confirm-message"
-            // Escape cancels, matching every other dialog in the app. Capture
-            // phase so it also fires while focus sits on the buttons.
-            onKeyDown={(e) => {
-              if (e.key === 'Escape') {
-                e.stopPropagation()
-                respond(false)
-              }
-            }}
-          >
-            <p className="modal__message" id="confirm-message">
-              {confirmRequest.message}
-            </p>
-            <div className="modal__actions">
-              {/* Focus lands on Cancel: a destructive confirmation should never
-                  be one stray Enter away from being accepted. */}
-              <button className="btn btn--text" autoFocus onClick={() => respond(false)}>
-                Cancel
-              </button>
-              <button
-                className={`btn ${confirmRequest.danger ? 'btn--danger' : 'btn--filled'}`}
-                onClick={() => respond(true)}
-              >
-                {confirmRequest.confirmLabel}
-              </button>
-            </div>
+        /* Was a hand-rolled copy of the modal shell, and so it was missing
+           everything `Dialog` fixes: no portal (the scrim was laid out against
+           whatever ancestor `confirm()` was called from), no Tab trap (tabbing
+           out walked into the page behind it), and no backdrop
+           `stopPropagation` (React portals bubble along the React tree, so a
+           scrim click could activate the row that opened the prompt). */
+        <Dialog title={confirmRequest.message} initialFocus="auto" onClose={() => respond(false)}>
+          <div className="modal__actions">
+            {/* Focus lands on Cancel: a destructive confirmation should never
+                be one stray Enter away from being accepted. `initialFocus="auto"`
+                hands focus management to this button instead of the panel. */}
+            <button className="btn btn--text" autoFocus onClick={() => respond(false)}>
+              Cancel
+            </button>
+            <button
+              className={`btn ${confirmRequest.danger ? 'btn--danger' : 'btn--filled'}`}
+              onClick={() => respond(true)}
+            >
+              {confirmRequest.confirmLabel}
+            </button>
           </div>
-        </div>
+        </Dialog>
       )}
     </AppContext.Provider>
   )
