@@ -4,7 +4,7 @@ import { SliderField } from '../SliderField'
 import { SubtitleStyleControls } from '../SubtitleStyleControls'
 import { Switch } from '../Switch'
 import { PLAYBACK_SPEEDS as SPEEDS } from '../../../../shared/media'
-import type { AudioTrack, MenuKind, SubtitleStyle, TextTrack } from './types'
+import { sameLanguage, type AudioTrack, type MenuKind, type SubtitleStyle, type TextTrack } from './types'
 
 export interface PlayerMenusProps {
   menu: MenuKind | null
@@ -231,7 +231,7 @@ export const PlayerMenus = memo(function PlayerMenus({
                 ? 'original'
                 : undefined
             }
-            selected={selectedAudioLang === entry.code}
+            selected={sameLanguage(selectedAudioLang, entry.code)}
             onSelect={() => onSelectAudio(entry.code)}
           />
         ))}

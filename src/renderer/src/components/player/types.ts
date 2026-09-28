@@ -139,3 +139,30 @@ export const clampVolume = (n: number): number => clamp(n, 0, 3)
 export function audioCode(track: AudioTrack): string {
   return (track.language ?? '').trim() || 'und'
 }
+
+/** Canonical form of a language code, so codes from different sources line up. */
+export const normLang = (s: string | null | undefined): string =>
+  (s ?? '').trim().toLowerCase()
+
+/** `en-US`, `en_us` and `en.GB` all collapse to `en` for a relaxed comparison. */
+const primeLang = (s: string): string => s.split('-')[0].split('_')[0].split('.')[0]
+
+/**
+ * Whether two codes name the same language, tolerating case and region subtags.
+ *
+ * Track selection must compare on this rather than `===`. The menu's codes come
+ * from the manifest (`en-US`, `pt-BR`) while the language actually playing is
+ * read back from the player (`en-us`), so a strict compare renders a checkmark
+ * on nothing at all even though the correct track is playing. Two empty codes
+ * are treated as equal; an empty code never matches a real one.
+ */
+export const sameLanguage = (
+  a: string | null | undefined,
+  b: string | null | undefined
+): boolean => {
+  const x = normLang(a)
+  const y = normLang(b)
+  if (x === y) return true
+  if (x === '' || y === '') return false
+  return primeLang(x) === primeLang(y)
+}

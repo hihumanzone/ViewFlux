@@ -3,6 +3,8 @@ import shaka from 'shaka-player'
 import { isAudioItagUrl, languageName } from '../../../../shared/media'
 import {
   audioCode,
+  normLang,
+  sameLanguage,
   type AudioTrack,
   type PlayerProps,
   type TextTrack,
@@ -141,6 +143,61 @@ const LIVE_RECOVERABLE_CODES = new Set([1011, 4053])
 /** How far behind the live edge we still count as "live" for the UI. */
 const LIVE_EDGE_TOLERANCE = 8
 
+/* ---- Audio language helpers ------------------------------------------------
+ *
+ * The original-dub logic used to be spelled out inline at every call site, which
+ * let the three copies drift. They all reduce to the same two questions —
+ * "are these the same language?" and "which track is the original?" — so they
+ * live here now.
+ *
+ * `normLang` / `sameLanguage` live in `./types` next to `audioCode` because the
+ * audio menu has to compare codes the same way; see the note there.
+ */
+
+/**
+ * The audio track we want by default: the video's original dub, falling back to
+ * English and then to whatever the manifest offers first. `wanted` comes from
+ * the main process, which resolves it from the player response's
+ * `audioIsDefault`/`is_original` markers.
+ */
+const resolveOriginalTrack = (
+  audio: AudioTrack[],
+  wanted: string | null
+): AudioTrack | undefined => {
+  if (audio.length === 0) return undefined
+  const target = normLang(wanted)
+  if (target) {
+    const exact = audio.find((track) => normLang(audioCode(track)) === target)
+    if (exact) return exact
+    const loose = audio.find((track) => sameLanguage(audioCode(track), target))
+    if (loose) return loose
+  }
+  return audio.find((track) => sameLanguage(audioCode(track), 'en')) ?? audio[0]
+}
+
+/**
+ * The audio language Shaka is *actually* playing right now, read back from the
+ * player rather than remembered.
+ *
+ * This has to be authoritative. `player.selectAudioTrack()` can be silently
+ * overridden by the ABR manager (Shaka itself warns about this in `player.js`:
+ * "Changing tracks while abr manager is enabled will likely result in the
+ * selected track being overridden"), by a later `selectVariantTrack()`, or by
+ * the fresh adaptation set criteria that every `load()` rebuilds. Any of those
+ * leave the UI confidently reporting a track that is not the one on screen, so
+ * the menu must ask the player instead of trusting its own optimistic state.
+ *
+ * `getAudioTracks()` already marks the live one (`active` is derived from the
+ * current variant). The variant scan is a fallback for the window between a
+ * variant switch and that flag settling.
+ */
+const activeAudioCode = (player: shaka.Player): string | null => {
+  const activeTrack = player.getAudioTracks().find((track) => track.active)
+  if (activeTrack) return normLang(audioCode(activeTrack))
+  const activeVariant = player.getVariantTracks().find((track) => track.active)
+  return activeVariant?.audioLanguage ? normLang(activeVariant.audioLanguage) : null
+}
+
 export function useShakaPlayer({
   videoRef,
   containerRef,
@@ -196,9 +253,21 @@ export function useShakaPlayer({
   const liveRef = useRef(false)
   liveRef.current = live
   const recoverPlaybackRef = useRef<((reason: string) => Promise<void>) | null>(null)
+  /**
+   * The audio language we want playing: the viewer's explicit pick, or else the
+   * original dub. Survives manifest reloads (which rebuild Shaka's adaptation
+   * set criteria from scratch) so recovery lands on the same track instead of
+   * wherever the manifest happens to list first.
+   */
   const audioLangRef = useRef<string | null>(null)
   const defaultLangRef = useRef(defaultAudioLanguage)
   defaultLangRef.current = defaultAudioLanguage
+  /**
+   * Guards the "Shaka drifted off our language, put it back" re-pin against
+   * fighting itself: if a language genuinely cannot be selected, retrying on
+   * every adaptation event would spin forever.
+   */
+  const repinAttemptsRef = useRef(0)
   const lastReportRef = useRef(0)
   const lastDurationRef = useRef(0)
   const onTimeUpdateRef = useRef(onTimeUpdate)
@@ -231,7 +300,10 @@ export function useShakaPlayer({
     const seen = new Set<string>()
     const unique: { code: string; label: string }[] = []
     for (const track of audioTracks) {
-      const code = audioCode(track)
+      // Normalized so menu codes are canonical: the same codes are compared
+      // against the language read back from the player, and the manifest is
+      // free to spell them `en-US` where the player says `en-us`.
+      const code = normLang(audioCode(track))
       if (seen.has(code)) continue
       seen.add(code)
       unique.push({
@@ -244,54 +316,173 @@ export function useShakaPlayer({
 
   const isOriginalLanguage = useCallback(
     (code: string): boolean => {
-      const wanted = (defaultAudioLanguage ?? '').toLowerCase()
-      if (wanted === '') return false
-      const prime = (s: string): string => s.split('-')[0].split('_')[0].split('.')[0]
-      return code === wanted || prime(code) === prime(wanted)
+      const wanted = normLang(defaultAudioLanguage)
+      return wanted !== '' && sameLanguage(code, wanted)
     },
     [defaultAudioLanguage]
   )
 
-  // Track selection
-  const selectStream = useCallback((height: number | null, audioTier: string | null) => {
+  /**
+   * Tell *Shaka* which language we want, not just ask it for a one-off switch.
+   *
+   * `selectAudioTrack()` alone is not a setting, it is a request. Shaka builds
+   * every later variant decision — the initial one, each ABR quality switch,
+   * each `selectVariantTrack()` — from `config.preferredAudio`, which defaults
+   * to `[{language: ''}]` (i.e. "no preference, take whatever the manifest
+   * lists first"). Worse, `selectVariantTrack()` *overwrites* that preference
+   * with the language of the variant it was handed (Shaka's own workaround in
+   * `player.js` for issue #1299), so a quality change could quietly repin the
+   * player onto a dubbed track. Declaring the language up front makes the
+   * preference survive all of that.
+   */
+  const pinAudioLanguage = useCallback((code: string): void => {
     const player = playerRef.current
     if (!player) return
-    if (height == null && audioTier == null) {
-      player.configure({ abr: { enabled: true } } as unknown as shaka.extern.PlayerConfiguration)
-      setSelectedHeight(null)
-      setSelectedAudioTier(null)
-      return
-    }
-    const inTier = (track: VariantTrack): boolean => {
-      if (audioTier == null) return true
-      const bps = track.audioBandwidth ?? 0
-      if (audioTier === 'Low') return bps < 96_000
-      if (audioTier === 'Medium') return bps >= 96_000 && bps < 192_000
-      return bps >= 192_000
-    }
-    const best = player
-      .getVariantTracks()
-      .filter(
-        (track) =>
-          (height == null || track.height === height) && inTier(track)
-      )
-      .sort((a, b) => b.bandwidth - a.bandwidth)[0]
-    if (!best) return
-    player.configure({ abr: { enabled: false } } as unknown as shaka.extern.PlayerConfiguration)
-    player.selectVariantTrack(best, true)
-    setSelectedHeight(height)
-    setSelectedAudioTier(audioTier)
-    if (audioLangRef.current != null) {
-      const track = player.getAudioTracks().find((a) => audioCode(a) === audioLangRef.current)
-      if (track) {
-        try {
-          player.selectAudioTrack(track)
-        } catch {
-          /* keep going */
+    player.configure({
+      preferredAudio: [
+        { language: code, role: '', label: '', channelCount: 0, spatialAudio: false }
+      ]
+    } as unknown as shaka.extern.PlayerConfiguration)
+  }, [])
+
+  /**
+   * Put the wanted language on screen, then report back what actually happened.
+   *
+   * `reconcile` reads the active track from the player instead of trusting the
+   * code we just asked for, so a silently-ignored switch can never leave the
+   * menu showing a checkmark on a track that isn't playing.
+   */
+  const applyAudioSelection = useCallback(
+    (code: string | null, { select = true }: { select?: boolean } = {}): void => {
+      const player = playerRef.current
+      if (!player) return
+      audioLangRef.current = code
+      if (code) pinAudioLanguage(code)
+      if (select) {
+        const track = player
+          .getAudioTracks()
+          .find((a) => sameLanguage(audioCode(a), code))
+        if (track) {
+          try {
+            player.selectAudioTrack(track)
+          } catch {
+            /* single rendition — there is nothing to switch to */
+          }
         }
       }
-    }
-  }, [])
+      // Report what the player is really playing, falling back to the requested
+      // language only when the player cannot name an active track at all (the
+      // brief window around a variant switch). Showing nothing there is worse
+      // than showing the intent, and the next `adaptation` event corrects it.
+      setSelectedAudioLang(activeAudioCode(player) ?? code)
+    },
+    [pinAudioLanguage]
+  )
+
+  /**
+   * Re-state the audio choice after a `load()`. A reload rebuilds Shaka's
+   * adaptation set criteria from scratch, so the language has to be applied
+   * again; if the remembered track is not in the fresh manifest, fall back to
+   * the original dub rather than to whatever the new manifest lists first.
+   */
+  const reapplyAudioAfterLoad = useCallback((): void => {
+    const player = playerRef.current
+    if (!player) return
+    const fresh = player.getAudioTracks()
+    if (fresh.length === 0) return
+    setAudioTracks(fresh)
+    const remembered = audioLangRef.current
+    const stillOffered =
+      remembered != null &&
+      fresh.some((a) => sameLanguage(audioCode(a), remembered))
+    const fallback = resolveOriginalTrack(fresh, defaultLangRef.current)
+    // `fresh` is non-empty, so `resolveOriginalTrack` always yields a track.
+    const target = stillOffered || !fallback ? remembered : normLang(audioCode(fallback))
+    repinAttemptsRef.current = 0
+    applyAudioSelection(target)
+  }, [applyAudioSelection])
+
+  /**
+   * Shaka is authoritative. Whenever it changes tracks on its own (ABR, a
+   * quality switch, a manifest update) we re-read the active language, and if it
+   * wandered off the wanted one we put it back. The attempt counter stops that
+   * from looping when the wanted language genuinely cannot be selected.
+   */
+  const reconcileAudioSelection = useCallback((): void => {
+    const player = playerRef.current
+    if (!player) return
+    const actual = activeAudioCode(player)
+    const wanted = audioLangRef.current
+    setSelectedAudioLang(actual ?? wanted)
+    if (!wanted || !actual || sameLanguage(actual, wanted)) return
+    if (repinAttemptsRef.current >= 3) return
+    repinAttemptsRef.current += 1
+    applyAudioSelection(wanted)
+  }, [applyAudioSelection])
+
+  /**
+   * Best variant for a quality/tier request, preferring ones that already carry
+   * the wanted audio language.
+   *
+   * The fallback matters: handing Shaka a variant from another language is what
+   * repinned the player onto a dub, but refusing to switch quality at all
+   * because the top rendition happens to be on a different track would be its
+   * own bug. So try the wanted language first, then accept whatever the viewer
+   * explicitly asked for and let the audio re-pin immediately afterwards.
+   */
+  const pickVariant = useCallback(
+    (
+      tracks: VariantTrack[],
+      matches: (t: VariantTrack) => boolean = () => true,
+      rank: (a: VariantTrack, b: VariantTrack) => number = (a, b) => b.bandwidth - a.bandwidth
+    ): VariantTrack | undefined => {
+      const wanted = audioLangRef.current
+      const inLanguage = (t: VariantTrack): boolean =>
+        !wanted || sameLanguage(normLang(t.audioLanguage ?? t.language), normLang(wanted))
+      return (
+        tracks.filter((t) => matches(t) && inLanguage(t)).sort(rank)[0] ??
+        tracks.filter(matches).sort(rank)[0]
+      )
+    },
+    []
+  )
+
+  // Track selection
+  const selectStream = useCallback(
+    (height: number | null, audioTier: string | null) => {
+      const player = playerRef.current
+      if (!player) return
+      if (height == null && audioTier == null) {
+        player.configure({ abr: { enabled: true } } as unknown as shaka.extern.PlayerConfiguration)
+        setSelectedHeight(null)
+        setSelectedAudioTier(null)
+        // Re-enabling ABR hands Shaka the whole variant list again, so the
+        // language it is allowed to land on has to be re-stated here too.
+        applyAudioSelection(audioLangRef.current, { select: false })
+        reconcileAudioSelection()
+        return
+      }
+      const inTier = (track: VariantTrack): boolean => {
+        if (audioTier == null) return true
+        const bps = track.audioBandwidth ?? 0
+        if (audioTier === 'Low') return bps < 96_000
+        if (audioTier === 'Medium') return bps >= 96_000 && bps < 192_000
+        return bps >= 192_000
+      }
+      const best = pickVariant(
+        player.getVariantTracks(),
+        (track) => (height == null || track.height === height) && inTier(track)
+      )
+      if (!best) return
+      player.configure({ abr: { enabled: false } } as unknown as shaka.extern.PlayerConfiguration)
+      player.selectVariantTrack(best, true)
+      setSelectedHeight(height)
+      setSelectedAudioTier(audioTier)
+      repinAttemptsRef.current = 0
+      applyAudioSelection(audioLangRef.current)
+    },
+    [applyAudioSelection, pickVariant, reconcileAudioSelection]
+  )
 
   const selectHeight = useCallback(
     (height: number | null) => {
@@ -313,18 +504,17 @@ export function useShakaPlayer({
     (code: string) => {
       const player = playerRef.current
       if (!player) return
-      const track = player.getAudioTracks().find((a) => audioCode(a) === code)
+      // Matched by language, not string: the menu hands us a normalized code
+      // while the manifest track carries its own spelling (`en-US` vs `en-us`).
+      const track = player.getAudioTracks().find((a) => sameLanguage(audioCode(a), code))
       if (!track) return
-      try {
-        player.selectAudioTrack(track)
-        audioLangRef.current = code
-        setSelectedAudioLang(code)
-        onOsd?.(`Audio: ${code === 'und' ? 'Original' : languageName(code)}`, 'volume')
-      } catch {
-        /* unsupported */
-      }
+      // An explicit pick is a fresh decision, so give the drift-correction
+      // counter a clean slate.
+      repinAttemptsRef.current = 0
+      applyAudioSelection(code)
+      onOsd?.(`Audio: ${code === 'und' ? 'Original' : languageName(code)}`, 'volume')
     },
-    [onOsd]
+    [applyAudioSelection, onOsd]
   )
 
   const selectCaption = useCallback(
@@ -435,6 +625,13 @@ export function useShakaPlayer({
     if (!video) return
     let disposed = false
 
+    // A new video starts from its own original dub, not from whatever language
+    // the previous one happened to be left on.
+    audioLangRef.current = null
+    repinAttemptsRef.current = 0
+    setSelectedAudioLang(null)
+    setAudioTracks([])
+
     if (!shaka.Player.isBrowserSupported()) {
       setStatus('error')
       setErrorMsg('This system does not support the required media playback APIs.')
@@ -487,6 +684,12 @@ export function useShakaPlayer({
           await player.load(direct, startAt)
         }
         if (disposed) return
+        // `load()` rebuilds Shaka's adaptation set criteria from the player
+        // config, which drops any per-load track choice. Re-apply the language
+        // the viewer is on (or the original dub) before resuming playback,
+        // otherwise recovery silently switches to another language while the
+        // audio menu keeps showing the old one as selected.
+        reapplyAudioAfterLoad()
         try {
           if (player.isLive()) {
             const seekRange = player.seekRange()
@@ -580,6 +783,20 @@ export function useShakaPlayer({
     }
     player.addEventListener('buffering', onShakaBuffering)
 
+    /**
+     * Keep the audio menu honest. Shaka can change the playing audio language on
+     * its own — the ABR manager re-decides on every quality switch, and a
+     * `selectVariantTrack()` repins the preference to whatever variant it was
+     * given. Without listening for that, the menu keeps its checkmark on a
+     * track that is no longer the one on screen, which is exactly the symptom
+     * this replaced: "the original is selected, but a different language plays".
+     */
+    const onAudioMaybeChanged = (): void => {
+      if (!disposed) reconcileAudioSelection()
+    }
+    player.addEventListener('audiotrackschanged', onAudioMaybeChanged)
+    player.addEventListener('adaptation', onAudioMaybeChanged)
+
     const buildConfig = (forLive: boolean): shaka.extern.PlayerConfiguration =>
       ({
         streaming: {
@@ -616,7 +833,28 @@ export function useShakaPlayer({
           ...(forLive ? { raiseFatalErrorOnManifestUpdateRequestFailure: false } : {}),
           ...(forLive ? LIVE_MANIFEST_CONFIG : {})
         },
-        abr: { enabled: true }
+        abr: { enabled: true },
+        /**
+         * Declared *before* `load()` on purpose. Shaka seeds its adaptation set
+         * criteria from this and uses it for the very first variant decision,
+         * so the original dub is in place from the first frame rather than
+         * being patched in afterwards — which is what used to let whichever
+         * language the manifest happened to list first win the opening
+         * moments, and is the "sometimes" in this bug.
+         *
+         * The `role: ''` / `channelCount: 0` / `label: ''` fields matter: they
+         * mean "any rendition within this language", leaving Shaka free to
+         * pick the best audio bitrate for the bandwidth available.
+         */
+        preferredAudio: [
+          {
+            language: normLang(defaultLangRef.current),
+            role: '',
+            label: '',
+            channelCount: 0,
+            spatialAudio: false
+          }
+        ]
       }) as unknown as shaka.extern.PlayerConfiguration
 
     const config = buildConfig(isLive)
@@ -693,20 +931,15 @@ export function useShakaPlayer({
         const audio = player.getAudioTracks()
         setAudioTracks(audio)
         if (audio.length > 0) {
-          const norm = (s: string | null | undefined): string => (s ?? '').toLowerCase()
-          const prime = (s: string): string => s.split('-')[0].split('_')[0].split('.')[0]
-          const wanted = norm(defaultLangRef.current)
-          const original =
-            (wanted ? audio.find((track) => norm(audioCode(track)) === wanted) : undefined) ??
-            (wanted ? audio.find((track) => prime(norm(audioCode(track))) === prime(wanted)) : undefined) ??
-            audio.find((track) => prime(norm(audioCode(track))) === 'en') ??
-            audio[0]
-          try {
-            player.selectAudioTrack(original)
-            audioLangRef.current = audioCode(original)
-            setSelectedAudioLang(audioCode(original))
-          } catch {
-            /* single rendition */
+          // `preferredAudio` in the pre-load config has already steered the
+          // first variant decision; this resolves the language we actually want
+          // against the tracks this manifest really offers (the MPD code may be
+          // a looser match than the player response suggested) and records it so
+          // a later reload can restore it.
+          const original = resolveOriginalTrack(audio, defaultLangRef.current)
+          if (original) {
+            repinAttemptsRef.current = 0
+            applyAudioSelection(normLang(audioCode(original)))
           }
         }
 
@@ -750,28 +983,39 @@ export function useShakaPlayer({
           setDuration(dur)
         }
 
+        /**
+         * Pinning a quality hands Shaka one specific variant, and Shaka copies
+         * that variant's audio language into the adaptation set criteria. Picking
+         * inside the language we already selected keeps that from repinning the
+         * player onto a dub; if nothing matches, the viewer's explicit quality
+         * still wins and the audio is re-applied straight afterwards.
+         */
+        const pinQuality = (best: VariantTrack | undefined): void => {
+          if (!best) return
+          player.configure({ abr: { enabled: false } } as unknown as shaka.extern.PlayerConfiguration)
+          player.selectVariantTrack(best, true)
+          setSelectedHeight(best.height)
+          // `selectVariantTrack()` has just repinned the criteria to `best`'s
+          // language, so restate ours. Cheap and idempotent when they agree.
+          repinAttemptsRef.current = 0
+          applyAudioSelection(audioLangRef.current)
+        }
+
         if (preferredQuality === 'max') {
-          const videoTracks = tracks.filter((t) => t.height != null)
-          const best = videoTracks.sort(
-            (a, b) => (b.height ?? 0) - (a.height ?? 0) || b.bandwidth - a.bandwidth
-          )[0]
-          if (best) {
-            player.configure({ abr: { enabled: false } } as unknown as shaka.extern.PlayerConfiguration)
-            player.selectVariantTrack(best, true)
-            setSelectedHeight(best.height)
-          }
+          pinQuality(
+            pickVariant(
+              tracks.filter((t) => t.height != null),
+              undefined,
+              (a, b) => (b.height ?? 0) - (a.height ?? 0) || b.bandwidth - a.bandwidth
+            )
+          )
         } else if (
           preferredQuality !== 'auto' &&
           tracks.some((t) => t.height === Number(preferredQuality))
         ) {
-          const best = tracks
-            .filter((t) => t.height === Number(preferredQuality))
-            .sort((a, b) => b.bandwidth - a.bandwidth)[0]
-          if (best) {
-            player.configure({ abr: { enabled: false } } as unknown as shaka.extern.PlayerConfiguration)
-            player.selectVariantTrack(best, true)
-            setSelectedHeight(best.height)
-          }
+          pinQuality(
+            pickVariant(tracks, (t) => t.height === Number(preferredQuality))
+          )
         }
 
         if (isLiveStream) {
@@ -830,6 +1074,9 @@ export function useShakaPlayer({
                 : undefined
           await player.load(`${manifestUrl}${sep}refresh=1`, retryStartAt)
           if (disposed) return
+          // Same as recovery: the retry is a fresh manifest, so the original
+          // dub has to be named again before playback starts.
+          reapplyAudioAfterLoad()
           if (player.isLive()) {
             const seekRange = player.seekRange()
             const liveEdge = Math.max(seekRange.start, seekRange.end - 2)
@@ -875,11 +1122,22 @@ export function useShakaPlayer({
       recoverPlaybackRef.current = null
       player.removeEventListener('error', onPlayerError)
       player.removeEventListener('buffering', onShakaBuffering)
+      player.removeEventListener('audiotrackschanged', onAudioMaybeChanged)
+      player.removeEventListener('adaptation', onAudioMaybeChanged)
       player.getNetworkingEngine()?.unregisterRequestFilter(requestFilter)
       playerRef.current = null
       void player.destroy().catch(() => undefined)
     }
-  }, [containerRef, videoId, manifestUrl])
+    // The three audio callbacks are referentially stable (each depends only on
+    // refs and stable setters), so listing them does not re-create the player.
+  }, [
+    containerRef,
+    videoId,
+    manifestUrl,
+    applyAudioSelection,
+    reapplyAudioAfterLoad,
+    reconcileAudioSelection
+  ])
 
   /**
    * Track the live window while a stream is playing. The DVR window slides
