@@ -11,6 +11,53 @@ Built with **Electron + Vite + React + TypeScript**, extracting data with
 
 ---
 
+## Screenshots
+
+<table>
+  <tr>
+    <td width="50%" valign="top">
+      <img src="screenshots/search.png" alt="Search results mixing videos, playlists and channels" />
+      <br /><sub><b>Search</b> — videos, channels, playlists and YouTube Music in one grid, with filter chips, live suggestions and infinite scroll.</sub>
+    </td>
+    <td width="50%" valign="top">
+      <img src="screenshots/watch.png" alt="Watch page with the player, control bar and playlist queue" />
+      <br /><sub><b>Watch</b> — adaptive DASH playback with the M3 control bar, customisable subtitles and the playlist queue.</sub>
+    </td>
+  </tr>
+  <tr>
+    <td width="50%" valign="top">
+      <img src="screenshots/playlists.png" alt="Playlists page listing local and YouTube playlists" />
+      <br /><sub><b>Playlists</b> — local bookmarks on this device, plus YouTube playlists that stay in sync with the source.</sub>
+    </td>
+    <td width="50%" valign="top">
+      <img src="screenshots/playlist-youtube.png" alt="A saved YouTube playlist kept as a live reference" />
+      <br /><sub><b>YouTube playlist</b> — play it all, keep it as a live reference, or copy it into a local playlist.</sub>
+    </td>
+  </tr>
+  <tr>
+    <td width="50%" valign="top">
+      <img src="screenshots/playlist-detail.png" alt="Local playlist detail with a reorderable track list" />
+      <br /><sub><b>Local playlist</b> — numbered, reorderable tracks that play through the in-page queue.</sub>
+    </td>
+    <td width="50%" valign="top">
+      <img src="screenshots/channels-recent-feed.png" alt="Saved channels recent uploads feed filtered by folder, label and recency" />
+      <br /><sub><b>Saved channels</b> — bookmark channels into folders and labels, then browse an on-demand recent uploads feed.</sub>
+    </td>
+  </tr>
+  <tr>
+    <td width="50%" valign="top">
+      <img src="screenshots/history.png" alt="Watch history with progress bars and resume positions" />
+      <br /><sub><b>History</b> — recorded automatically, with progress bars, resume positions and search by title or channel.</sub>
+    </td>
+    <td width="50%" valign="top">
+      <img src="screenshots/settings.png" alt="Settings with playback and subtitle options plus a live caption preview" />
+      <br /><sub><b>Settings</b> — playback, subtitle and appearance preferences, stored locally on this device.</sub>
+    </td>
+  </tr>
+</table>
+
+---
+
 ## Features
 
 - **Search** — results across **videos, channels, playlists, and YouTube Music**, with
