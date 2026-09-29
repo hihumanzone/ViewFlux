@@ -1,10 +1,10 @@
 import { Icon } from '../components/Icons'
-import { SelectField } from '../components/SelectField'
+import { SelectField, type SelectOption } from '../components/SelectField'
 import { SliderField } from '../components/SliderField'
 import { SubtitleStyleControls } from '../components/SubtitleStyleControls'
 import { useApp } from '../state/AppContext'
 import { Switch } from '../components/Switch'
-import { ACCENTS, SPONSOR_CATEGORIES, type Settings } from '../../../shared/types'
+import { ACCENTS, SPONSOR_CATEGORIES, type Settings, type ReduceMotionSetting } from '../../../shared/types'
 import { DEFAULT_SUBTITLE_STYLE } from '../../../shared/subtitles'
 import { PLAYBACK_SPEEDS as SPEEDS } from '../../../shared/media'
 import { APP_VERSION_LABEL } from '../../../shared/appInfo'
@@ -17,6 +17,12 @@ import { formatExact } from '../lib/format'
 const QUALITIES: Settings['preferredQuality'][] = ['auto', 'max', '2160', '1440', '1080', '720', '480', '360']
 const WATCH_LIMITS = [100, 250, 500, 1000, 2500, 5000]
 const SEARCH_LIMITS = [25, 50, 100, 200, 500]
+
+const REDUCE_MOTION_OPTIONS: SelectOption<ReduceMotionSetting>[] = [
+  { value: 'system', label: 'Follow system', hint: 'Sync with OS' },
+  { value: 'on', label: 'On', hint: 'Reduce motion' },
+  { value: 'off', label: 'Off', hint: 'Full motion' }
+]
 
 function Row({
   icon,
@@ -48,8 +54,17 @@ function Row({
 }
 
 export function SettingsPage(): React.JSX.Element {
-  const { settings, searchHistory, history, saveSettings, clearSearchHistory, refreshHistory, confirm, toast } =
-    useApp()
+  const {
+    settings,
+    searchHistory,
+    history,
+    saveSettings,
+    clearSearchHistory,
+    refreshHistory,
+    confirm,
+    toast,
+    systemPrefersReducedMotion
+  } = useApp()
 
   /**
    * Persist a change and confirm it once. Used for one-shot controls (switches,
@@ -232,6 +247,29 @@ export function SettingsPage(): React.JSX.Element {
               ))}
             </div>
           </div>
+          <Row
+            label="Reduce motion"
+            hint={
+              settings.reduceMotion === 'system'
+                ? `Follows system setting (system preference is currently ${
+                    systemPrefersReducedMotion ? 'reduced motion' : 'standard motion'
+                  }).`
+                : settings.reduceMotion === 'on'
+                  ? 'Reduced motion is forced on. Animations and transitions are minimized.'
+                  : 'Full motion is forced on. Animations and transitions play normally.'
+            }
+          >
+            <SelectField
+              value={settings.reduceMotion}
+              options={REDUCE_MOTION_OPTIONS}
+              onSelect={(reduceMotion) =>
+                update({
+                  reduceMotion,
+                  respectSystemMotion: reduceMotion === 'system'
+                })
+              }
+            />
+          </Row>
         </section>
 
         <section className="settings-section">

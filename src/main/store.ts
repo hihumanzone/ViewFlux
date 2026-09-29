@@ -12,6 +12,7 @@ import {
   type SavedChannel,
   type SearchHistoryEntry,
   type Settings,
+  type ReduceMotionSetting,
   DEFAULT_SETTINGS
 } from '../shared/types'
 import { normalizeSubtitleStyle } from '../shared/subtitles'
@@ -34,15 +35,34 @@ function defaultData(): AppData {
   }
 }
 
+function normalizeReduceMotion(raw: Partial<Settings> | undefined): ReduceMotionSetting {
+  if (raw?.reduceMotion === 'on' || raw?.reduceMotion === 'off' || raw?.reduceMotion === 'system') {
+    return raw.reduceMotion
+  }
+  if (raw?.respectSystemMotion === true) {
+    return 'system'
+  }
+  if (raw?.respectSystemMotion === false) {
+    return (raw as { reduceMotion?: unknown })?.reduceMotion === true ? 'on' : 'off'
+  }
+  if (typeof (raw as { reduceMotion?: unknown })?.reduceMotion === 'boolean') {
+    return (raw as { reduceMotion?: unknown }).reduceMotion ? 'on' : 'off'
+  }
+  return DEFAULT_SETTINGS.reduceMotion
+}
+
 /**
  * Fills in missing settings keys. The top level is a shallow merge, so nested
  * objects (the subtitle style) need their own normalisation to survive a file
  * written by an older build, a partial object, or hand-edited values.
  */
 function withSettingDefaults(raw: Partial<Settings> | undefined): Settings {
+  const reduceMotion = normalizeReduceMotion(raw)
   return {
     ...DEFAULT_SETTINGS,
     ...(raw ?? {}),
+    reduceMotion,
+    respectSystemMotion: reduceMotion === 'system',
     subtitleStyle: normalizeSubtitleStyle(raw?.subtitleStyle)
   }
 }

@@ -5922,13 +5922,48 @@ button.list-row__channel-name:hover {
   }
 }
 
+/* ---- Reduced motion preferences ---- */
 @media (prefers-reduced-motion: reduce) {
-  *,
-  *::before,
-  *::after {
+  :root:not([data-reduced-motion='false']) *,
+  :root:not([data-reduced-motion='false']) *::before,
+  :root:not([data-reduced-motion='false']) *::after {
     animation-duration: 0.01ms !important;
     animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
   }
+
+  :root:not([data-reduced-motion='false']) {
+    --t-fast: 0.01ms;
+    --t-med: 0.01ms;
+    --t-slow: 0.01ms;
+  }
+
+  :root:not([data-reduced-motion='false']) .video-card:hover,
+  :root:not([data-reduced-motion='false']) .channel-card:hover,
+  :root:not([data-reduced-motion='false']) .pl-card:hover {
+    transform: none !important;
+  }
+}
+
+:root[data-reduced-motion='true'] *,
+:root[data-reduced-motion='true'] *::before,
+:root[data-reduced-motion='true'] *::after {
+  animation-duration: 0.01ms !important;
+  animation-iteration-count: 1 !important;
+  transition-duration: 0.01ms !important;
+  scroll-behavior: auto !important;
+}
+
+:root[data-reduced-motion='true'] {
+  --t-fast: 0.01ms;
+  --t-med: 0.01ms;
+  --t-slow: 0.01ms;
+}
+
+:root[data-reduced-motion='true'] .video-card:hover,
+:root[data-reduced-motion='true'] .channel-card:hover,
+:root[data-reduced-motion='true'] .pl-card:hover {
+  transform: none !important;
 }
 

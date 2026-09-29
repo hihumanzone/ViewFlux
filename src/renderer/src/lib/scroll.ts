@@ -11,5 +11,8 @@ export function pageScroller(): HTMLElement | null {
 
 /** Scroll the page back to the top, whichever element owns the scroll. */
 export function scrollPageToTop(behavior: ScrollBehavior = 'smooth'): void {
-  pageScroller()?.scrollTo({ top: 0, behavior })
+  const isReduced =
+    typeof document !== 'undefined' && document.documentElement.dataset.reducedMotion === 'true'
+  const resolvedBehavior = isReduced ? 'auto' : behavior
+  pageScroller()?.scrollTo({ top: 0, behavior: resolvedBehavior })
 }

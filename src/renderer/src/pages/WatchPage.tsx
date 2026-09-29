@@ -298,10 +298,12 @@ export function WatchPage({
     if (!item || !list) return
     const itemRect = item.getBoundingClientRect()
     const listRect = list.getBoundingClientRect()
+    const isReduced = document.documentElement.dataset.reducedMotion === 'true'
+    const scrollBehavior: ScrollBehavior = isReduced ? 'auto' : 'smooth'
     if (itemRect.top < listRect.top) {
-      list.scrollBy({ top: itemRect.top - listRect.top - 8, behavior: 'smooth' })
+      list.scrollBy({ top: itemRect.top - listRect.top - 8, behavior: scrollBehavior })
     } else if (itemRect.bottom > listRect.bottom) {
-      list.scrollBy({ top: itemRect.bottom - listRect.bottom + 8, behavior: 'smooth' })
+      list.scrollBy({ top: itemRect.bottom - listRect.bottom + 8, behavior: scrollBehavior })
     }
   }, [queueIndex])
 

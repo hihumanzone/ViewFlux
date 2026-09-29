@@ -273,6 +273,8 @@ export interface RemotePlaylist {
   continuation: string | null
 }
 
+export type ReduceMotionSetting = 'system' | 'on' | 'off'
+
 export interface Settings {
   sponsorBlockEnabled: boolean
   autoSkip: boolean
@@ -291,6 +293,15 @@ export interface Settings {
   skipSilence: boolean
   /** UI accent color id. */
   accent: string
+  /**
+   * UI motion behavior:
+   * - 'system': Follow operating system preference (prefers-reduced-motion)
+   * - 'on': Force reduce motion (animations & transitions minimized)
+   * - 'off': Force full motion (animations & transitions enabled)
+   */
+  reduceMotion: ReduceMotionSetting
+  /** Whether to respect the system prefers-reduced-motion setting. */
+  respectSystemMotion?: boolean
   /** Automatically play next video in a playlist. */
   autoplayPlaylists: boolean
   /** Store searches in search history. */
@@ -382,6 +393,8 @@ export const DEFAULT_SETTINGS: Settings = {
   preservePitch: true,
   skipSilence: false,
   accent: 'purple',
+  reduceMotion: 'system',
+  respectSystemMotion: true,
   autoplayPlaylists: true,
   saveSearchHistory: true,
   saveWatchHistory: true,

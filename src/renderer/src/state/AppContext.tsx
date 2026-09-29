@@ -43,6 +43,10 @@ interface AppContextValue {
   savedChannels: SavedChannel[]
   channelFolders: ChannelFolder[]
   loaded: boolean
+  /** Whether reduced motion is currently in effect (based on setting and OS preference). */
+  isReducedMotion: boolean
+  /** Whether the host system prefers reduced motion. */
+  systemPrefersReducedMotion: boolean
   saveSettings: (settings: Settings) => Promise<void>
   refreshPlaylists: () => Promise<void>
   refreshHistory: () => Promise<void>
@@ -124,6 +128,39 @@ export function AppProvider({ children }: { children: ReactNode }): React.JSX.El
       setLoaded(true)
     })()
   }, [])
+
+  const [systemPrefersReducedMotion, setSystemPrefersReducedMotion] = useState<boolean>(() => {
+    if (typeof window === 'undefined' || !window.matchMedia) return false
+    return window.matchMedia('(prefers-reduced-motion: reduce)').matches
+  })
+
+  // Listen to OS-level prefers-reduced-motion changes
+  useEffect(() => {
+    if (typeof window === 'undefined' || !window.matchMedia) return
+    const mq = window.matchMedia('(prefers-reduced-motion: reduce)')
+    const onChange = (e: MediaQueryListEvent): void => {
+      setSystemPrefersReducedMotion(e.matches)
+    }
+    if (mq.addEventListener) {
+      mq.addEventListener('change', onChange)
+      return () => mq.removeEventListener('change', onChange)
+    } else {
+      mq.addListener(onChange)
+      return () => mq.removeListener(onChange)
+    }
+  }, [])
+
+  // Resolve whether reduced motion should be active
+  const isReducedMotion = useMemo(() => {
+    if (settings.reduceMotion === 'on') return true
+    if (settings.reduceMotion === 'off') return false
+    return systemPrefersReducedMotion
+  }, [settings.reduceMotion, systemPrefersReducedMotion])
+
+  // Apply reduced motion state to the document root
+  useEffect(() => {
+    document.documentElement.dataset.reducedMotion = isReducedMotion ? 'true' : 'false'
+  }, [isReducedMotion])
 
   // Apply the accent palette to the document root.
   useEffect(() => {
@@ -387,6 +424,8 @@ export function AppProvider({ children }: { children: ReactNode }): React.JSX.El
       savedChannels,
       channelFolders,
       loaded,
+      isReducedMotion,
+      systemPrefersReducedMotion,
       saveSettings,
       refreshPlaylists,
       refreshHistory,
@@ -421,6 +460,8 @@ export function AppProvider({ children }: { children: ReactNode }): React.JSX.El
       savedChannels,
       channelFolders,
       loaded,
+      isReducedMotion,
+      systemPrefersReducedMotion,
       saveSettings,
       refreshPlaylists,
       refreshHistory,
