@@ -30,12 +30,12 @@ nsis:
   oneClick: false
   perMachine: false
   allowToChangeInstallationDirectory: true
-  createDesktopShortcut: always
+  createDesktopShortcut: false
   createStartMenuShortcut: true
   shortcutName: ViewFlux
   uninstallDisplayName: ViewFlux
   artifactName: ViewFlux-Setup-${version}.${ext}
-  deleteAppDataOnUninstall: false
+  deleteAppDataOnUninstall: true
 
 # No native modules are used, so skip the electron-rebuild pass entirely.
 npmRebuild: false
