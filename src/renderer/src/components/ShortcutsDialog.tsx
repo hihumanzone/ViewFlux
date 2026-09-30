@@ -22,6 +22,7 @@ const CATEGORIES: ShortcutCategory[] = [
       { key: 'J, L', desc: 'Seek backward / forward 10 seconds' },
       { key: '←, →', desc: 'Seek backward / forward 5 seconds' },
       { key: '[, ]', desc: 'Previous / Next chapter' },
+      { key: 'Shift + P, Shift + N', desc: 'Previous / Next playlist video' },
       { key: '0 – 9', desc: 'Seek to percentage (0% to 90%)' },
       { key: 'Home, End', desc: 'Jump to beginning / end' },
       { key: '↑, ↓', desc: 'Volume up / down 5%' },
@@ -38,6 +39,7 @@ const CATEGORIES: ShortcutCategory[] = [
     shortcuts: [
       { key: '/ or Ctrl+F', desc: 'Focus search bar' },
       { key: 'Alt + ←', desc: 'Go back to previous screen' },
+      { key: 'Alt + →', desc: 'Go forward to next screen' },
       { key: '?', desc: 'Open keyboard shortcuts sheet' },
       { key: 'Esc', desc: 'Close open dialogs, menus and popovers' }
     ]

@@ -81,6 +81,8 @@ interface AppContextValue {
   removeYoutubePlaylist: (youtubeId: string) => Promise<void>
   /** Updates the cached metadata of a saved YouTube playlist. */
   touchYoutubePlaylist: (playlist: Playlist) => void
+  exportData: () => Promise<string>
+  importData: (json: string) => Promise<{ success: boolean; error?: string; stats?: { playlists: number; savedChannels: number; history: number } }>
   toast: (
     message: string,
     options?: { actionLabel?: string; onAction?: () => void; timeout?: number }
@@ -484,6 +486,31 @@ export function AppProvider({ children }: { children: ReactNode }): React.JSX.El
     await window.api.installUpdate()
   }, [])
 
+  const exportData = useCallback(async (): Promise<string> => {
+    return window.api.exportData()
+  }, [])
+
+  const importData = useCallback(async (json: string) => {
+    const res = await window.api.importData(json)
+    if (res.success) {
+      const [s, p, h, sh, sc, cf] = await Promise.all([
+        window.api.getSettings(),
+        window.api.getPlaylists(),
+        window.api.getHistory(),
+        window.api.getSearchHistory(),
+        window.api.getSavedChannels(),
+        window.api.getChannelFolders()
+      ])
+      setSettings(s)
+      setPlaylists(p)
+      setHistory(h)
+      setSearchHistory(sh)
+      setSavedChannels(sc)
+      setChannelFolders(cf)
+    }
+    return res
+  }, [])
+
   const value = useMemo<AppContextValue>(
     () => ({
       settings,
@@ -519,6 +546,8 @@ export function AppProvider({ children }: { children: ReactNode }): React.JSX.El
       isYoutubePlaylistSaved,
       removeYoutubePlaylist,
       touchYoutubePlaylist,
+      exportData,
+      importData,
       toast,
       confirm,
       updaterStatus,
@@ -559,6 +588,8 @@ export function AppProvider({ children }: { children: ReactNode }): React.JSX.El
       isYoutubePlaylistSaved,
       removeYoutubePlaylist,
       touchYoutubePlaylist,
+      exportData,
+      importData,
       toast,
       confirm,
       updaterStatus,

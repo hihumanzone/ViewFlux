@@ -59,39 +59,36 @@ button {
 }
 
 /* Material 3 Expressive Typography Scale */
-.text-display {
-  font-size: 3rem;
-  line-height: 1.15;
-  font-weight: 700;
-  letter-spacing: -0.02em;
-}
+.text-display-large { font-size: 3.5rem; line-height: 1.12; font-weight: 800; letter-spacing: -0.025em; }
+.text-display-medium { font-size: 2.8rem; line-height: 1.15; font-weight: 700; letter-spacing: -0.02em; }
+.text-display-small { font-size: 2.25rem; line-height: 1.2; font-weight: 700; letter-spacing: -0.015em; }
 
-.text-headline {
-  font-size: 1.85rem;
-  line-height: 1.25;
-  font-weight: 700;
-  letter-spacing: -0.01em;
-}
+.text-headline-large { font-size: 2rem; line-height: 1.25; font-weight: 700; letter-spacing: -0.01em; }
+.text-headline-medium { font-size: 1.75rem; line-height: 1.3; font-weight: 700; letter-spacing: -0.005em; }
+.text-headline-small { font-size: 1.5rem; line-height: 1.35; font-weight: 600; letter-spacing: 0; }
 
-.text-title {
-  font-size: 1.25rem;
-  line-height: 1.35;
-  font-weight: 600;
-  letter-spacing: 0;
-}
+.text-title-large { font-size: 1.375rem; line-height: 1.35; font-weight: 600; letter-spacing: 0; }
+.text-title-medium { font-size: 1.125rem; line-height: 1.4; font-weight: 600; letter-spacing: 0.01em; }
+.text-title-small { font-size: 0.95rem; line-height: 1.45; font-weight: 600; letter-spacing: 0.01em; }
 
-.text-body {
-  font-size: 0.925rem;
-  line-height: 1.5;
-  font-weight: 400;
-}
+.text-body-large { font-size: 1rem; line-height: 1.55; font-weight: 400; letter-spacing: 0.01em; }
+.text-body-medium { font-size: 0.925rem; line-height: 1.5; font-weight: 400; letter-spacing: 0.015em; }
+.text-body-small { font-size: 0.825rem; line-height: 1.45; font-weight: 400; letter-spacing: 0.02em; }
 
-.text-label {
-  font-size: 0.8rem;
-  line-height: 1.4;
-  font-weight: 600;
-  letter-spacing: 0.02em;
-}
+.text-label-large { font-size: 0.875rem; line-height: 1.4; font-weight: 600; letter-spacing: 0.02em; }
+.text-label-medium { font-size: 0.8rem; line-height: 1.4; font-weight: 600; letter-spacing: 0.025em; }
+.text-label-small { font-size: 0.725rem; line-height: 1.35; font-weight: 600; letter-spacing: 0.03em; }
+
+/* Emphasized Treatment */
+.text-emphasized { font-weight: 700 !important; }
+.text-prominent { font-weight: 800 !important; letter-spacing: -0.01em; }
+
+/* Semantic Aliases */
+.text-display { font-size: 3rem; line-height: 1.15; font-weight: 700; letter-spacing: -0.02em; }
+.text-headline { font-size: 1.85rem; line-height: 1.25; font-weight: 700; letter-spacing: -0.01em; }
+.text-title { font-size: 1.25rem; line-height: 1.35; font-weight: 600; letter-spacing: 0; }
+.text-body { font-size: 0.925rem; line-height: 1.5; font-weight: 400; }
+.text-label { font-size: 0.8rem; line-height: 1.4; font-weight: 600; letter-spacing: 0.02em; }
 
 /* Keyboard-only skip link */
 .skip-link {

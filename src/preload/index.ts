@@ -98,6 +98,8 @@ const api: AppApi = {
     ipcRenderer.invoke('playlists:move', id, from, to),
 
   openExternal: (url: string) => ipcRenderer.invoke('app:open-external', url),
+  exportData: () => ipcRenderer.invoke('data:export'),
+  importData: (json: string) => ipcRenderer.invoke('data:import', json),
 
   checkForUpdates: () => ipcRenderer.invoke('updater:check'),
   installUpdate: () => ipcRenderer.invoke('updater:install'),

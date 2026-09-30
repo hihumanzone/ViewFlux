@@ -1,5 +1,7 @@
 import { useRef, type FormEvent } from 'react'
 import { Icon } from './Icons'
+import { resolveYouTubeUrl } from '../lib/youtubeUrl'
+import { navigate } from '../lib/router'
 
 interface InlineSearchProps {
   value: string
@@ -29,8 +31,38 @@ export function InlineSearch({
 }: InlineSearchProps): React.JSX.Element {
   const inputRef = useRef<HTMLInputElement>(null)
 
+  const handlePaste = (event: React.ClipboardEvent<HTMLInputElement>): void => {
+    const text = event.clipboardData?.getData('text')
+    if (text) {
+      const directRoute = resolveYouTubeUrl(text)
+      if (directRoute) {
+        event.preventDefault()
+        onChange('')
+        navigate(directRoute)
+      }
+    }
+  }
+
+  const handleDrop = (event: React.DragEvent<HTMLInputElement>): void => {
+    const text = event.dataTransfer?.getData('text')
+    if (text) {
+      const directRoute = resolveYouTubeUrl(text)
+      if (directRoute) {
+        event.preventDefault()
+        onChange('')
+        navigate(directRoute)
+      }
+    }
+  }
+
   const handleSubmit = (event: FormEvent): void => {
     event.preventDefault()
+    const directRoute = resolveYouTubeUrl(value)
+    if (directRoute) {
+      onChange('')
+      navigate(directRoute)
+      return
+    }
     onSubmit?.(value)
     inputRef.current?.blur()
   }
@@ -51,6 +83,8 @@ export function InlineSearch({
           aria-label={ariaLabel}
           value={value}
           onChange={(event) => onChange(event.target.value)}
+          onPaste={handlePaste}
+          onDrop={handleDrop}
         />
         {value && (
           <button

@@ -1,20 +1,34 @@
 import { Icon } from './Icons'
-import { goBack, useCanGoBack } from '../lib/router'
+import { goBack, goForward, useCanGoBack, useCanGoForward } from '../lib/router'
 
 export function TitleBar(): React.JSX.Element {
   const canBack = useCanGoBack()
+  const canForward = useCanGoForward()
 
   return (
     <header className="titlebar">
-      <button
-        className="titlebar__back"
-        aria-label="Back"
-        disabled={!canBack}
-        onClick={goBack}
-        title="Go back (Alt+Left)"
-      >
-        <Icon name="back" size={18} />
-      </button>
+      <div className="titlebar__nav-group">
+        <button
+          type="button"
+          className="titlebar__nav-btn titlebar__back"
+          aria-label="Back"
+          disabled={!canBack}
+          onClick={goBack}
+          title="Go back (Alt+Left)"
+        >
+          <Icon name="back" size={17} />
+        </button>
+        <button
+          type="button"
+          className="titlebar__nav-btn titlebar__forward"
+          aria-label="Forward"
+          disabled={!canForward}
+          onClick={goForward}
+          title="Go forward (Alt+Right)"
+        >
+          <Icon name="forward" size={17} />
+        </button>
+      </div>
       <div className="titlebar__app-name">
         <span>ViewFlux</span>
       </div>

@@ -42,6 +42,7 @@ export interface UseShakaPlayerProps {
   onTimeUpdate: (position: number, duration: number) => void
   onEnded: () => void
   maybeSkip: (time: number) => void
+  onCaptionsToggle?: (visible: boolean) => void
   onOsd?: (text: string, icon?: string) => void
 }
 
@@ -217,6 +218,7 @@ export function useShakaPlayer({
   onTimeUpdate,
   onEnded,
   maybeSkip,
+  onCaptionsToggle,
   onOsd
 }: UseShakaPlayerProps) {
   const playerRef = useRef<shaka.Player | null>(null)
@@ -526,6 +528,7 @@ export function useShakaPlayer({
         setActiveTextId(null)
         setTextVisible(false)
         onOsd?.('Subtitles: Off', 'captions')
+        onCaptionsToggle?.(false)
       } else {
         const track = player.getTextTracks().find((t) => t.id === id)
         if (track) {
@@ -533,10 +536,11 @@ export function useShakaPlayer({
           setActiveTextId(id)
           setTextVisible(true)
           onOsd?.(`Subtitles: ${track.label || track.language}`, 'captions')
+          onCaptionsToggle?.(true)
         }
       }
     },
-    [onOsd]
+    [onOsd, onCaptionsToggle]
   )
 
   const toggleCaptions = useCallback(() => {

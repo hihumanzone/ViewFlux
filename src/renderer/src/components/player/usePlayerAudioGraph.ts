@@ -18,6 +18,8 @@ export interface UsePlayerAudioGraphProps {
   status: 'loading' | 'ready' | 'error'
   onPitchChange: (value: boolean) => void
   onSkipSilenceChange: (value: boolean) => void
+  onRateChange?: (value: number) => void
+  onVolumeChange?: (value: number) => void
   onOsd?: (text: string, icon?: string) => void
 }
 
@@ -32,6 +34,8 @@ export function usePlayerAudioGraph({
   status,
   onPitchChange,
   onSkipSilenceChange,
+  onRateChange,
+  onVolumeChange,
   onOsd
 }: UsePlayerAudioGraphProps) {
   const safeInitialSpeed = Number.isFinite(initialSpeed) && initialSpeed >= 0.25 ? initialSpeed : 1
@@ -250,8 +254,9 @@ export function usePlayerAudioGraph({
       }
       const pct = Math.round(v * 100)
       onOsd?.(isMuted ? 'Muted' : `${pct}%`, isMuted ? 'volumeOff' : 'volume')
+      onVolumeChange?.(v)
     },
-    [initAudioGraph, onOsd, videoRef]
+    [initAudioGraph, onOsd, onVolumeChange, videoRef]
   )
 
   const toggleMute = useCallback(() => {
@@ -283,8 +288,9 @@ export function usePlayerAudioGraph({
         video.playbackRate = clamped
       }
       onOsd?.(`${clamped === 1 ? 'Normal' : `${clamped.toFixed(2)}×`}`, 'speed')
+      onRateChange?.(clamped)
     },
-    [setBoost, onOsd, videoRef]
+    [setBoost, onOsd, onRateChange, videoRef]
   )
 
   const stepSpeed = useCallback(

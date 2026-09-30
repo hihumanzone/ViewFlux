@@ -491,11 +491,23 @@ export interface AppApi {
   movePlaylistItem(id: string, from: number, to: number): Promise<Playlist>
 
   openExternal(url: string): Promise<void>
+  exportData(): Promise<string>
+  importData(json: string): Promise<DataImportResult>
 
   checkForUpdates(): Promise<UpdaterStatus>
   installUpdate(): Promise<void>
   getUpdaterStatus(): Promise<UpdaterStatus>
   onUpdaterStatus(callback: (status: UpdaterStatus) => void): () => void
+}
+
+export interface DataImportResult {
+  success: boolean
+  error?: string
+  stats?: {
+    playlists: number
+    savedChannels: number
+    history: number
+  }
 }
 
 export type UpdateState =

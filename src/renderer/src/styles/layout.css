@@ -64,6 +64,17 @@
   pointer-events: none;
 }
 
+.titlebar__nav-group {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  -webkit-app-region: no-drag;
+}
+
+.titlebar__nav-btn {
+  -webkit-app-region: no-drag;
+}
+
 .titlebar__back {
   margin-left: 2px;
 }

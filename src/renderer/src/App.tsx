@@ -4,8 +4,10 @@ import { Sidebar } from './components/Sidebar'
 import { ErrorBoundary } from './components/ErrorBoundary'
 import { ShortcutsDialog } from './components/ShortcutsDialog'
 import { ScrollToTop } from './components/ScrollToTop'
-import { goBack, useRoute, type Route } from './lib/router'
+import { SelectionCopyTooltip } from './components/SelectionCopyTooltip'
+import { goBack, goForward, useRoute, type Route } from './lib/router'
 import { scrollPageToTop } from './lib/scroll'
+import { clearPlaylistSession } from './lib/playlistSession'
 import { SearchPage } from './pages/SearchPage'
 import { WatchPage } from './pages/WatchPage'
 import { PlaylistsPage } from './pages/PlaylistsPage'
@@ -77,6 +79,14 @@ export function App(): React.JSX.Element {
         return
       }
 
+      // Alt+Right is the app-wide "forward" gesture. Skip it while typing.
+      if (e.altKey && e.key === 'ArrowRight') {
+        if (isTypingTarget(document.activeElement)) return
+        e.preventDefault()
+        goForward()
+        return
+      }
+
       // `/` focuses search from anywhere, the way every other search-first app
       // behaves. Escape gives the field back, so a stray keypress does not
       // silently steal focus while the user is browsing.
@@ -129,6 +139,16 @@ export function App(): React.JSX.Element {
     }
   }, [])
 
+  // Exit fullscreen if navigating away from watch screen, or clear playlist session when exiting playlist
+  useEffect(() => {
+    if (route.name !== 'watch' && typeof document !== 'undefined' && document.fullscreenElement) {
+      void document.exitFullscreen().catch(() => undefined)
+    }
+    if (route.name !== 'watch' || !route.listId) {
+      clearPlaylistSession()
+    }
+  }, [route.name, route.name === 'watch' ? route.listId : null])
+
   return (
     <div className="app">
       {/* Lets keyboard users jump past the title bar and five nav items on every
@@ -142,6 +162,7 @@ export function App(): React.JSX.Element {
         <ErrorBoundary resetKey={key}>{renderRoute(route)}</ErrorBoundary>
       </main>
       <ScrollToTop />
+      <SelectionCopyTooltip />
       {shortcutsOpen && <ShortcutsDialog onClose={() => setShortcutsOpen(false)} />}
     </div>
   )
@@ -165,7 +186,14 @@ function renderRoute(route: Route): React.JSX.Element | null {
         <SearchPage key={`${route.query}|${route.filter}`} query={route.query} filter={route.filter} />
       )
     case 'watch':
-      return <WatchPage key={route.videoId} videoId={route.videoId} listId={route.listId} />
+      return (
+        <WatchPage
+          key={route.videoId}
+          videoId={route.videoId}
+          listId={route.listId}
+          initialSeek={route.time}
+        />
+      )
     case 'playlists':
       return <PlaylistsPage />
     case 'playlist':

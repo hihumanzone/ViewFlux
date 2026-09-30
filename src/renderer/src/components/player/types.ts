@@ -32,6 +32,13 @@ export interface MediaSessionMeta {
   onPreviousTrack?: () => void
 }
 
+export interface PlaylistNavigation {
+  hasPrevious: boolean
+  hasNext: boolean
+  onPrevious: () => void
+  onNext: () => void
+}
+
 export interface PlayerProps {
   videoId: string
   manifestUrl: string
@@ -71,8 +78,14 @@ export interface PlayerProps {
   onTimeUpdate: (position: number, duration: number) => void
   onEnded: () => void
   onSkipped: (segment: SponsorSegment) => void
+  onSpeedChange?: (speed: number) => void
+  onVolumeChange?: (volume: number) => void
+  onCaptionsToggle?: (visible: boolean) => void
+  onFullscreenChange?: (isFullscreen: boolean) => void
   /** Optional OS media-session metadata; omit to hide the Windows "now playing" card. */
   mediaSession?: MediaSessionMeta | null
+  /** Optional playlist forward/back navigation controls when video is part of a playlist */
+  playlistNavigation?: PlaylistNavigation | null
 }
 
 /**

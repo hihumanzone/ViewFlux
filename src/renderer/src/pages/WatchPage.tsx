@@ -12,6 +12,13 @@ import { scrollPageToTop } from '../lib/scroll'
 import { useAsync } from '../lib/useAsync'
 import { useBrokenImage } from '../lib/useBrokenImage'
 import { readStoredWithLegacy, writeStored } from '../lib/storage'
+import {
+  getPlaylistSession,
+  setPlaylistSpeed,
+  setPlaylistVolume,
+  setPlaylistCaptions,
+  setPlaylistFullscreen
+} from '../lib/playlistSession'
 import { sponsorCategoryLabel, type RydResult, type Settings, type SponsorSegment, type VideoDetails } from '../../../shared/types'
 
 interface QueueItem {
@@ -74,13 +81,20 @@ function renderDescriptionWithTimestamps(
 
 export function WatchPage({
   videoId,
-  listId
+  listId,
+  initialSeek
 }: {
   videoId: string
   listId: string | null
+  initialSeek?: number | null
 }): React.JSX.Element {
   const { settings, playlists, refreshHistory, updateHistoryPosition, saveSettings, toast, getHistoryProgress } = useApp()
   const playerRef = useRef<PlayerHandle>(null)
+
+  const playlistSession = getPlaylistSession(listId)
+  const effectiveSpeed = playlistSession?.speed ?? settings.preferredSpeed
+  const effectiveVolume = playlistSession?.volume ?? settings.defaultVolume
+  const effectiveCaptions = playlistSession?.captionsEnabled ?? settings.alwaysShowCaptions
 
   // Memoised so the SponsorBlock request only refires when a category is
   // actually toggled, not on every unrelated settings write.
@@ -113,8 +127,11 @@ export function WatchPage({
     [videoId],
     { enabled: settings.showDislikes, keepPreviousData: true }
   )
-  const { data: resume = 0, loading: resumeLoading, setData: setResume } = useAsync<number>(
+  const { data: resume = (initialSeek && initialSeek > 0 ? initialSeek : 0), loading: resumeLoading, setData: setResume } = useAsync<number>(
     async () => {
+      if (initialSeek != null && initialSeek > 0) {
+        return initialSeek
+      }
       const history = await window.api.getHistory()
       const entry = history.find((e) => e.videoId === videoId)
       if (!entry) return 0
@@ -125,10 +142,10 @@ export function WatchPage({
         entry.position <= 0.5
       return isCompleted ? 0 : entry.position
     },
-    [videoId],
+    [videoId, initialSeek],
     // A history read that fails should not strand the player in "not ready";
     // falling back to 0 is what the screen would have shown anyway.
-    { initialData: 0 }
+    { initialData: initialSeek && initialSeek > 0 ? initialSeek : 0 }
   )
   const ready = !resumeLoading
   const [descOpen, setDescOpen] = useState(false)
@@ -152,12 +169,18 @@ export function WatchPage({
   useEffect(() => {
     const dur = details?.duration
     if (!dur || dur <= 0) return
+    if (initialSeek != null && initialSeek > 0) {
+      if (initialSeek >= dur - 1) {
+        setResume(0)
+      }
+      return
+    }
     setResume((prev) => {
       const position = prev ?? 0
       if (position >= dur - 5 || position / dur >= 0.95) return 0
       return position
     })
-  }, [details?.duration, setResume])
+  }, [details?.duration, initialSeek, setResume])
 
   // A fresh video starts with the description collapsed again.
   useEffect(() => {
@@ -358,6 +381,26 @@ export function WatchPage({
     playerRef.current?.nextChapter()
   }, [queue, queueIndex])
 
+  const playlistNavigation = useMemo(() => {
+    if (!queue) return null
+    return {
+      hasPrevious: queueIndex > 0,
+      hasNext: queueIndex >= 0 && queueIndex < queue.items.length - 1,
+      onPrevious: () => {
+        if (queue && queueIndex > 0) {
+          const prev = queue.items[queueIndex - 1]
+          if (prev) navigate(`#/watch/${prev.videoId}?list=${queue.id}`)
+        }
+      },
+      onNext: () => {
+        if (queue && queueIndex >= 0 && queueIndex < queue.items.length - 1) {
+          const next = queue.items[queueIndex + 1]
+          if (next) navigate(`#/watch/${next.videoId}?list=${queue.id}`)
+        }
+      }
+    }
+  }, [queue, queueIndex])
+
   const updateSettings = useCallback(
     (patch: Partial<Settings>) => {
       void saveSettings({ ...settings, ...patch })
@@ -456,7 +499,7 @@ export function WatchPage({
 
   if (loading) {
     return (
-      <div className="page">
+      <div className={`page${typeof document !== 'undefined' && document.fullscreenElement ? ' page--fullscreen' : ''}`}>
         <Loader label="Loading video…" />
       </div>
     )
@@ -511,17 +554,30 @@ export function WatchPage({
               segments={segments}
               autoSkip={settings.autoSkip}
               sponsorBlockEnabled={settings.sponsorBlockEnabled}
-              alwaysShowCaptions={settings.alwaysShowCaptions}
+              alwaysShowCaptions={effectiveCaptions}
               subtitleStyle={settings.subtitleStyle}
-              initialVolume={settings.defaultVolume}
-              initialSpeed={settings.preferredSpeed}
+              initialVolume={effectiveVolume}
+              initialSpeed={effectiveSpeed}
               preferredQuality={settings.preferredQuality}
               preservePitch={settings.preservePitch}
               skipSilence={settings.skipSilence}
               defaultAudioLanguage={details.defaultAudioLanguage ?? null}
+              playlistNavigation={playlistNavigation}
               onPitchChange={(value) => updateSettings({ preservePitch: value })}
               onSkipSilenceChange={(value) => updateSettings({ skipSilence: value })}
               onSubtitleStyleChange={(subtitleStyle) => updateSettings({ subtitleStyle })}
+              onSpeedChange={(speed) => {
+                if (listId) setPlaylistSpeed(listId, speed)
+              }}
+              onVolumeChange={(volume) => {
+                if (listId) setPlaylistVolume(listId, volume)
+              }}
+              onCaptionsToggle={(enabled) => {
+                if (listId) setPlaylistCaptions(listId, enabled)
+              }}
+              onFullscreenChange={(isFs) => {
+                if (listId) setPlaylistFullscreen(listId, isFs)
+              }}
               onTimeUpdate={onTimeUpdate}
               onEnded={onEnded}
               onSkipped={onSkipped}

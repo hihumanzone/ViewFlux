@@ -4,6 +4,7 @@ import { ChannelCard, PlaylistCard } from '../components/ResultCards'
 import { EmptyState, Loader } from '../components/EmptyState'
 import { Icon } from '../components/Icons'
 import { navigate, searchRoute } from '../lib/router'
+import { resolveYouTubeUrl } from '../lib/youtubeUrl'
 import { useApp } from '../state/AppContext'
 import { formatRelative } from '../lib/format'
 import type { SearchFilter, SearchItem, VideoSummary } from '../../../shared/types'
@@ -74,6 +75,11 @@ export function SearchPage({
       setError(null)
       return
     }
+    const directRoute = resolveYouTubeUrl(q)
+    if (directRoute) {
+      navigate(directRoute)
+      return
+    }
     if (settings.saveSearchHistory) void recordSearch(q)
     setLoading(true)
     setError(null)
@@ -134,12 +140,50 @@ export function SearchPage({
       setShowSuggestions(false)
       return
     }
+    const directRoute = resolveYouTubeUrl(value)
+    if (directRoute) {
+      setSuggestions([])
+      setShowSuggestions(false)
+      setInput('')
+      navigate(directRoute)
+      return
+    }
     suggTimer.current = window.setTimeout(() => {
       void window.api.suggestions(value.trim()).then((items) => {
         setSuggestions(items)
         setShowSuggestions(items.length > 0)
       })
     }, 180)
+  }
+
+  const onInputPaste = (event: React.ClipboardEvent<HTMLInputElement>): void => {
+    const text = event.clipboardData?.getData('text')
+    if (text) {
+      const directRoute = resolveYouTubeUrl(text)
+      if (directRoute) {
+        event.preventDefault()
+        if (suggTimer.current) window.clearTimeout(suggTimer.current)
+        setShowSuggestions(false)
+        setActiveSuggestion(-1)
+        setInput('')
+        navigate(directRoute)
+      }
+    }
+  }
+
+  const onInputDrop = (event: React.DragEvent<HTMLInputElement>): void => {
+    const text = event.dataTransfer?.getData('text')
+    if (text) {
+      const directRoute = resolveYouTubeUrl(text)
+      if (directRoute) {
+        event.preventDefault()
+        if (suggTimer.current) window.clearTimeout(suggTimer.current)
+        setShowSuggestions(false)
+        setActiveSuggestion(-1)
+        setInput('')
+        navigate(directRoute)
+      }
+    }
   }
 
   const searchStatus = useMemo(() => {
@@ -158,6 +202,13 @@ export function SearchPage({
     setShowSuggestions(false)
     setActiveSuggestion(-1)
     if (!q) return
+    const directRoute = resolveYouTubeUrl(q)
+    if (directRoute) {
+      if (suggTimer.current) window.clearTimeout(suggTimer.current)
+      setInput('')
+      navigate(directRoute)
+      return
+    }
     navigate(searchRoute(q, filter))
   }
 
@@ -244,6 +295,8 @@ export function SearchPage({
             }
             aria-label="Search"
             onChange={(e) => onInputChange(e.target.value)}
+            onPaste={onInputPaste}
+            onDrop={onInputDrop}
             onKeyDown={onInputKeyDown}
             onFocus={() => suggestions.length > 0 && setShowSuggestions(true)}
             onBlur={() => window.setTimeout(() => setShowSuggestions(false), 140)}

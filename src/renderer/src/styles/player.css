@@ -15,8 +15,15 @@
   box-shadow: var(--shadow-3);
 }
 
+:fullscreen .player,
 .player:fullscreen,
 .player--fullscreen {
+  position: fixed;
+  inset: 0;
+  width: 100vw;
+  height: 100vh;
+  z-index: 1000;
+  background: #000;
   aspect-ratio: auto;
   border-radius: 0;
   overflow: visible;
@@ -110,6 +117,7 @@
   font-weight: 600;
   letter-spacing: 0.01em;
   white-space: nowrap;
+  user-select: text;
 }
 
 .player__overlay {
@@ -210,6 +218,13 @@
   border-radius: 14px;
 }
 
+.player .icon-btn:disabled {
+  opacity: 0.35;
+  cursor: default;
+  pointer-events: none;
+  transform: none !important;
+}
+
 .player .player__btn--tonal {
   border-radius: 16px;
   background: color-mix(in srgb, var(--surface-3) 55%, rgb(0 0 0 / 0.45));
@@ -283,6 +298,7 @@
   font-variant-numeric: tabular-nums;
   color: rgb(255 255 255 / 0.95);
   white-space: nowrap;
+  user-select: text;
 }
 
 .player__time-total {
@@ -373,6 +389,8 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  user-select: text;
+  cursor: text;
 }
 
 .player__spacer {
@@ -876,6 +894,7 @@
   text-align: center;
   background: rgb(10 12 16 / 0.92);
   animation: page-in var(--t-med) var(--ease-out);
+  user-select: text;
 }
 
 .player__error-icon {
@@ -1124,6 +1143,9 @@
   text-shadow: var(--subtitle-shadow, 0 2px 4px rgb(0 0 0 / 0.9)) !important;
   font-weight: 600 !important;
   line-height: 1.35 !important;
+  pointer-events: auto !important;
+  user-select: text !important;
+  cursor: text;
 }
 
 .player .shaka-text-container :is(div, span):not(:has(> *)) {
@@ -1387,3 +1409,41 @@
   padding: 0 8px;
   font-size: 12px;
 }
+
+/* ---- Floating left-click selection copy pill ---- */
+.selection-copy-pill {
+  position: fixed;
+  z-index: 100000;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  border-radius: var(--r-full);
+  background: color-mix(in srgb, var(--surface-4) 92%, #000);
+  color: var(--on-surface);
+  border: 1px solid color-mix(in srgb, var(--outline) 40%, transparent);
+  box-shadow: 0 4px 16px rgb(0 0 0 / 0.5), 0 1px 3px rgb(0 0 0 / 0.3);
+  backdrop-filter: blur(12px);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  user-select: none;
+  animation: modal-enter var(--t-fast) var(--ease-spring);
+  transition: transform var(--t-fast) var(--ease-out), background var(--t-fast) var(--ease-out), color var(--t-fast) var(--ease-out);
+}
+
+.selection-copy-pill:hover {
+  background: var(--surface-5);
+  transform: translateY(-1px) scale(1.04);
+}
+
+.selection-copy-pill:active {
+  transform: translateY(0) scale(0.96);
+}
+
+.selection-copy-pill--copied {
+  background: var(--primary-container);
+  color: var(--on-primary-container);
+  border-color: color-mix(in srgb, var(--primary) 50%, transparent);
+}
+

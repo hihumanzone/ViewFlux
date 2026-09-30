@@ -229,6 +229,9 @@ function registerIpc(): void {
       throw new Error('Could not open that link')
     }
   })
+
+  ipcMain.handle('data:export', () => store.exportData())
+  ipcMain.handle('data:import', (_e, json: string) => store.importData(json))
 }
 
 function setupWebRequest(): void {

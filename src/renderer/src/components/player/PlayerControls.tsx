@@ -1,7 +1,7 @@
 import { memo, useCallback, useEffect, useState } from 'react'
 import { Icon } from '../Icons'
 import { formatTime as fmt } from '../../lib/format'
-import type { AudioTrack, Chapter, MenuKind, TextTrack } from './types'
+import type { AudioTrack, Chapter, MenuKind, PlaylistNavigation, TextTrack } from './types'
 
 export interface PlayerControlsProps {
   playing: boolean
@@ -21,6 +21,7 @@ export interface PlayerControlsProps {
   skipSilence: boolean
   fullscreen: boolean
   activeMenu?: MenuKind | null
+  playlistNavigation?: PlaylistNavigation | null
   onTogglePlay: () => void
   onToggleMute: () => void
   onChangeVolume: (volume: number) => void
@@ -56,6 +57,7 @@ export const PlayerControls = memo(function PlayerControls({
   skipSilence,
   fullscreen,
   activeMenu,
+  playlistNavigation,
   onTogglePlay,
   onToggleMute,
   onChangeVolume,
@@ -85,14 +87,43 @@ export const PlayerControls = memo(function PlayerControls({
 
   return (
     <div className="player__controls">
+      {/* Playlist navigation: Previous */}
+      {playlistNavigation && (
+        <button
+          type="button"
+          className="icon-btn player__btn--tonal"
+          aria-label="Previous video"
+          title="Previous video"
+          disabled={!playlistNavigation.hasPrevious}
+          onClick={playlistNavigation.onPrevious}
+        >
+          <Icon name="skipPrevious" size={20} />
+        </button>
+      )}
+
       {/* Play/Pause */}
       <button
+        type="button"
         className="icon-btn player__btn--hero"
         aria-label={playing ? 'Pause' : 'Play'}
         onClick={onTogglePlay}
       >
         <Icon name={playing ? 'pause' : 'play'} size={24} />
       </button>
+
+      {/* Playlist navigation: Next */}
+      {playlistNavigation && (
+        <button
+          type="button"
+          className="icon-btn player__btn--tonal"
+          aria-label="Next video"
+          title="Next video"
+          disabled={!playlistNavigation.hasNext}
+          onClick={playlistNavigation.onNext}
+        >
+          <Icon name="skipNext" size={20} />
+        </button>
+      )}
 
       {/* Volume group */}
       <div className="player__volume">

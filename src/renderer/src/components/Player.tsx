@@ -92,7 +92,9 @@ export const Player = forwardRef<PlayerHandle, PlayerProps>(function Player(
   const [controlsVisible, setControlsVisible] = useState(true)
   const [menu, setMenu] = useState<MenuKind | null>(null)
   const [menuAnchor, setMenuAnchor] = useState<HTMLElement | null>(null)
-  const [fullscreen, setFullscreen] = useState(false)
+  const [fullscreen, setFullscreen] = useState(
+    () => typeof document !== 'undefined' && Boolean(document.fullscreenElement)
+  )
   const [posterVisible, setPosterVisible] = useState(true)
   /** Measured heights of the stage and the control overlay, see the effect below. */
   const [{ controls: controlsHeight, stage: stageHeight }, setStageMetrics] = useState({
@@ -144,6 +146,7 @@ export const Player = forwardRef<PlayerHandle, PlayerProps>(function Player(
     onTimeUpdate: props.onTimeUpdate,
     onEnded: props.onEnded,
     maybeSkip,
+    onCaptionsToggle: props.onCaptionsToggle,
     onOsd: showOsd
   })
 
@@ -167,26 +170,29 @@ export const Player = forwardRef<PlayerHandle, PlayerProps>(function Player(
     status: shaka.status,
     onPitchChange,
     onSkipSilenceChange,
+    onRateChange: props.onSpeedChange,
+    onVolumeChange: props.onVolumeChange,
     onOsd: showOsd
   })
 
   // Fullscreen sync
   useEffect(() => {
     const onFsChange = (): void => {
-      setFullscreen(document.fullscreenElement === containerRef.current)
+      const isFs = Boolean(document.fullscreenElement)
+      setFullscreen(isFs)
+      props.onFullscreenChange?.(isFs)
     }
+    setFullscreen(Boolean(document.fullscreenElement))
     document.addEventListener('fullscreenchange', onFsChange)
     return () => document.removeEventListener('fullscreenchange', onFsChange)
-  }, [])
+  }, [props.onFullscreenChange])
 
   const toggleFullscreen = useCallback(() => {
-    const el = containerRef.current
-    if (!el) return
     if (document.fullscreenElement) {
-      void document.exitFullscreen()
+      void document.exitFullscreen().catch(() => undefined)
       showOsd('Exit fullscreen', 'fullscreenExit')
     } else {
-      void el.requestFullscreen().catch(() => undefined)
+      void document.documentElement.requestFullscreen().catch(() => undefined)
       showOsd('Fullscreen', 'fullscreen')
     }
   }, [showOsd])
@@ -433,11 +439,18 @@ export const Player = forwardRef<PlayerHandle, PlayerProps>(function Player(
     onTogglePip: togglePip,
     onStepSpeed: audioGraph.stepSpeed,
     onCloseMenu: closeMenu,
-    onRevealControls: revealControls
+    onRevealControls: revealControls,
+    onPreviousVideo: props.playlistNavigation?.onPrevious,
+    onNextVideo: props.playlistNavigation?.onNext
   })
 
   // Stage click/double click
   const onStageClick = useCallback((): void => {
+    // If text was selected (e.g. subtitle, chapter, title), do not toggle play
+    const sel = window.getSelection()
+    if (sel && sel.toString().trim().length > 0) {
+      return
+    }
     if (menuRef.current !== null) {
       closeMenu()
       return
@@ -454,6 +467,10 @@ export const Player = forwardRef<PlayerHandle, PlayerProps>(function Player(
   }, [shaka, closeMenu])
 
   const onStageDoubleClick = useCallback((): void => {
+    const sel = window.getSelection()
+    if (sel && sel.toString().trim().length > 0) {
+      return
+    }
     if (clickTimerRef.current != null) {
       window.clearTimeout(clickTimerRef.current)
       clickTimerRef.current = null
@@ -624,6 +641,7 @@ export const Player = forwardRef<PlayerHandle, PlayerProps>(function Player(
               skipSilence={liveStream ? false : skipSilence}
               fullscreen={fullscreen}
               activeMenu={menu}
+              playlistNavigation={props.playlistNavigation}
               onTogglePlay={shaka.togglePlay}
               onToggleMute={audioGraph.toggleMute}
               onChangeVolume={audioGraph.changeVolume}

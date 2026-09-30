@@ -10,6 +10,18 @@
   animation: page-in var(--t-slow) var(--ease-out);
 }
 
+:fullscreen .page--fullscreen {
+  position: fixed;
+  inset: 0;
+  width: 100vw;
+  height: 100vh;
+  z-index: 1000;
+  background: #0f0d13;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
 .page__header {
   display: flex;
   align-items: flex-start;
@@ -457,6 +469,7 @@
 .watch__channel-name {
   font-size: 15px;
   font-weight: 700;
+  user-select: text;
 }
 
 .watch__channel-group {
@@ -949,6 +962,7 @@
   -webkit-box-orient: vertical;
   overflow: hidden;
   overflow-wrap: anywhere;
+  user-select: text;
 }
 
 .queue__meta {

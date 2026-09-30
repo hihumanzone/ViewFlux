@@ -66,8 +66,58 @@ export function SettingsPage(): React.JSX.Element {
     systemPrefersReducedMotion,
     updaterStatus,
     checkForUpdates,
-    installUpdate
+    installUpdate,
+    exportData,
+    importData
   } = useApp()
+
+  const handleExport = async (): Promise<void> => {
+    try {
+      const json = await exportData()
+      const blob = new Blob([json], { type: 'application/json' })
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      const d = new Date()
+      const dateStr = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+      a.href = url
+      a.download = `viewflux-backup-${dateStr}.json`
+      document.body.appendChild(a)
+      a.click()
+      document.body.removeChild(a)
+      URL.revokeObjectURL(url)
+      toast('Backup exported successfully')
+    } catch {
+      toast('Failed to export backup')
+    }
+  }
+
+  const handleImport = async (e: React.ChangeEvent<HTMLInputElement>): Promise<void> => {
+    const file = e.target.files?.[0]
+    e.target.value = ''
+    if (!file) return
+
+    const ok = await confirm('Restore library data from this backup? Your existing data will be updated.', {
+      confirmLabel: 'Restore backup',
+      danger: false
+    })
+    if (!ok) return
+
+    try {
+      const text = await file.text()
+      const res = await importData(text)
+      if (res.success) {
+        const stats = res.stats
+        const summary = stats
+          ? `${stats.playlists} playlists, ${stats.savedChannels} channels, ${stats.history} watched`
+          : 'Backup'
+        toast(`Restored successfully (${summary})`)
+      } else {
+        toast(`Import failed: ${res.error || 'Invalid file format'}`)
+      }
+    } catch {
+      toast('Could not read backup file')
+    }
+  }
 
   /**
    * Persist a change and confirm it once. Used for one-shot controls (switches,
@@ -390,6 +440,41 @@ export function SettingsPage(): React.JSX.Element {
               )
             })}
           </div>
+        </section>
+
+        <section className="settings-section">
+          <div className="settings-section__heading">
+            <Icon name="folder" size={18} />
+            Backup & Restore
+          </div>
+          <Row
+            label="Export library data"
+            hint="Export all your playlists, saved channels, watch history and settings to a JSON file."
+          >
+            <button
+              type="button"
+              className="btn btn--tonal btn--sm"
+              onClick={() => void handleExport()}
+            >
+              <Icon name="download" size={16} />
+              Export backup
+            </button>
+          </Row>
+          <Row
+            label="Import library data"
+            hint="Restore your playlists, bookmarks and history from a previously exported ViewFlux backup."
+          >
+            <label className="btn btn--tonal btn--sm" style={{ cursor: 'pointer' }}>
+              <Icon name="copy" size={16} />
+              Import backup
+              <input
+                type="file"
+                accept=".json"
+                style={{ display: 'none' }}
+                onChange={(e) => void handleImport(e)}
+              />
+            </label>
+          </Row>
         </section>
 
         <section className="settings-section">

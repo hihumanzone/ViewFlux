@@ -25,6 +25,8 @@ export interface UsePlayerHotkeysProps {
   onStepSpeed: (direction: -1 | 1) => void
   onCloseMenu: () => void
   onRevealControls: () => void
+  onPreviousVideo?: () => void
+  onNextVideo?: () => void
 }
 
 export function usePlayerHotkeys({
@@ -45,7 +47,9 @@ export function usePlayerHotkeys({
   onTogglePip,
   onStepSpeed,
   onCloseMenu,
-  onRevealControls
+  onRevealControls,
+  onPreviousVideo,
+  onNextVideo
 }: UsePlayerHotkeysProps) {
   const onKeyDown = useCallback(
     (event: React.KeyboardEvent | KeyboardEvent) => {
@@ -118,9 +122,42 @@ export function usePlayerHotkeys({
           onToggleFullscreen()
           break
         case 'c':
-        case 'C':
+        case 'C': {
+          const isCtrlOrMeta = event.ctrlKey || event.metaKey
+          const selection = window.getSelection()
+          const selectedText = selection ? selection.toString() : ''
+          const hasSelection = selectedText.trim().length > 0
+
+          if (isCtrlOrMeta) {
+            if (hasSelection) {
+              // Context-sensitive Ctrl+C:
+              // If text is currently selected, Ctrl+C should copy that text and should not toggle captions.
+              void navigator.clipboard.writeText(selectedText).catch(() => undefined)
+              return
+            } else {
+              // If no text is selected, Ctrl+C should toggle captions as usual.
+              event.preventDefault()
+              onToggleCaptions()
+              break
+            }
+          }
+
+          // Plain 'c' or 'C' without Ctrl toggles captions as usual
           event.preventDefault()
           onToggleCaptions()
+          break
+        }
+        case 'N':
+          if (event.shiftKey && onNextVideo) {
+            event.preventDefault()
+            onNextVideo()
+          }
+          break
+        case 'P':
+          if (event.shiftKey && onPreviousVideo) {
+            event.preventDefault()
+            onPreviousVideo()
+          }
           break
         case 'i':
         case 'I':
@@ -175,7 +212,9 @@ export function usePlayerHotkeys({
       onTogglePip,
       onStepSpeed,
       onCloseMenu,
-      onRevealControls
+      onRevealControls,
+      onPreviousVideo,
+      onNextVideo
     ]
   )
 

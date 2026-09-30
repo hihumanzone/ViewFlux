@@ -519,4 +519,48 @@ export class Store {
       this.scheduleSave()
     }
   }
+
+  // ---- Backup & Restore (Export / Import) -----------------------------------
+  exportData(): string {
+    const payload = {
+      app: 'ViewFlux',
+      schemaVersion: SCHEMA_VERSION,
+      exportedAt: Date.now(),
+      data: structuredClone(this.data)
+    }
+    return JSON.stringify(payload, null, 2)
+  }
+
+  async importData(jsonContent: string): Promise<{
+    success: boolean
+    error?: string
+    stats?: { playlists: number; savedChannels: number; history: number }
+  }> {
+    try {
+      const parsed = JSON.parse(jsonContent)
+      if (!parsed || typeof parsed !== 'object') {
+        return { success: false, error: 'Invalid backup file: not a JSON object' }
+      }
+      const dataToImport = (parsed.data && typeof parsed.data === 'object' ? parsed.data : parsed) as Partial<AppData>
+
+      this.adopt(dataToImport)
+      this.dirty = true
+      this.isStructuralDirty = true
+      await this.flush()
+
+      return {
+        success: true,
+        stats: {
+          playlists: this.data.playlists.length,
+          savedChannels: this.data.savedChannels.length,
+          history: this.data.history.length
+        }
+      }
+    } catch (err: unknown) {
+      return {
+        success: false,
+        error: err instanceof Error ? err.message : 'Failed to parse JSON backup file'
+      }
+    }
+  }
 }

@@ -3,7 +3,7 @@ import type { SearchFilter } from '../../../shared/types'
 
 export type Route =
   | { name: 'search'; query: string; filter: SearchFilter }
-  | { name: 'watch'; videoId: string; listId: string | null }
+  | { name: 'watch'; videoId: string; listId: string | null; time?: number | null }
   | { name: 'playlists' }
   | { name: 'playlist'; id: string }
   | { name: 'history' }
@@ -33,10 +33,19 @@ export function parse(hash: string): Route {
   const segments = path.split('/').filter(Boolean)
 
   switch (segments[0]) {
-    case 'watch':
-      if (segments[1])
-        return { name: 'watch', videoId: segments[1], listId: params.get('list') }
+    case 'watch': {
+      if (segments[1]) {
+        const timeStr = params.get('t')
+        const timeVal = timeStr ? parseInt(timeStr, 10) : null
+        return {
+          name: 'watch',
+          videoId: segments[1],
+          listId: params.get('list'),
+          time: Number.isFinite(timeVal) && timeVal! > 0 ? timeVal : null
+        }
+      }
       return { name: 'search', query: '', filter: 'all' }
+    }
     case 'playlists':
       return { name: 'playlists' }
     case 'playlist':
@@ -48,9 +57,11 @@ export function parse(hash: string): Route {
       return { name: 'settings' }
     case 'channels':
       return { name: 'channels', tab: params.get('tab') }
-    case 'channel':
-      if (segments[1]) return { name: 'channel', channelId: segments[1], tab: params.get('tab') }
+    case 'channel': {
+      const channelId = segments.slice(1).map(decodeURIComponent).join('/')
+      if (channelId) return { name: 'channel', channelId, tab: params.get('tab') }
       return { name: 'search', query: '', filter: 'all' }
+    }
     case 'ytpl':
       if (segments[1]) return { name: 'ytpl', playlistId: segments[1] }
       return { name: 'search', query: '', filter: 'all' }
@@ -108,6 +119,7 @@ let hierarchyStack: string[] = [
     ? normalizeHash(window.location.hash)
     : '#/search'
 ]
+let forwardStack: string[] = []
 const subscribers = new Set<() => void>()
 
 function notify(): void {
@@ -165,13 +177,17 @@ export function routeLinkProps(to: string): {
   }
 }
 
-export function navigate(to: string): void {
+export function navigate(to: string, clearForward = true): void {
   const target = normalizeHash(to)
   const current = normalizeHash(window.location.hash)
 
   if (target === current) {
     window.dispatchEvent(new HashChangeEvent('hashchange'))
     return
+  }
+
+  if (clearForward) {
+    forwardStack = []
   }
 
   const fromRoute = parse(current)
@@ -235,7 +251,8 @@ export function goBack(): void {
 
   // If stack has multiple entries, pop to the parent
   if (hierarchyStack.length > 1) {
-    hierarchyStack.pop()
+    const popped = hierarchyStack.pop()!
+    forwardStack.push(popped)
     const target = hierarchyStack[hierarchyStack.length - 1]
     window.location.hash = target
     notify()
@@ -246,10 +263,21 @@ export function goBack(): void {
   const route = parse(current)
   const parent = getLogicalParent(route)
   if (parent) {
+    forwardStack.push(current)
     hierarchyStack = isRootHash(parent) ? ['#/search'] : ['#/search', parent]
     window.location.hash = parent
     notify()
   }
+}
+
+export function canGoForward(): boolean {
+  return forwardStack.length > 0
+}
+
+export function goForward(): void {
+  if (forwardStack.length === 0) return
+  const next = forwardStack.pop()!
+  navigate(next, false)
 }
 
 export function useCanGoBack(): boolean {
@@ -266,6 +294,22 @@ export function useCanGoBack(): boolean {
   }, [])
 
   return canBack
+}
+
+export function useCanGoForward(): boolean {
+  const [canForward, setCanForward] = useState(() => canGoForward())
+
+  useEffect(() => {
+    const update = (): void => setCanForward(canGoForward())
+    subscribers.add(update)
+    window.addEventListener('hashchange', update)
+    return () => {
+      subscribers.delete(update)
+      window.removeEventListener('hashchange', update)
+    }
+  }, [])
+
+  return canForward
 }
 
 export function useRoute(): Route {

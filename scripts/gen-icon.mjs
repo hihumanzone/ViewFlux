@@ -259,14 +259,3 @@ const icoLayers = icoSizes.map((sz) => {
 const ico = buildIco(icoLayers)
 writeFileSync(OUT_ICO, ico)
 console.log(`Wrote ${OUT_ICO} (${ico.length} bytes with sizes: ${icoSizes.join(', ')})`)
-
-// 3. Generate NSIS installer bitmaps on Windows
-if (process.platform === 'win32') {
-  try {
-    const psScript = resolve(dirname(fileURLToPath(import.meta.url)), 'gen-installer-bitmaps.ps1')
-    const { execSync } = await import('node:child_process')
-    execSync(`powershell -ExecutionPolicy Bypass -File "${psScript}"`, { stdio: 'inherit' })
-  } catch (err) {
-    console.warn('Could not generate installer bitmaps:', err.message)
-  }
-}
