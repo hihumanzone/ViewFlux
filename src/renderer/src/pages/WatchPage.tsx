@@ -79,7 +79,7 @@ export function WatchPage({
   videoId: string
   listId: string | null
 }): React.JSX.Element {
-  const { settings, playlists, refreshHistory, saveSettings, toast, getHistoryProgress } = useApp()
+  const { settings, playlists, refreshHistory, updateHistoryPosition, saveSettings, toast, getHistoryProgress } = useApp()
   const playerRef = useRef<PlayerHandle>(null)
 
   // Memoised so the SponsorBlock request only refires when a category is
@@ -310,22 +310,22 @@ export function WatchPage({
   const onEnded = useCallback(() => {
     // When a video finishes, reset its saved history position to 0 so watching it again starts at beginning
     if (settings.saveWatchHistory) {
-      void window.api.updateHistoryPosition(videoId, 0)
+      updateHistoryPosition(videoId, 0, details?.duration)
     }
     if (settings.autoplayPlaylists && queue && queueIndex >= 0) {
       const next = queue.items[queueIndex + 1]
       if (next) navigate(`#/watch/${next.videoId}?list=${queue.id}`)
     }
-  }, [videoId, queue, queueIndex, settings.autoplayPlaylists, settings.saveWatchHistory])
+  }, [videoId, queue, queueIndex, details?.duration, settings.autoplayPlaylists, settings.saveWatchHistory, updateHistoryPosition])
 
   const onTimeUpdate = useCallback(
     (position: number, duration: number) => {
       if (!settings.saveWatchHistory) return
       // If watched near the end (within 5 seconds or >=95%), record 0 so it restarts next time
       const isCompleted = duration > 0 && (position >= duration - 5 || position / duration >= 0.95)
-      void window.api.updateHistoryPosition(videoId, isCompleted ? 0 : position)
+      updateHistoryPosition(videoId, isCompleted ? 0 : position, duration)
     },
-    [videoId, settings.saveWatchHistory]
+    [videoId, settings.saveWatchHistory, updateHistoryPosition]
   )
 
   const onSkipped = useCallback(
@@ -367,20 +367,77 @@ export function WatchPage({
 
   const copyLink = useCopyLink()
 
-  // The playlist list is the only scroller in the pane, so a wheel that lands
-  // on the pane's chrome — the header, the padding, the gaps between rows — has
-  // no scrollable ancestor of its own and would do nothing. Hand those deltas
-  // to the list so hovering anywhere in the pane scrolls it.
-  const onQueueWheel = useCallback((event: React.WheelEvent<HTMLElement>) => {
-    const list = event.currentTarget.querySelector<HTMLElement>('.queue')
-    if (!list || event.deltaY === 0) return
-    // Over the list itself the browser scrolls it natively — do not double up.
-    if (event.target === list || list.contains(event.target as Node)) return
-    const max = list.scrollHeight - list.clientHeight
-    const next = Math.min(max, Math.max(0, list.scrollTop + event.deltaY))
-    if (next === list.scrollTop) return
-    list.scrollTop = next
-  }, [])
+  const queueAsideRef = useRef<HTMLElement>(null)
+
+  useEffect(() => {
+    const aside = queueAsideRef.current
+    if (!aside) return
+
+    const handleWheel = (event: WheelEvent): void => {
+      if (event.deltaY === 0) return
+
+      const isBelow = window.innerWidth <= 1200
+      const list = aside.querySelector<HTMLElement>('.queue')
+      if (!list) return
+
+      if (!isBelow) {
+        // Desktop side-by-side mode:
+        // When cursor is over header or chrome (not the list itself), hand deltas to list
+        if (event.target !== list && !list.contains(event.target as Node)) {
+          const max = list.scrollHeight - list.clientHeight
+          const next = Math.min(max, Math.max(0, list.scrollTop + event.deltaY))
+          if (next !== list.scrollTop) {
+            list.scrollTop = next
+            event.preventDefault()
+          }
+        }
+        return
+      }
+
+      // Stacked mode (playlist is below description):
+      const page =
+        aside.closest<HTMLElement>('.content') ??
+        document.querySelector<HTMLElement>('.content')
+      if (!page) return
+
+      const isPageAtBottom =
+        Math.ceil(page.scrollTop + page.clientHeight) >= page.scrollHeight - 2
+      const isQueueAtTop = list.scrollTop <= 0
+      const isQueueAtBottom =
+        Math.ceil(list.scrollTop + list.clientHeight) >= list.scrollHeight - 2
+
+      if (event.deltaY > 0) {
+        // Scrolling DOWN: Prioritize page scrolling until page reaches bottom
+        if (!isPageAtBottom) {
+          event.preventDefault()
+          page.scrollTop += event.deltaY
+        } else {
+          // Page is at bottom: scroll down playlist items
+          if (!isQueueAtBottom) {
+            if (event.target !== list && !list.contains(event.target as Node)) {
+              event.preventDefault()
+              list.scrollTop += event.deltaY
+            }
+          }
+        }
+      } else {
+        // Scrolling UP: Prioritize playlist scrolling until it reaches the top
+        if (!isQueueAtTop) {
+          if (event.target !== list && !list.contains(event.target as Node)) {
+            event.preventDefault()
+            list.scrollTop = Math.max(0, list.scrollTop + event.deltaY)
+          }
+        } else {
+          // Playlist is at top: scroll the whole page up
+          event.preventDefault()
+          page.scrollTop = Math.max(0, page.scrollTop + event.deltaY)
+        }
+      }
+    }
+
+    aside.addEventListener('wheel', handleWheel, { passive: false })
+    return () => aside.removeEventListener('wheel', handleWheel)
+  }, [queue, queueCollapsed])
 
   const playerMediaSession = useMemo(
     () =>
@@ -421,11 +478,22 @@ export function WatchPage({
   const dislikes = ryd?.dislikes ?? null
 
   const hasChapters = Boolean(details?.chapters && details.chapters.length > 0)
-  const showQueue = Boolean(queue && !queueCollapsed)
-  const showSide = showQueue
+  const positionText = queue
+    ? queueIndex >= 0
+      ? `${queueIndex + 1} / ${queue.items.length}`
+      : `${queue.items.length}`
+    : ''
 
   return (
-    <div className={`watch${showSide ? '' : ' watch--solo'}`}>
+    <div
+      className={`watch${
+        queue
+          ? queueCollapsed
+            ? ' watch--queue-collapsed'
+            : ' watch--has-queue'
+          : ' watch--solo'
+      }`}
+    >
       <div className="watch__main">
         <div className="watch__player">
           {details.playable && details.manifestUrl && ready ? (
@@ -587,13 +655,13 @@ export function WatchPage({
             {queue && (
               <button
                 type="button"
-                className="chip"
+                className={`chip watch__queue-toggle${!queueCollapsed ? ' chip--active' : ''}`}
                 onClick={toggleQueue}
                 aria-label={queueCollapsed ? 'Expand playlist' : 'Collapse playlist'}
                 title={queueCollapsed ? 'Expand playlist' : 'Collapse playlist'}
               >
                 <Icon name="playlist" size={18} />
-                {queueCollapsed ? 'Expand playlist' : 'Collapse playlist'}
+                <span>{queueCollapsed ? 'Expand playlist' : 'Collapse playlist'}</span>
               </button>
             )}
           </div>
@@ -677,21 +745,38 @@ export function WatchPage({
         </div>
       </div>
 
-      {showSide && queue && (
-        <aside className="watch__side" onWheel={onQueueWheel}>
+      {queue && (
+        <aside
+          ref={queueAsideRef}
+          className={`watch__side${queueCollapsed ? ' watch__side--collapsed' : ''}`}
+          aria-hidden={queueCollapsed}
+        >
           <div className="watch__side-head">
-            <h2 className="watch__side-title">
-              {queue.name} · {queue.items.length}
+            <h2 className="watch__side-title" title={`${queue.name} · ${positionText}`}>
+              <span className="watch__side-name">{queue.name}</span>
+              <span className="watch__side-sep"> · </span>
+              <span className="watch__side-pos">{positionText}</span>
             </h2>
-            <button
-              type="button"
-              className={`icon-btn${settings.autoplayPlaylists ? ' icon-btn--active' : ''}`}
-              title={settings.autoplayPlaylists ? 'Autoplay is on' : 'Autoplay is off'}
-              aria-label={settings.autoplayPlaylists ? 'Autoplay is on' : 'Autoplay is off'}
-              onClick={() => updateSettings({ autoplayPlaylists: !settings.autoplayPlaylists })}
-            >
-              <Icon name="autoplay" size={20} />
-            </button>
+            <div className="watch__side-actions">
+              <button
+                type="button"
+                className={`icon-btn${settings.autoplayPlaylists ? ' icon-btn--active' : ''}`}
+                title={settings.autoplayPlaylists ? 'Autoplay is on' : 'Autoplay is off'}
+                aria-label={settings.autoplayPlaylists ? 'Autoplay is on' : 'Autoplay is off'}
+                onClick={() => updateSettings({ autoplayPlaylists: !settings.autoplayPlaylists })}
+              >
+                <Icon name="autoplay" size={20} />
+              </button>
+              <button
+                type="button"
+                className="icon-btn"
+                title="Collapse playlist"
+                aria-label="Collapse playlist"
+                onClick={toggleQueue}
+              >
+                <Icon name="close" size={18} />
+              </button>
+            </div>
           </div>
 
           <div className="queue">

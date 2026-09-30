@@ -63,7 +63,10 @@ export function SettingsPage(): React.JSX.Element {
     refreshHistory,
     confirm,
     toast,
-    systemPrefersReducedMotion
+    systemPrefersReducedMotion,
+    updaterStatus,
+    checkForUpdates,
+    installUpdate
   } = useApp()
 
   /**
@@ -201,7 +204,7 @@ export function SettingsPage(): React.JSX.Element {
               onClick={() => update({ alwaysShowCaptions: !settings.alwaysShowCaptions })}
             />
           </Row>
-          <div className="setting setting--column">
+          <div className="setting setting--column setting--caption-card">
             <div className="setting__text">
               <div className="setting__label">Caption appearance</div>
               <div className="setting__hint">
@@ -223,7 +226,7 @@ export function SettingsPage(): React.JSX.Element {
             <Icon name="palette" size={18} />
             Appearance
           </div>
-          <div className="setting setting--column">
+          <div className="setting setting--column setting--accent-palette">
             <div className="setting__text">
               <div className="setting__label">Accent color</div>
               <div className="setting__hint">Used for highlights, buttons and the player.</div>
@@ -392,10 +395,83 @@ export function SettingsPage(): React.JSX.Element {
         <section className="settings-section">
           <div className="settings-section__heading">
             <Icon name="info" size={18} />
-            About
+            About & Updates
           </div>
           <Row label="ViewFlux Desktop" hint="A native Windows client focused on searching and watching.">
             <span className="about-version">{APP_VERSION_LABEL}</span>
+          </Row>
+          <Row
+            label="Software updates"
+            hint={
+              updaterStatus.state === 'downloading'
+                ? `Downloading v${updaterStatus.availableVersion ?? ''}... ${updaterStatus.progress?.percent ?? 0}%`
+                : updaterStatus.state === 'downloaded'
+                  ? `Version v${updaterStatus.availableVersion ?? ''} is downloaded and ready to install.`
+                  : updaterStatus.state === 'available'
+                    ? `Update v${updaterStatus.availableVersion ?? ''} is available!`
+                    : updaterStatus.state === 'checking'
+                      ? 'Checking GitHub for new releases...'
+                      : updaterStatus.state === 'error'
+                        ? `Update check failed: ${updaterStatus.error ?? 'Unknown error'}`
+                        : updaterStatus.state === 'not-available'
+                          ? 'You are running the latest version.'
+                          : 'ViewFlux automatically checks for new releases on GitHub.'
+            }
+          >
+            {updaterStatus.state === 'checking' ? (
+              <span className="about-version">Checking…</span>
+            ) : updaterStatus.state === 'downloading' ? (
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <div className="progress" style={{ width: '120px' }}>
+                  <span
+                    className="progress__bar"
+                    style={{ width: `${updaterStatus.progress?.percent ?? 0}%` }}
+                  />
+                </div>
+                <span className="about-version">{updaterStatus.progress?.percent ?? 0}%</span>
+              </div>
+            ) : updaterStatus.state === 'downloaded' ? (
+              <button
+                type="button"
+                className="btn btn--filled btn--sm"
+                onClick={() => void installUpdate()}
+              >
+                <Icon name="refresh" size={16} />
+                Restart & Install
+              </button>
+            ) : updaterStatus.state === 'available' ? (
+              <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                <button
+                  type="button"
+                  className="btn btn--filled btn--sm"
+                  onClick={() => {
+                    void window.api.openExternal(
+                      `https://github.com/hihumanzone/ViewFlux/releases/tag/v${updaterStatus.availableVersion ?? ''}`
+                    )
+                  }}
+                >
+                  <Icon name="download" size={16} />
+                  Get v{updaterStatus.availableVersion}
+                </button>
+                <button
+                  type="button"
+                  className="btn btn--tonal btn--sm"
+                  onClick={() => void checkForUpdates()}
+                >
+                  <Icon name="refresh" size={16} />
+                  Check again
+                </button>
+              </div>
+            ) : (
+              <button
+                type="button"
+                className="btn btn--tonal btn--sm"
+                onClick={() => void checkForUpdates()}
+              >
+                <Icon name="refresh" size={16} />
+                Check for updates
+              </button>
+            )}
           </Row>
           <Row
             label="Local library"

@@ -97,7 +97,20 @@ const api: AppApi = {
   movePlaylistItem: (id: string, from: number, to: number) =>
     ipcRenderer.invoke('playlists:move', id, from, to),
 
-  openExternal: (url: string) => ipcRenderer.invoke('app:open-external', url)
+  openExternal: (url: string) => ipcRenderer.invoke('app:open-external', url),
+
+  checkForUpdates: () => ipcRenderer.invoke('updater:check'),
+  installUpdate: () => ipcRenderer.invoke('updater:install'),
+  getUpdaterStatus: () => ipcRenderer.invoke('updater:get-status'),
+  onUpdaterStatus: (callback) => {
+    const listener = (_e: Electron.IpcRendererEvent, status: unknown): void => {
+      callback(status as any)
+    }
+    ipcRenderer.on('updater:status', listener)
+    return () => {
+      ipcRenderer.removeListener('updater:status', listener)
+    }
+  }
 }
 
 contextBridge.exposeInMainWorld('api', api)

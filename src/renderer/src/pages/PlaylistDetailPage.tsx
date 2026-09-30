@@ -141,7 +141,7 @@ function LocalPlaylist({ playlist }: { playlist: Playlist }): React.JSX.Element 
           message="Use the save option on any video to add it here."
         />
       ) : (
-        <ul className="list">
+        <ul key={current.id} className="list animate-fade-up">
           {current.videos.map((video, index) => (
             <ListRow
               key={`${video.videoId}-${index}`}
@@ -333,7 +333,7 @@ function SavedYouTubePlaylist({ playlist }: { playlist: Playlist }): React.JSX.E
       )}
 
       {items.length > 0 && (
-        <ul className="list">
+        <ul key={`yt-synced-${playlist.id}`} className="list animate-fade-up">
           {items.map((video: VideoSummary, index: number) => (
             <ListRow
               key={`${video.videoId}-${index}`}

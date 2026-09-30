@@ -491,4 +491,35 @@ export interface AppApi {
   movePlaylistItem(id: string, from: number, to: number): Promise<Playlist>
 
   openExternal(url: string): Promise<void>
+
+  checkForUpdates(): Promise<UpdaterStatus>
+  installUpdate(): Promise<void>
+  getUpdaterStatus(): Promise<UpdaterStatus>
+  onUpdaterStatus(callback: (status: UpdaterStatus) => void): () => void
+}
+
+export type UpdateState =
+  | 'idle'
+  | 'checking'
+  | 'available'
+  | 'downloading'
+  | 'downloaded'
+  | 'not-available'
+  | 'error'
+
+export interface UpdateProgress {
+  percent: number
+  bytesPerSecond: number
+  transferred: number
+  total: number
+}
+
+export interface UpdaterStatus {
+  state: UpdateState
+  currentVersion: string
+  availableVersion?: string
+  releaseDate?: string
+  releaseNotes?: string
+  progress?: UpdateProgress
+  error?: string
 }

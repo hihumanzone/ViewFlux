@@ -1,0 +1,207 @@
+/* ============================================================
+   ViewFlux Desktop — Keyframes & Reduced Motion
+   ============================================================ */
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes page-in {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.animate-fade-up {
+  animation: page-in var(--t-med) var(--ease-out) both;
+}
+
+@keyframes fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes menu-pop {
+  from {
+    opacity: 0;
+    transform: translateY(-8px) scale(0.95);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes modal-in {
+  from {
+    opacity: 0;
+    transform: translateY(20px) scale(0.94);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes sheet-up {
+  from {
+    opacity: 0;
+    transform: translateY(16px) scale(0.97);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes toast-in {
+  from {
+    opacity: 0;
+    transform: translateY(16px) scale(0.95);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes chip-in {
+  from {
+    opacity: 0;
+    transform: scale(0.85);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@keyframes live-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.35;
+  }
+}
+
+@keyframes tab-underline {
+  from {
+    transform: scaleX(0.4);
+    opacity: 0;
+  }
+  to {
+    transform: scaleX(1);
+    opacity: 1;
+  }
+}
+
+/* Material 3 Expressive Circular Progress Keyframes */
+@keyframes m3-rotate {
+  100% {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes m3-dash {
+  0% {
+    stroke-dasharray: 1, 150;
+    stroke-dashoffset: 0;
+  }
+  50% {
+    stroke-dasharray: 90, 150;
+    stroke-dashoffset: -35;
+  }
+  100% {
+    stroke-dasharray: 90, 150;
+    stroke-dashoffset: -124;
+  }
+}
+
+/* Material 3 Expressive Scallop Rosette Pulse */
+@keyframes rosette-spin {
+  0% {
+    transform: rotate(0deg) scale(1);
+  }
+  50% {
+    transform: rotate(180deg) scale(1.08);
+  }
+  100% {
+    transform: rotate(360deg) scale(1);
+  }
+}
+
+/* OSD pop spring keyframe */
+@keyframes osd-pop {
+  0% {
+    opacity: 0;
+    transform: scale(0.8);
+  }
+  60% {
+    opacity: 1;
+    transform: scale(1.06);
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+/* ---- Reduced motion preferences ---- */
+@media (prefers-reduced-motion: reduce) {
+  :root:not([data-reduced-motion='false']) *,
+  :root:not([data-reduced-motion='false']) *::before,
+  :root:not([data-reduced-motion='false']) *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+
+  :root:not([data-reduced-motion='false']) {
+    --t-fast: 0.01ms;
+    --t-med: 0.01ms;
+    --t-slow: 0.01ms;
+  }
+
+  :root:not([data-reduced-motion='false']) .video-card:hover,
+  :root:not([data-reduced-motion='false']) .channel-card:hover,
+  :root:not([data-reduced-motion='false']) .pl-card:hover,
+  :root:not([data-reduced-motion='false']) .playlist-card:hover {
+    transform: none !important;
+  }
+}
+
+:root[data-reduced-motion='true'] *,
+:root[data-reduced-motion='true'] *::before,
+:root[data-reduced-motion='true'] *::after {
+  animation-duration: 0.01ms !important;
+  animation-iteration-count: 1 !important;
+  transition-duration: 0.01ms !important;
+  scroll-behavior: auto !important;
+}
+
+:root[data-reduced-motion='true'] {
+  --t-fast: 0.01ms;
+  --t-med: 0.01ms;
+  --t-slow: 0.01ms;
+}
+
+:root[data-reduced-motion='true'] .video-card:hover,
+:root[data-reduced-motion='true'] .channel-card:hover,
+:root[data-reduced-motion='true'] .pl-card:hover,
+:root[data-reduced-motion='true'] .playlist-card:hover {
+  transform: none !important;
+}

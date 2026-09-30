@@ -89,7 +89,7 @@ export type VariantTrack = ReturnType<shaka.Player['getVariantTracks']>[number]
 export type TextTrack = ReturnType<shaka.Player['getTextTracks']>[number]
 export type AudioTrack = ReturnType<shaka.Player['getAudioTracks']>[number]
 
-export type MenuKind = 'quality' | 'captions' | 'audio' | 'settings'
+export type MenuKind = 'quality' | 'captions' | 'audio' | 'settings' | 'more'
 
 export interface OsdState {
   id: number

@@ -87,15 +87,18 @@ export type IconName = keyof typeof paths
 export function Icon({
   name,
   size = 24,
-  className
+  className,
+  style
 }: {
   name: IconName
   size?: number
   className?: string
+  style?: React.CSSProperties
 }): React.JSX.Element {
   return (
     <svg
       className={className}
+      style={style}
       width={size}
       height={size}
       viewBox="0 0 24 24"

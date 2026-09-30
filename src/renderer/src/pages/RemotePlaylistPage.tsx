@@ -164,7 +164,7 @@ export function RemotePlaylistPage({ playlistId }: { playlistId: string }): Reac
         <EmptyState icon="playlist" title="This playlist is empty" />
       ) : (
         <>
-          <div className="video-grid">
+          <div key={playlist.id} className="video-grid animate-fade-up">
             {items.map((video, index) => (
               <VideoCard key={`${video.videoId}-${index}`} video={video} />
             ))}

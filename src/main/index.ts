@@ -6,6 +6,7 @@ import { YoutubeService } from './youtube'
 import { MediaProxy } from './proxy'
 import { fetchDislikes, fetchSponsorSegments } from './services'
 import { YOUTUBE_REQUEST_GLOBALS } from './http'
+import { initAutoUpdater } from './updater'
 import type {
   ChannelSort,
   HistoryEntry,
@@ -68,8 +69,23 @@ function createWindow(): void {
     return { action: 'deny' }
   })
 
+  let lastConsoleMsg = ''
+  let lastConsoleTime = 0
+  let repeatCount = 0
+
   mainWindow.webContents.on('console-message', (event, ...args) => {
-    const msg = typeof event?.message === 'string' ? event.message : args[1]
+    const msg = typeof event?.message === 'string' ? event.message : String(args[1] ?? '')
+    const now = Date.now()
+    if (msg === lastConsoleMsg && now - lastConsoleTime < 5000) {
+      repeatCount++
+      return
+    }
+    if (repeatCount > 0) {
+      console.log(`[RENDERER] (previous message repeated ${repeatCount} times)`)
+      repeatCount = 0
+    }
+    lastConsoleMsg = msg
+    lastConsoleTime = now
     console.log(`[RENDERER] ${msg}`)
   })
 
@@ -258,6 +274,7 @@ app.whenReady().then(async () => {
   const base = await proxy.start()
   youtube.setProxyBase(base)
   registerIpc()
+  initAutoUpdater()
   createWindow()
 
   app.on('activate', () => {

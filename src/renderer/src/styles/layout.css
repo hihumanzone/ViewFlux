@@ -1,0 +1,317 @@
+/* ============================================================
+   ViewFlux Desktop — App Shell, Titlebar & Navigation Rail
+   ============================================================ */
+
+/* ---- App shell ---- */
+.app {
+  display: grid;
+  grid-template-columns: var(--sidebar-w) 1fr;
+  grid-template-rows: var(--titlebar-h) 1fr;
+  height: 100dvh;
+  overflow: hidden;
+  background: var(--bg);
+  transition: grid-template-columns var(--t-med) var(--ease-spring-subtle);
+}
+
+.content {
+  grid-column: 2;
+  grid-row: 2;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: 24px var(--content-pad) 24px;
+  scroll-behavior: smooth;
+}
+
+/* ---- Title bar ---- */
+.titlebar {
+  grid-column: 1 / -1;
+  grid-row: 1;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 12px;
+  background: color-mix(in srgb, var(--surface) 85%, transparent);
+  backdrop-filter: blur(20px) saturate(180%);
+  border-bottom: 1px solid color-mix(in srgb, var(--outline-variant) 40%, transparent);
+  -webkit-app-region: drag;
+  z-index: 30;
+}
+
+.titlebar button {
+  -webkit-app-region: no-drag;
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  border-radius: var(--r-full);
+  color: var(--on-surface-variant);
+  transition: background var(--t-fast) var(--ease-out), color var(--t-fast) var(--ease-out),
+    transform var(--t-fast) var(--ease-spring);
+}
+
+.titlebar button:hover {
+  background: var(--surface-2);
+  color: var(--on-surface);
+  transform: scale(1.06);
+}
+
+.titlebar button:active {
+  transform: scale(0.92);
+}
+
+.titlebar button:disabled {
+  opacity: 0.32;
+  pointer-events: none;
+}
+
+.titlebar__back {
+  margin-left: 2px;
+}
+
+.titlebar__app-name {
+  font-size: 13.5px;
+  font-weight: 800;
+  letter-spacing: -0.01em;
+  color: var(--on-surface);
+  padding: 0 4px;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  user-select: none;
+  cursor: default;
+  pointer-events: none;
+}
+
+.titlebar__spacer {
+  flex: 1;
+  -webkit-app-region: drag;
+  height: 100%;
+}
+
+/* ---- Sidebar (Material 3 Expressive Navigation Rail & Dock) ---- */
+.sidebar {
+  grid-column: 1;
+  grid-row: 2;
+  display: flex;
+  flex-direction: column;
+  padding: 12px;
+  background: var(--surface);
+  border-right: 1px solid var(--outline-variant);
+  overflow: hidden;
+  box-sizing: border-box;
+}
+
+.sidebar__brand {
+  display: flex;
+  align-items: center;
+  height: 48px;
+  padding: 0;
+  margin-bottom: 14px;
+  overflow: visible;
+  user-select: none;
+}
+
+.sidebar__logo-wrap {
+  width: 48px;
+  height: 48px;
+  flex: none;
+  display: grid;
+  place-items: center;
+  overflow: visible;
+}
+
+.sidebar__logo {
+  display: grid;
+  place-items: center;
+  width: 38px;
+  height: 38px;
+  border-radius: var(--r-sm);
+  background: linear-gradient(135deg, var(--primary) 0%, var(--primary-container) 100%);
+  color: var(--on-primary);
+  font-size: 16px;
+  font-weight: 800;
+  box-shadow: 0 0 16px 2px var(--primary-glow), 0 2px 8px rgb(0 0 0 / 0.25);
+  flex: none;
+  transition: transform var(--t-fast) var(--ease-spring),
+    box-shadow var(--t-fast) var(--ease-out);
+}
+
+.sidebar__brand:hover .sidebar__logo {
+  transform: scale(1.08) rotate(3deg);
+  box-shadow: 0 0 24px 3px var(--primary-glow), 0 4px 12px rgb(0 0 0 / 0.35);
+}
+
+.sidebar__brand-text {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  max-width: 150px;
+  opacity: 1;
+  overflow: hidden;
+  white-space: nowrap;
+  padding-left: 8px;
+  transform: translateX(0);
+  transition: max-width var(--t-med) var(--ease-out),
+    opacity var(--t-med) var(--ease-out),
+    transform var(--t-med) var(--ease-out);
+}
+
+.sidebar__title {
+  font-size: 18px;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  color: var(--on-surface);
+}
+
+.sidebar__nav {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  width: 100%;
+}
+
+.sidebar__nav > li {
+  display: block;
+  margin: 0;
+  width: 100%;
+}
+
+.nav-item {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 0;
+  width: 100%;
+  height: 48px;
+  padding: 0;
+  border-radius: var(--r-full);
+  color: var(--on-surface-variant);
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1.4;
+  text-align: left;
+  text-decoration: none;
+  position: relative;
+  overflow: hidden;
+  white-space: nowrap;
+  box-sizing: border-box;
+  -webkit-backface-visibility: hidden;
+  backface-visibility: hidden;
+  transition: background var(--t-fast) var(--ease-out),
+    color var(--t-fast) var(--ease-out),
+    transform var(--t-fast) var(--ease-spring),
+    box-shadow var(--t-fast) var(--ease-out),
+    border-radius var(--t-med) var(--ease-out);
+}
+
+.nav-item:hover {
+  background: var(--surface-2);
+  color: var(--on-surface);
+  transform: scale(1.02);
+}
+
+.nav-item:active {
+  transform: scale(0.96);
+}
+
+html.keyboard-nav .nav-item:focus-visible {
+  border-radius: var(--r-full);
+}
+
+.nav-item--active {
+  background: var(--secondary-container);
+  color: var(--on-secondary-container);
+  font-weight: 700;
+  box-shadow: 0 2px 8px -2px rgb(0 0 0 / 0.4);
+}
+
+.nav-item--active:hover {
+  background: var(--secondary-container);
+  filter: brightness(1.08);
+}
+
+.nav-item__icon {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 48px;
+  height: 48px;
+  line-height: 0;
+  z-index: 2;
+}
+
+.sidebar__toggle-icon {
+  display: block;
+  width: 24px;
+  height: 24px;
+  flex: none;
+  transform-origin: 12px 12px;
+  transition: transform var(--t-med) var(--ease-spring);
+}
+
+[data-sidebar='collapsed'] .sidebar__toggle-icon {
+  transform: rotate(180deg);
+}
+
+.nav-item__label {
+  z-index: 2;
+  min-width: 0;
+  max-width: 150px;
+  opacity: 1;
+  overflow: hidden;
+  white-space: nowrap;
+  padding-right: 16px;
+  padding-top: 2px;
+  padding-bottom: 4px;
+  line-height: 1.4;
+  transform: translateX(0);
+  transition: max-width var(--t-med) var(--ease-out),
+    opacity var(--t-med) var(--ease-out),
+    transform var(--t-med) var(--ease-out);
+}
+
+.sidebar__footer {
+  margin-top: auto;
+  padding-top: 12px;
+  border-top: 1px solid var(--outline-variant);
+  width: 100%;
+}
+
+.sidebar__toggle {
+  color: var(--on-surface-variant);
+}
+
+/* ---- Collapsed sidebar: Minimal Icon Rail (Material 3 Expressive) ---- */
+@media (min-width: 769px) {
+  /* Manual collapse on desktop */
+  [data-sidebar='collapsed'] .app {
+    --sidebar-w: var(--sidebar-collapsed-w);
+  }
+
+  [data-sidebar='collapsed'] .sidebar__brand-text {
+    max-width: 0;
+    opacity: 0;
+    padding-left: 0;
+    transform: translateX(-10px);
+    pointer-events: none;
+  }
+
+  [data-sidebar='collapsed'] .nav-item__label {
+    max-width: 0;
+    opacity: 0;
+    padding-right: 0;
+    transform: translateX(-10px);
+    pointer-events: none;
+  }
+
+  [data-sidebar='collapsed'] .nav-item {
+    border-radius: var(--r-md);
+  }
+
+  html.keyboard-nav [data-sidebar='collapsed'] .nav-item:focus-visible {
+    border-radius: var(--r-md);
+  }
+}

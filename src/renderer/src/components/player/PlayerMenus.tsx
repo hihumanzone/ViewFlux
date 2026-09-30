@@ -39,6 +39,8 @@ export interface PlayerMenusProps {
   isOriginalLanguage: (code: string) => boolean
   onSelectAudio: (code: string) => void
   onSelectAudioTier: (tier: string | null) => void
+  onOpenMenu?: (kind: MenuKind) => void
+  onTogglePip?: () => void
 }
 
 export const PlayerMenus = memo(function PlayerMenus({
@@ -63,12 +65,15 @@ export const PlayerMenus = memo(function PlayerMenus({
   onSelectCaption,
   subtitleStyle,
   onSubtitleStyleChange,
+  audioTracks,
   audioLanguages,
   selectedAudioLang,
   audioTiers,
   isOriginalLanguage,
   onSelectAudio,
-  onSelectAudioTier
+  onSelectAudioTier,
+  onOpenMenu,
+  onTogglePip
 }: PlayerMenusProps): React.JSX.Element {
   const safeRate = Number.isFinite(rate) && rate >= 0.25 ? rate : 1
 
@@ -80,9 +85,9 @@ export const PlayerMenus = memo(function PlayerMenus({
         open={menu === 'settings'}
         onClose={onClose}
         align="end"
-        gap={36}
+        gap={14}
         prefer="above"
-        className="sheet"
+        className="sheet menu--playback-settings"
       >
         <div className="sheet__title">Playback settings</div>
 
@@ -253,6 +258,56 @@ export const PlayerMenus = memo(function PlayerMenus({
               />
             ))}
           </>
+        )}
+      </Menu>
+
+      {/* 5. Overflow 'More' Menu (used on compact adaptive layouts) */}
+      <Menu
+        anchor={menuAnchor}
+        open={menu === 'more'}
+        onClose={onClose}
+        align="end"
+        gap={14}
+        prefer="above"
+        title="More options"
+      >
+        {textTracks.length > 0 && (
+          <MenuItem
+            icon="captions"
+            label="Subtitles"
+            hint={textVisible ? 'On' : 'Off'}
+            onSelect={() => onOpenMenu?.('captions')}
+          />
+        )}
+        <MenuItem
+          icon="hd"
+          label="Quality"
+          hint={selectedHeight ? `${selectedHeight}p` : 'Auto'}
+          onSelect={() => onOpenMenu?.('quality')}
+        />
+        {audioTracks.length > 0 && (
+          <MenuItem
+            icon="volume"
+            label="Audio track"
+            hint={selectedAudioLang ?? undefined}
+            onSelect={() => onOpenMenu?.('audio')}
+          />
+        )}
+        <MenuItem
+          icon="tune"
+          label="Playback settings"
+          hint={`${safeRate === 1 ? 'Normal' : `${safeRate.toFixed(2)}×`}`}
+          onSelect={() => onOpenMenu?.('settings')}
+        />
+        {onTogglePip && (
+          <MenuItem
+            icon="pip"
+            label="Picture in picture"
+            onSelect={() => {
+              onTogglePip()
+              onClose()
+            }}
+          />
         )}
       </Menu>
     </>

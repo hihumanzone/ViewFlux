@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useCallback } from 'react'
 import { Icon, type IconName } from './Icons'
 import { useRoute, routeLinkProps, type Route } from '../lib/router'
 import { readStoredWithLegacy, writeStored } from '../lib/storage'
@@ -42,6 +42,10 @@ export function Sidebar(): React.JSX.Element {
     () => readStoredWithLegacy(STORE_KEY, LEGACY_STORE_KEY) === 'collapsed'
   )
 
+  const toggleCollapsed = useCallback(() => {
+    setCollapsed((value) => !value)
+  }, [])
+
   // Drives the `--sidebar-w` override on the app grid.
   useEffect(() => {
     document.documentElement.dataset.sidebar = collapsed ? 'collapsed' : 'expanded'
@@ -51,10 +55,12 @@ export function Sidebar(): React.JSX.Element {
   return (
     <nav className="sidebar" aria-label="Primary">
       <div className="sidebar__brand">
-        <span className="sidebar__logo" aria-hidden="true">
-          <svg width={18} height={18} viewBox="0 0 24 24" fill="currentColor">
-            <path d="M8 5v14l11-7z" />
-          </svg>
+        <span className="sidebar__logo-wrap">
+          <span className="sidebar__logo" aria-hidden="true">
+            <svg width={24} height={24} viewBox="0 0 24 24" fill="currentColor">
+              <path d="M8 5v14l11-7z" />
+            </svg>
+          </span>
         </span>
         <div className="sidebar__brand-text">
           <span className="sidebar__title">ViewFlux</span>
@@ -91,12 +97,19 @@ export function Sidebar(): React.JSX.Element {
           className="nav-item sidebar__toggle"
           aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
           aria-expanded={!collapsed}
-          onClick={() => setCollapsed((value) => !value)}
+          onClick={toggleCollapsed}
           title={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
         >
           <span className="nav-item__icon">
-            <svg width={24} height={24} viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
-              <path d={collapsed ? 'M4 13h12.17l-5.59 5.59L12 20l8-8-8-8-1.41 1.41L16.17 11H4v2z' : 'M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z'} />
+            <svg
+              className="sidebar__toggle-icon"
+              width={24}
+              height={24}
+              viewBox="0 0 24 24"
+              fill="currentColor"
+              aria-hidden="true"
+            >
+              <path d="M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z" />
             </svg>
           </span>
           <span className="nav-item__label">{collapsed ? 'Expand' : 'Collapse'}</span>

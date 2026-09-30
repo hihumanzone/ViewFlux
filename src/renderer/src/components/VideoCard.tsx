@@ -1,4 +1,4 @@
-import { memo, useMemo } from 'react'
+import { memo } from 'react'
 import { VideoOptions } from './VideoOptions'
 import { navigate } from '../lib/router'
 import { formatCount, formatDuration } from '../lib/format'
@@ -22,10 +22,10 @@ export const VideoCard = memo(function VideoCard({
   const { broken: avatarBroken, onError: onAvatarError } = useBrokenImage(avatar)
   const open = (): void => navigate(`#/watch/${video.videoId}`)
 
-  const effectiveProgress = useMemo(() => {
-    if (progress != null && progress > 0) return progress
-    return getHistoryProgress(video.videoId, video.duration)
-  }, [progress, getHistoryProgress, video.videoId, video.duration])
+  const effectiveProgress =
+    progress != null && progress > 0
+      ? progress
+      : getHistoryProgress(video.videoId, video.duration)
 
   return (
     <article

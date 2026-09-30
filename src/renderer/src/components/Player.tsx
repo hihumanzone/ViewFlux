@@ -8,6 +8,7 @@ import {
   useState
 } from 'react'
 import { Icon } from './Icons'
+import { Spinner } from './EmptyState'
 import { useMediaSession } from '../lib/mediaSession'
 import { PlayerOsd } from './player/PlayerOsd'
 import { SeekBar } from './player/SeekBar'
@@ -536,7 +537,7 @@ export const Player = forwardRef<PlayerHandle, PlayerProps>(function Player(
       {/* Loading / Buffering spinner */}
       {(shaka.status === 'loading' || shaka.busy) && shaka.status !== 'error' && (
         <div className="player__center">
-          <div className="spinner" />
+          <Spinner />
           {shaka.statusText !== '' && (
             <div className="player__status">{shaka.statusText}</div>
           )}
@@ -562,17 +563,21 @@ export const Player = forwardRef<PlayerHandle, PlayerProps>(function Player(
           />
 
           {/* Big center play button when paused */}
-          {!shaka.playing && !shaka.busy && (
-            <div className="player__center">
-              <button
-                className="player__big-play"
-                aria-label="Play"
-                onClick={shaka.togglePlay}
-              >
-                <Icon name="play" size={34} />
-              </button>
-            </div>
-          )}
+          <div
+            className={`player__center player__center--play${
+              !shaka.playing && !shaka.busy ? ' player__center--play-visible' : ''
+            }`}
+            aria-hidden={shaka.playing || shaka.busy}
+          >
+            <button
+              className="player__big-play"
+              aria-label="Play"
+              onClick={shaka.togglePlay}
+              tabIndex={!shaka.playing && !shaka.busy ? 0 : -1}
+            >
+              <Icon name="play" size={34} />
+            </button>
+          </div>
 
           {/* Ephemeral HUD / OSD badge */}
           <PlayerOsd osd={osd} />
@@ -660,6 +665,8 @@ export const Player = forwardRef<PlayerHandle, PlayerProps>(function Player(
               isOriginalLanguage={shaka.isOriginalLanguage}
               onSelectAudio={onSelectAudioMenu}
               onSelectAudioTier={onSelectAudioTierMenu}
+              onOpenMenu={(kind) => setMenu(kind)}
+              onTogglePip={togglePip}
             />
           )}
         </>

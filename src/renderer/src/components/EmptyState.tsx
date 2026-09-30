@@ -39,6 +39,32 @@ export function EmptyState({
   )
 }
 
+export interface SpinnerProps {
+  className?: string
+}
+
+/** Authentic Material 3 Expressive circular progress spinner. */
+export function Spinner({ className }: SpinnerProps): React.JSX.Element {
+  return (
+    <svg
+      className={`spinner${className ? ` ${className}` : ''}`}
+      viewBox="0 0 48 48"
+      aria-hidden="true"
+    >
+      <circle className="spinner__track" cx="24" cy="24" r="18" fill="none" strokeWidth="4" />
+      <circle
+        className="spinner__arc"
+        cx="24"
+        cy="24"
+        r="18"
+        fill="none"
+        strokeWidth="4"
+        strokeLinecap="round"
+      />
+    </svg>
+  )
+}
+
 export interface LoaderProps {
   /** Announced to screen readers and shown next to the spinner. Omit for a bare spinner. */
   label?: string
@@ -48,8 +74,8 @@ export interface LoaderProps {
 export function Loader({ label }: LoaderProps): React.JSX.Element {
   return (
     <div className="loader" role={label ? 'status' : undefined}>
-      <div className="spinner" />
-      {label}
+      <Spinner />
+      {label && <span className="loader__label">{label}</span>}
     </div>
   )
 }

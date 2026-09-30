@@ -82,67 +82,71 @@ export function SubtitleStyleControls({
   }
 
   return (
-    <div className="subtitle-style">
+    <div className={`subtitle-style${showPreview ? ' subtitle-style--with-preview' : ''}`}>
+      <div className="subtitle-style__controls">
+        <Field label="Size">
+          <div onKeyDown={blockMenuArrows}>
+            <SliderField
+              label="Subtitle size"
+              value={percent}
+              min={SUBTITLE_SIZE_PERCENT_MIN}
+              max={SUBTITLE_SIZE_PERCENT_MAX}
+              step={SUBTITLE_SIZE_PERCENT_STEP}
+              suffix="%"
+              onChange={(value) => onChange(resize(value))}
+              onCommit={(value) => onCommit?.(resize(value))}
+            />
+          </div>
+        </Field>
+
+        <Field label="Text">
+          <div className="subtitle-style__swatches" role="radiogroup" aria-label="Subtitle colour">
+            {SUBTITLE_COLORS.map((color) => (
+              <button
+                key={color}
+                type="button"
+                role="radio"
+                aria-checked={style.color === color}
+                aria-label={color}
+                title={color}
+                className={`subtitle-swatch${
+                  style.color === color ? ' subtitle-swatch--active' : ''
+                }`}
+                style={{ background: color }}
+                onClick={() => pick({ ...style, color })}
+              />
+            ))}
+          </div>
+        </Field>
+
+        <Field label="Background">
+          <div className="subtitle-style__options" role="radiogroup" aria-label="Subtitle background">
+            {SUBTITLE_BACKGROUNDS.map((option) => (
+              <button
+                key={option.id}
+                type="button"
+                role="radio"
+                aria-checked={style.background === option.id}
+                className={`subtitle-chip${
+                  style.background === option.id ? ' subtitle-chip--active' : ''
+                }`}
+                onClick={() => pick({ ...style, background: option.id })}
+              >
+                {option.label}
+              </button>
+            ))}
+          </div>
+        </Field>
+      </div>
+
       {showPreview && (
-        <div className="subtitle-preview" style={previewVars}>
-          <span>{PREVIEW_TEXT}</span>
+        <div className="subtitle-style__preview-col">
+          <div className="subtitle-preview" style={previewVars}>
+            <div className="subtitle-preview__badge">Preview</div>
+            <span className="subtitle-preview__cue">{PREVIEW_TEXT}</span>
+          </div>
         </div>
       )}
-
-      <Field label="Size">
-        <div onKeyDown={blockMenuArrows}>
-          <SliderField
-            label="Subtitle size"
-            value={percent}
-            min={SUBTITLE_SIZE_PERCENT_MIN}
-            max={SUBTITLE_SIZE_PERCENT_MAX}
-            step={SUBTITLE_SIZE_PERCENT_STEP}
-            suffix="%"
-            onChange={(value) => onChange(resize(value))}
-            onCommit={(value) => onCommit?.(resize(value))}
-          />
-        </div>
-      </Field>
-
-      <Field label="Text">
-        <div className="subtitle-style__swatches" role="radiogroup" aria-label="Subtitle colour">
-          {SUBTITLE_COLORS.map((color) => (
-            <button
-              key={color}
-              type="button"
-              role="radio"
-              aria-checked={style.color === color}
-              aria-label={color}
-              title={color}
-              className={`subtitle-swatch${
-                style.color === color ? ' subtitle-swatch--active' : ''
-              }`}
-              style={{ background: color }}
-              onClick={() => pick({ ...style, color })}
-            />
-          ))}
-        </div>
-      </Field>
-
-      <Field label="Background">
-        {/* Three exclusive choices, so it reuses the speed-preset chips. */}
-        <div className="subtitle-style__options" role="radiogroup" aria-label="Subtitle background">
-          {SUBTITLE_BACKGROUNDS.map((option) => (
-            <button
-              key={option.id}
-              type="button"
-              role="radio"
-              aria-checked={style.background === option.id}
-              className={`speed-chips__chip${
-                style.background === option.id ? ' speed-chips__chip--active' : ''
-              }`}
-              onClick={() => pick({ ...style, background: option.id })}
-            >
-              {option.label}
-            </button>
-          ))}
-        </div>
-      </Field>
     </div>
   )
 }

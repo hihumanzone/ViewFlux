@@ -214,7 +214,7 @@ export function Menu({
         }
       >
         {title ? <div className="menu__title">{title}</div> : null}
-        {children}
+        <div className="menu__content">{children}</div>
       </div>
     </CheckableContext.Provider>,
     portalTarget

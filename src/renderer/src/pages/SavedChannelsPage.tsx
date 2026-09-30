@@ -264,7 +264,7 @@ export function SavedChannelsPage({ initialTab }: { initialTab?: string | null }
 
       {/* FEED TAB */}
       {activeTab === 'feed' && (
-        <div>
+        <div key="tab-feed" className="animate-fade-up">
           {/*
             Controls Bar. The bar hugs its content (`width: fit-content`) and the
             filters sit next to Refresh — the old flex spacer pinned the button to
@@ -394,7 +394,7 @@ export function SavedChannelsPage({ initialTab }: { initialTab?: string | null }
               message='None of the selected channels published videos in the selected time range. Try choosing a longer time frame like "Past month" or "All recent".'
             />
           ) : (
-            <div>
+            <div key={`feed-${lastFetchedAt ?? 'init'}-${selectedFolderId}-${selectedLabel}`} className="animate-fade-up">
               <div className="feed-summary">
                 Showing {feedVideos.length} recent uploads from {feedChannelIds.length} channels
                 {lastFetchedAt ? ` · Updated ${new Date(lastFetchedAt).toLocaleTimeString()}` : ''}
@@ -411,7 +411,7 @@ export function SavedChannelsPage({ initialTab }: { initialTab?: string | null }
 
       {/* CHANNELS & FOLDERS TAB */}
       {activeTab === 'channels' && (
-        <div className="stack">
+        <div key="tab-channels" className="stack animate-fade-up">
           {/* Folders. The heading and the cards share one row, so the label sits
               directly beside the strip instead of claiming a line of its own, and
               there is no full-width bordered shell to end in dead space. */}

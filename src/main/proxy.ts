@@ -1,5 +1,5 @@
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http'
-import { Readable } from 'node:stream'
+import { Readable, Transform } from 'node:stream'
 import { isAudioItagUrl } from '../shared/media'
 import { ORIGIN, REFERER, USER_AGENT } from './http'
 
@@ -22,10 +22,7 @@ const PASSTHROUGH_HEADERS = [
   'content-type',
   'content-length',
   'content-range',
-  'accept-ranges',
-  'last-modified',
-  'etag',
-  'cache-control'
+  'accept-ranges'
 ]
 
 const PLAYLIST_MAGIC = '#EXTM3U'
@@ -101,6 +98,48 @@ async function* replay(sniffed: Sniffed): AsyncGenerator<Buffer> {
   } finally {
     void sniffed.reader.cancel().catch(() => undefined)
   }
+}
+
+/**
+ * Slices an upstream stream to the requested byte range [start, end] when
+ * upstream returns 200 OK (the full file) instead of honoring 206 Partial Content.
+ */
+function createRangeSliceStream(start: number, end?: number): Transform {
+  let bytesSeen = 0
+  let ended = false
+  return new Transform({
+    transform(chunk: Buffer, _encoding, callback) {
+      if (ended) {
+        callback()
+        return
+      }
+      const chunkStart = bytesSeen
+      const chunkEnd = bytesSeen + chunk.length - 1
+      bytesSeen += chunk.length
+
+      if (chunkEnd < start) {
+        callback()
+        return
+      }
+      if (end !== undefined && chunkStart > end) {
+        ended = true
+        this.push(null)
+        callback()
+        return
+      }
+
+      const sliceFrom = Math.max(0, start - chunkStart)
+      const sliceTo =
+        end !== undefined ? Math.min(chunk.length, end - chunkStart + 1) : chunk.length
+      this.push(chunk.subarray(sliceFrom, sliceTo))
+
+      if (end !== undefined && chunkEnd >= end) {
+        ended = true
+        this.push(null)
+      }
+      callback()
+    }
+  })
 }
 
 export interface MediaProxyOptions {
@@ -257,7 +296,6 @@ export class MediaProxy {
       'Accept-Encoding': 'identity'
     }
     if (req.headers.range) headers.Range = req.headers.range
-    if (req.headers['if-range']) headers['If-Range'] = req.headers['if-range'] as string
 
     const controller = new AbortController()
     let clientClosed = false
@@ -266,17 +304,36 @@ export class MediaProxy {
       controller.abort()
     })
 
+    let currentTarget = target
     let upstream: Response | null = null
     let lastStatus = 0
     for (let attempt = 0; attempt < 3; attempt++) {
       if (clientClosed) return
       try {
-        const resp = await fetch(target, {
+        let resp = await fetch(currentTarget, {
           headers,
-          redirect: 'follow',
+          redirect: 'manual',
           signal: controller.signal
         })
         lastStatus = resp.status
+
+        // Explicitly follow redirects so Range and other headers are never dropped by fetch
+        let redirects = 0
+        while (resp.status >= 300 && resp.status < 400 && redirects < 5) {
+          redirects++
+          const location = resp.headers.get('location')
+          if (!location) break
+          const nextUrl = new URL(location, currentTarget)
+          if (!isAllowed(nextUrl)) break
+          currentTarget = nextUrl
+          resp = await fetch(currentTarget, {
+            headers,
+            redirect: 'manual',
+            signal: controller.signal
+          })
+          lastStatus = resp.status
+        }
+
         if (resp.status >= 500) {
           await resp.body?.cancel().catch(() => undefined)
           if (attempt < 2 && !clientClosed) {
@@ -315,6 +372,8 @@ export class MediaProxy {
         const value = upstream.headers.get(name)
         if (value) res.setHeader(name, value)
       }
+      res.setHeader('cache-control', 'no-cache, no-store, must-revalidate')
+      res.setHeader('vary', 'Range, Origin')
       if (upstream.body) {
         void upstream.body.cancel().catch(() => undefined)
       }
@@ -395,10 +454,53 @@ export class MediaProxy {
           target.pathname.includes('/govp/') ||
           (target.pathname.includes('/sq/') && !isAudioItagUrl(target.href))))
 
-    for (const name of PASSTHROUGH_HEADERS) {
-      let value = upstream.headers.get(name)
-      if (value) res.setHeader(name, value)
+    const rangeHeader = req.headers.range
+    let rangeStart: number | undefined
+    let rangeEnd: number | undefined
+    if (typeof rangeHeader === 'string') {
+      const match = /^bytes=(\d+)-(\d+)?$/i.exec(rangeHeader)
+      if (match) {
+        rangeStart = parseInt(match[1], 10)
+        if (match[2] !== undefined) {
+          rangeEnd = parseInt(match[2], 10)
+        }
+      }
     }
+
+    const shouldSlice = upstream.status === 200 && rangeStart !== undefined
+    let outStatus = upstream.status
+
+    if (shouldSlice && rangeStart !== undefined) {
+      outStatus = 206
+      const upstreamTotalStr = upstream.headers.get('content-length')
+      const totalSize = upstreamTotalStr ? parseInt(upstreamTotalStr, 10) : undefined
+      if (rangeEnd === undefined && totalSize !== undefined) {
+        rangeEnd = totalSize - 1
+      }
+      for (const name of PASSTHROUGH_HEADERS) {
+        if (name === 'content-length' || name === 'content-range') continue
+        const value = upstream.headers.get(name)
+        if (value) res.setHeader(name, value)
+      }
+      if (rangeEnd !== undefined) {
+        const sliceLen = Math.max(0, rangeEnd - rangeStart + 1)
+        res.setHeader('content-length', String(sliceLen))
+        res.setHeader('content-range', `bytes ${rangeStart}-${rangeEnd}/${totalSize ?? '*'}`)
+      } else {
+        res.setHeader('content-range', `bytes ${rangeStart}-*/*`)
+      }
+    } else {
+      for (const name of PASSTHROUGH_HEADERS) {
+        const value = upstream.headers.get(name)
+        if (value) res.setHeader(name, value)
+      }
+    }
+
+    res.setHeader('cache-control', 'no-cache, no-store, must-revalidate')
+    res.setHeader('pragma', 'no-cache')
+    res.setHeader('vary', 'Range, Origin')
+    res.setHeader('accept-ranges', 'bytes')
+
     if (isAac) {
       const ct = res.getHeader('content-type')
       if (!ct || ct === 'application/octet-stream') {
@@ -410,7 +512,7 @@ export class MediaProxy {
         res.setHeader('content-type', 'video/mp2t')
       }
     }
-    res.writeHead(upstream.status)
+    res.writeHead(outStatus)
 
     // `sniffed.prefix` holds bytes already pulled off the wire; replay them in
     // front of the rest of the body so the response stays byte-identical.
@@ -420,12 +522,30 @@ export class MediaProxy {
     stream.on('error', () => {
       res.destroy()
     })
-    stream.pipe(res)
-    const onStreamClose = (): void => {
-      stream.destroy()
+
+    if (shouldSlice && rangeStart !== undefined) {
+      const sliceStream = createRangeSliceStream(rangeStart, rangeEnd)
+      sliceStream.on('error', () => {
+        res.destroy()
+      })
+      sliceStream.on('end', () => {
+        stream.destroy()
+      })
+      stream.pipe(sliceStream).pipe(res)
+      const onStreamClose = (): void => {
+        stream.destroy()
+        sliceStream.destroy()
+      }
+      req.on('close', onStreamClose)
+      res.on('close', onStreamClose)
+    } else {
+      stream.pipe(res)
+      const onStreamClose = (): void => {
+        stream.destroy()
+      }
+      req.on('close', onStreamClose)
+      res.on('close', onStreamClose)
     }
-    req.on('close', onStreamClose)
-    res.on('close', onStreamClose)
   }
 
   private async handleCaptions(

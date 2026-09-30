@@ -770,18 +770,44 @@ export function useShakaPlayer({
     }
     player.addEventListener('error', onPlayerError)
 
+    let bufferingTimer: ReturnType<typeof setTimeout> | null = null
+
+    const clearBufferingWatchdog = (): void => {
+      if (bufferingTimer) {
+        clearTimeout(bufferingTimer)
+        bufferingTimer = null
+      }
+    }
+
+    const startBufferingWatchdog = (): void => {
+      clearBufferingWatchdog()
+      if (disposed || video.paused || scrubbingRef.current) return
+      bufferingTimer = setTimeout(() => {
+        bufferingTimer = null
+        if (disposed || video.paused || scrubbingRef.current) return
+        console.warn('[player] buffering stall detected, initiating recovery')
+        void recoverPlayback('buffering stall')
+      }, 15000)
+    }
+
     const onShakaBuffering = (event: Event): void => {
       const isBuffering = (event as unknown as { buffering?: boolean }).buffering ?? false
       if (disposed || statusRef.current !== 'ready') return
       if (isBuffering) {
         setBusy(true)
         setStatusText((prev) => (prev === '' || prev === 'Buffering…' ? 'Buffering…' : prev))
-      } else if (!scrubbingRef.current) {
-        setBusy(false)
-        setStatusText('')
+        startBufferingWatchdog()
+      } else {
+        clearBufferingWatchdog()
+        if (!scrubbingRef.current) {
+          setBusy(false)
+          setStatusText('')
+        }
       }
     }
     player.addEventListener('buffering', onShakaBuffering)
+    video.addEventListener('playing', clearBufferingWatchdog)
+    video.addEventListener('pause', clearBufferingWatchdog)
 
     /**
      * Keep the audio menu honest. Shaka can change the playing audio language on
@@ -894,6 +920,76 @@ export function useShakaPlayer({
       })
     }
     player.getNetworkingEngine()?.registerRequestFilter(requestFilter)
+
+    const responseFilter: shaka.extern.ResponseFilter = (type, response) => {
+      const rangeHeader =
+        response.originalRequest?.headers?.['Range'] ||
+        response.originalRequest?.headers?.['range']
+      if (!rangeHeader) return
+
+      const range = rangeHeader
+        .replace('bytes=', '')
+        .split('-')
+        .filter(Boolean)
+        .map((r) => parseInt(r, 10))
+      if (range.length !== 2 || Number.isNaN(range[0]) || Number.isNaN(range[1])) return
+
+      const expectedLength = range[1] - range[0] + 1
+      const data = response.data
+      const currentLength =
+        data instanceof ArrayBuffer
+          ? data.byteLength
+          : ArrayBuffer.isView(data)
+            ? data.byteLength
+            : 0
+
+      if (currentLength === expectedLength) return
+
+      // If upstream returned full content or larger buffer, slice it down to the requested range
+      if (currentLength > expectedLength) {
+        if (data instanceof ArrayBuffer) {
+          if (data.byteLength >= range[1] + 1) {
+            response.data = data.slice(range[0], range[1] + 1)
+            response.status = 206
+            return
+          } else if (data.byteLength >= expectedLength) {
+            response.data = data.slice(0, expectedLength)
+            response.status = 206
+            return
+          }
+        } else if (ArrayBuffer.isView(data)) {
+          if (data.byteLength >= range[1] + 1) {
+            response.data = new Uint8Array(
+              data.buffer,
+              data.byteOffset + range[0],
+              expectedLength
+            )
+            response.status = 206
+            return
+          } else if (data.byteLength >= expectedLength) {
+            response.data = new Uint8Array(
+              data.buffer,
+              data.byteOffset,
+              expectedLength
+            )
+            response.status = 206
+            return
+          }
+        }
+      }
+
+      // If response payload is truncated (less than requested range), signal a recoverable error to trigger a clean retry
+      throw new shaka.util.Error(
+        shaka.util.Error.Severity.RECOVERABLE,
+        shaka.util.Error.Category.NETWORK,
+        shaka.util.Error.Code.BAD_HTTP_STATUS,
+        response.uri,
+        response.status,
+        response.headers,
+        type
+      )
+    }
+    player.getNetworkingEngine()?.registerResponseFilter(responseFilter)
 
     void (async () => {
       try {
@@ -1119,12 +1215,16 @@ export function useShakaPlayer({
 
     return () => {
       disposed = true
+      clearBufferingWatchdog()
+      video.removeEventListener('playing', clearBufferingWatchdog)
+      video.removeEventListener('pause', clearBufferingWatchdog)
       recoverPlaybackRef.current = null
       player.removeEventListener('error', onPlayerError)
       player.removeEventListener('buffering', onShakaBuffering)
       player.removeEventListener('audiotrackschanged', onAudioMaybeChanged)
       player.removeEventListener('adaptation', onAudioMaybeChanged)
       player.getNetworkingEngine()?.unregisterRequestFilter(requestFilter)
+      player.getNetworkingEngine()?.unregisterResponseFilter(responseFilter)
       playerRef.current = null
       void player.destroy().catch(() => undefined)
     }
@@ -1229,7 +1329,7 @@ export function useShakaPlayer({
       // the report also keeps `Infinity` — what `video.duration` reports while
       // live — out of the history and media-session writers.
       if (liveRef.current) return
-      if (now - lastReportRef.current > 4000) {
+      if (now - lastReportRef.current > 2000) {
         lastReportRef.current = now
         onTimeUpdateRef.current(video.currentTime, video.duration || 0)
       }
@@ -1243,6 +1343,10 @@ export function useShakaPlayer({
     }
     const onPause = (): void => {
       setPlaying(false)
+      if (!liveRef.current && video.currentTime > 0) {
+        lastReportRef.current = Date.now()
+        onTimeUpdateRef.current(video.currentTime, video.duration || 0)
+      }
       if (statusRef.current === 'ready' && !video.seeking) {
         setBusy(false)
         setStatusText('')
@@ -1290,6 +1394,9 @@ export function useShakaPlayer({
     video.addEventListener('ended', handleEnded)
 
     return () => {
+      if (!liveRef.current && video.currentTime > 0) {
+        onTimeUpdateRef.current(video.currentTime, video.duration || 0)
+      }
       video.removeEventListener('timeupdate', onTime)
       video.removeEventListener('progress', collectBuffered)
       video.removeEventListener('play', onPlay)

@@ -17,7 +17,8 @@ import {
   type PlaylistSummary,
   type SavedChannel,
   type SearchHistoryEntry,
-  type Settings
+  type Settings,
+  type UpdaterStatus
 } from '../../../shared/types'
 import { Dialog } from '../components/Dialog'
 
@@ -62,6 +63,8 @@ interface AppContextValue {
   recordSearch: (query: string) => Promise<void>
   removeSearch: (query: string) => Promise<void>
   clearSearchHistory: () => Promise<void>
+  /** Updates playback position both in persistent storage and reactively in local state. */
+  updateHistoryPosition: (videoId: string, position: number, duration?: number) => void
   /** Returns 0-1 playback progress for a video, or 0 if unplayed / completed */
   getHistoryProgress: (videoId: string, fallbackDuration?: number | null) => number
   /** Returns the full HistoryEntry if watched, otherwise undefined. Fast O(1) lookup. */
@@ -83,6 +86,9 @@ interface AppContextValue {
     options?: { actionLabel?: string; onAction?: () => void; timeout?: number }
   ) => void
   confirm: (message: string, options?: { confirmLabel?: string; danger?: boolean }) => Promise<boolean>
+  updaterStatus: UpdaterStatus
+  checkForUpdates: () => Promise<UpdaterStatus>
+  installUpdate: () => Promise<void>
 }
 
 const AppContext = createContext<AppContextValue | null>(null)
@@ -308,9 +314,8 @@ export function AppProvider({ children }: { children: ReactNode }): React.JSX.El
     [refreshPlaylists, toast]
   )
 
-  // Fast O(1) lookup map for video watch history, kept referentially stable
-  const historyMapRef = useRef<Map<string, HistoryEntry>>(new Map())
-  historyMapRef.current = useMemo(() => {
+  // Fast O(1) lookup map for video watch history, reactive to history changes
+  const historyMap = useMemo(() => {
     const map = new Map<string, HistoryEntry>()
     for (const h of history) {
       map.set(h.videoId, h)
@@ -320,43 +325,72 @@ export function AppProvider({ children }: { children: ReactNode }): React.JSX.El
 
   const getHistoryProgress = useCallback(
     (videoId: string, fallbackDuration?: number | null): number => {
-      const match = historyMapRef.current.get(videoId)
+      const match = historyMap.get(videoId)
       if (!match || match.position <= 0) return 0
       const duration = match.duration || fallbackDuration
       if (!duration || duration <= 0) return 0
       return Math.min(1, Math.max(0, match.position / duration))
     },
-    []
+    [historyMap]
   )
 
   const getHistoryEntry = useCallback(
-    (videoId: string): HistoryEntry | undefined => historyMapRef.current.get(videoId),
-    []
+    (videoId: string): HistoryEntry | undefined => historyMap.get(videoId),
+    [historyMap]
   )
 
-  // Fast O(1) set for saved channels, kept referentially stable
-  const savedChannelsSetRef = useRef<Set<string>>(new Set())
-  savedChannelsSetRef.current = useMemo(
+  const updateHistoryPosition = useCallback(
+    (videoId: string, position: number, duration?: number) => {
+      if (!settings.saveWatchHistory) return
+      void window.api.updateHistoryPosition(videoId, position)
+      setHistory((prev) => {
+        const idx = prev.findIndex((h) => h.videoId === videoId)
+        if (idx === -1) {
+          void window.api.getHistory().then((latest) => setHistory(latest))
+          return prev
+        }
+        const existing = prev[idx]
+        if (
+          Math.abs(existing.position - position) < 0.5 &&
+          (!duration || existing.duration === duration)
+        ) {
+          return prev
+        }
+        const updated: HistoryEntry = {
+          ...existing,
+          position,
+          duration: duration ?? existing.duration,
+          watchedAt: Date.now()
+        }
+        const next = [...prev]
+        next[idx] = updated
+        return next
+      })
+    },
+    [settings.saveWatchHistory]
+  )
+
+  // Fast O(1) set for saved channels, reactive to savedChannels changes
+  const savedChannelsSet = useMemo(
     () => new Set(savedChannels.map((c) => c.channelId)),
     [savedChannels]
   )
 
   const isChannelSaved = useCallback(
-    (channelId: string): boolean => savedChannelsSetRef.current.has(channelId),
-    []
+    (channelId: string): boolean => savedChannelsSet.has(channelId),
+    [savedChannelsSet]
   )
 
-  // Fast O(1) set for saved YouTube playlists, kept referentially stable
-  const savedPlaylistsSetRef = useRef<Set<string>>(new Set())
-  savedPlaylistsSetRef.current = useMemo(
+  // Fast O(1) set for saved YouTube playlists, reactive to playlists changes
+  const savedPlaylistsSet = useMemo(
     () => new Set(playlists.map((p) => p.youtubeId).filter((id): id is string => Boolean(id))),
     [playlists]
   )
 
   /** Whether a YouTube playlist is already bookmarked, so buttons can flip to "Remove". */
   const isYoutubePlaylistSaved = useCallback(
-    (youtubeId: string): boolean => savedPlaylistsSetRef.current.has(youtubeId),
-    []
+    (youtubeId: string): boolean => savedPlaylistsSet.has(youtubeId),
+    [savedPlaylistsSet]
   )
 
   /** Undoes `saveYoutubePlaylist`, used by the "Remove from playlists" affordances. */
@@ -415,6 +449,41 @@ export function AppProvider({ children }: { children: ReactNode }): React.JSX.El
     })
   }, [])
 
+  const [updaterStatus, setUpdaterStatus] = useState<UpdaterStatus>({
+    state: 'idle',
+    currentVersion: '0.5.1'
+  })
+
+  useEffect(() => {
+    void window.api.getUpdaterStatus().then((s) => {
+      if (s) setUpdaterStatus(s)
+    })
+    const unsub = window.api.onUpdaterStatus((s) => {
+      setUpdaterStatus(s)
+      if (s.state === 'downloaded') {
+        toast(`ViewFlux v${s.availableVersion ?? ''} is downloaded and ready to install.`, {
+          actionLabel: 'Restart now',
+          onAction: () => {
+            void window.api.installUpdate()
+          },
+          timeout: 15000
+        })
+      }
+    })
+    return unsub
+  }, [toast])
+
+  const checkForUpdates = useCallback(async () => {
+    setUpdaterStatus((prev) => ({ ...prev, state: 'checking', error: undefined }))
+    const res = await window.api.checkForUpdates()
+    setUpdaterStatus(res)
+    return res
+  }, [])
+
+  const installUpdate = useCallback(async () => {
+    await window.api.installUpdate()
+  }, [])
+
   const value = useMemo<AppContextValue>(
     () => ({
       settings,
@@ -441,6 +510,7 @@ export function AppProvider({ children }: { children: ReactNode }): React.JSX.El
       recordSearch,
       removeSearch,
       clearSearchHistory,
+      updateHistoryPosition,
       getHistoryProgress,
       getHistoryEntry,
       isChannelSaved,
@@ -450,7 +520,10 @@ export function AppProvider({ children }: { children: ReactNode }): React.JSX.El
       removeYoutubePlaylist,
       touchYoutubePlaylist,
       toast,
-      confirm
+      confirm,
+      updaterStatus,
+      checkForUpdates,
+      installUpdate
     }),
     [
       settings,
@@ -477,6 +550,7 @@ export function AppProvider({ children }: { children: ReactNode }): React.JSX.El
       recordSearch,
       removeSearch,
       clearSearchHistory,
+      updateHistoryPosition,
       getHistoryProgress,
       getHistoryEntry,
       isChannelSaved,
@@ -486,7 +560,10 @@ export function AppProvider({ children }: { children: ReactNode }): React.JSX.El
       removeYoutubePlaylist,
       touchYoutubePlaylist,
       toast,
-      confirm
+      confirm,
+      updaterStatus,
+      checkForUpdates,
+      installUpdate
     ]
   )
 

@@ -87,7 +87,7 @@ export const PlayerControls = memo(function PlayerControls({
     <div className="player__controls">
       {/* Play/Pause */}
       <button
-        className="icon-btn"
+        className="icon-btn player__btn--hero"
         aria-label={playing ? 'Pause' : 'Play'}
         onClick={onTogglePlay}
       >
@@ -97,32 +97,35 @@ export const PlayerControls = memo(function PlayerControls({
       {/* Volume group */}
       <div className="player__volume">
         <button
-          className="icon-btn"
+          className="icon-btn player__btn--tonal"
           aria-label={muted ? 'Unmute' : 'Mute'}
           onClick={onToggleMute}
         >
           <Icon name={muted || volume === 0 ? 'volumeOff' : 'volume'} size={22} />
         </button>
-        <input
-          className="slider"
-          type="range"
-          min={0}
-          max={3}
-          step={0.05}
-          value={muted ? 0 : volume}
-          onChange={(e) => onChangeVolume(Number(e.target.value))}
-          aria-label="Volume"
-          aria-valuetext={`${Math.round((muted ? 0 : volume) * 100)} percent${
-            volume > 1 ? ', amplified' : ''
-          }`}
-        />
-        <span
-          className={`player__volume-value${
-            volume > 1 ? ' player__volume-value--boosted' : ''
-          }`}
-        >
-          {Math.round((muted ? 0 : volume) * 100)}%
-        </span>
+        {/* Collapsing happens on this wrapper rather than on the slider itself */}
+        <div className="player__volume-slider">
+          <input
+            className="slider"
+            type="range"
+            min={0}
+            max={3}
+            step={0.05}
+            value={muted ? 0 : volume}
+            onChange={(e) => onChangeVolume(Number(e.target.value))}
+            aria-label="Volume"
+            aria-valuetext={`${Math.round((muted ? 0 : volume) * 100)} percent${
+              volume > 1 ? ', amplified' : ''
+            }`}
+          />
+          <span
+            className={`player__volume-value${
+              volume > 1 ? ' player__volume-value--boosted' : ''
+            }`}
+          >
+            {Math.round((muted ? 0 : volume) * 100)}%
+          </span>
+        </div>
       </div>
 
       {/* Time display — a live stream has no total, so show the edge offset */}
@@ -164,7 +167,8 @@ export const PlayerControls = memo(function PlayerControls({
         </>
       ) : (
         <span className="player__time">
-          {fmt(displayTime)} <span className="player__time-total">/ {fmt(duration)}</span>
+          <span className="player__time-current">{fmt(displayTime)}</span>
+          <span className="player__time-total"> / {fmt(duration)}</span>
         </span>
       )}
 
@@ -182,77 +186,92 @@ export const PlayerControls = memo(function PlayerControls({
 
       <div className="player__spacer" />
 
-      {/* Captions button */}
-      {textTracks.length > 0 && (
+      {/* Right controls cluster */}
+      <div className="player__controls-right">
+        {/* Captions button (collapsible on compact) */}
+        {textTracks.length > 0 && (
+          <button
+            className={`icon-btn player__btn--tonal player__btn--secondary${textVisible ? ' icon-btn--active' : ''}`}
+            aria-label="Subtitles"
+            title="Subtitles"
+            aria-haspopup="menu"
+            aria-expanded={activeMenu === 'captions'}
+            onClick={(event) => onToggleMenu('captions', event.currentTarget)}
+          >
+            <Icon name="captions" size={22} />
+          </button>
+        )}
+
+        {/* Playback settings button */}
         <button
-          className={`icon-btn${textVisible ? ' icon-btn--active' : ''}`}
-          aria-label="Subtitles"
-          title="Subtitles"
+          className={`icon-btn player__btn--tonal${!isLive && skipSilence ? ' icon-btn--active' : ''}`}
+          aria-label="Playback settings"
+          title="Playback settings"
           aria-haspopup="menu"
-          aria-expanded={activeMenu === 'captions'}
-          onClick={(event) => onToggleMenu('captions', event.currentTarget)}
+          aria-expanded={activeMenu === 'settings'}
+          onClick={(event) => onToggleMenu('settings', event.currentTarget)}
         >
-          <Icon name="captions" size={22} />
+          <Icon name="tune" size={22} />
         </button>
-      )}
 
-      {/* Playback settings button */}
-      <button
-        className={`icon-btn${!isLive && skipSilence ? ' icon-btn--active' : ''}`}
-        aria-label="Playback settings"
-        title="Playback settings"
-        aria-haspopup="menu"
-        aria-expanded={activeMenu === 'settings'}
-        onClick={(event) => onToggleMenu('settings', event.currentTarget)}
-      >
-        <Icon name="tune" size={22} />
-      </button>
+        {/* Audio track button (collapsible on compact) */}
+        {audioTracks.length > 0 && (
+          <button
+            className="icon-btn player__btn--tonal player__btn--secondary"
+            aria-label="Audio track"
+            title="Audio track"
+            aria-haspopup="menu"
+            aria-expanded={activeMenu === 'audio'}
+            onClick={(event) => onToggleMenu('audio', event.currentTarget)}
+          >
+            <Icon name="volume" size={22} />
+          </button>
+        )}
 
-      {/* Audio track button */}
-      {audioTracks.length > 0 && (
+        {/* Quality button (collapsible on compact) */}
         <button
-          className="icon-btn"
-          aria-label="Audio track"
-          title="Audio track"
+          className="icon-btn player__btn--tonal player__btn--secondary"
+          aria-label="Quality"
+          title="Quality"
           aria-haspopup="menu"
-          aria-expanded={activeMenu === 'audio'}
-          onClick={(event) => onToggleMenu('audio', event.currentTarget)}
+          aria-expanded={activeMenu === 'quality'}
+          onClick={(event) => onToggleMenu('quality', event.currentTarget)}
         >
-          <Icon name="volume" size={22} />
+          <Icon name="hd" size={22} />
         </button>
-      )}
 
-      {/* Quality button */}
-      <button
-        className="icon-btn"
-        aria-label="Quality"
-        title="Quality"
-        aria-haspopup="menu"
-        aria-expanded={activeMenu === 'quality'}
-        onClick={(event) => onToggleMenu('quality', event.currentTarget)}
-      >
-        <Icon name="hd" size={22} />
-      </button>
+        {/* PiP button (collapsible on compact) */}
+        <button
+          className="icon-btn player__btn--tonal player__btn--secondary"
+          aria-label="Picture in picture"
+          title="Picture in picture"
+          onClick={onTogglePip}
+        >
+          <Icon name="pip" size={22} />
+        </button>
 
-      {/* PiP button */}
-      <button
-        className="icon-btn"
-        aria-label="Picture in picture"
-        title="Picture in picture"
-        onClick={onTogglePip}
-      >
-        <Icon name="pip" size={22} />
-      </button>
+        {/* Overflow button (revealed only on compact layouts) */}
+        <button
+          className="icon-btn player__btn--tonal player__btn--more"
+          aria-label="More options"
+          title="More options"
+          aria-haspopup="menu"
+          aria-expanded={activeMenu === 'more'}
+          onClick={(event) => onToggleMenu('more', event.currentTarget)}
+        >
+          <Icon name="more" size={22} />
+        </button>
 
-      {/* Fullscreen button */}
-      <button
-        className="icon-btn"
-        aria-label={fullscreen ? 'Exit fullscreen' : 'Fullscreen'}
-        title={fullscreen ? 'Exit fullscreen' : 'Fullscreen'}
-        onClick={onToggleFullscreen}
-      >
-        <Icon name={fullscreen ? 'fullscreenExit' : 'fullscreen'} size={22} />
-      </button>
+        {/* Fullscreen button */}
+        <button
+          className="icon-btn player__btn--tonal"
+          aria-label={fullscreen ? 'Exit fullscreen' : 'Fullscreen'}
+          title={fullscreen ? 'Exit fullscreen' : 'Fullscreen'}
+          onClick={onToggleFullscreen}
+        >
+          <Icon name={fullscreen ? 'fullscreenExit' : 'fullscreen'} size={22} />
+        </button>
+      </div>
     </div>
   )
 })

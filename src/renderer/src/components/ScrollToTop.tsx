@@ -20,16 +20,16 @@ export const ScrollToTop = memo(function ScrollToTop(): React.JSX.Element | null
     return () => document.removeEventListener('scroll', handleScroll, true)
   }, [])
 
-  const scrollToTop = (): void => scrollPageToTop()
-
-  if (!visible) return null
+  const scrollToTop = (): void => scrollPageToTop('smooth')
 
   return (
     <button
       type="button"
-      className="scroll-to-top"
+      className={`scroll-to-top${visible ? ' scroll-to-top--visible' : ''}`}
       aria-label="Scroll to top"
       title="Scroll to top"
+      aria-hidden={!visible}
+      tabIndex={visible ? 0 : -1}
       onClick={scrollToTop}
     >
       <Icon name="up" size={20} />

@@ -359,12 +359,8 @@ export function ChannelPage({
 
       {/* ---- Videos tab ---- */}
       {tab === 'videos' && (
-        <section className="channel__section">
-          {videos.loading && videos.items.length === 0 && (
-            <div className="loader">
-              <div className="spinner" />
-            </div>
-          )}
+        <section key={`channel-videos-${sort}`} className="channel__section animate-fade-up">
+          {videos.loading && videos.items.length === 0 && <Loader />}
           {!videos.loading && videos.items.length === 0 && (
             <div className="empty">
               <div className="empty__icon">
@@ -374,7 +370,7 @@ export function ChannelPage({
             </div>
           )}
           {videos.items.length > 0 && (
-            <div className="video-grid">
+            <div key={`video-grid-${sort}`} className="video-grid animate-fade-up">
               {videos.items.map((video, index) => (
                 <VideoCard
                   key={`${video.videoId}-${index}`}
@@ -384,11 +380,7 @@ export function ChannelPage({
             </div>
           )}
           <div ref={sentinelRef} />
-          {videos.loading && videos.items.length > 0 && (
-            <div className="loader">
-              <div className="spinner" />
-            </div>
-          )}
+          {videos.loading && videos.items.length > 0 && <Loader />}
         </section>
       )}
 
@@ -419,12 +411,8 @@ export function ChannelPage({
 
       {/* ---- Releases tab ---- */}
       {tab === 'releases' && (
-        <section className="channel__section">
-          {releases.loading && releases.items.length === 0 && (
-            <div className="loader">
-              <div className="spinner" />
-            </div>
-          )}
+        <section key="channel-releases" className="channel__section animate-fade-up">
+          {releases.loading && releases.items.length === 0 && <Loader />}
           {!releases.loading && releases.items.length === 0 && (
             <div className="empty">
               <div className="empty__icon">
@@ -434,29 +422,21 @@ export function ChannelPage({
             </div>
           )}
           {releases.items.length > 0 && (
-            <div className="video-grid">
+            <div className="video-grid animate-fade-up">
               {releases.items.map((album, index) => (
                 <PlaylistCard key={`${album.id}-${index}`} playlist={album} />
               ))}
             </div>
           )}
           <div ref={sentinelRef} />
-          {releases.loading && releases.items.length > 0 && (
-            <div className="loader">
-              <div className="spinner" />
-            </div>
-          )}
+          {releases.loading && releases.items.length > 0 && <Loader />}
         </section>
       )}
 
       {/* ---- Playlists tab ---- */}
       {tab === 'playlists' && (
-        <section className="channel__section">
-          {playlists.loading && playlists.items.length === 0 && (
-            <div className="loader">
-              <div className="spinner" />
-            </div>
-          )}
+        <section key="channel-playlists" className="channel__section animate-fade-up">
+          {playlists.loading && playlists.items.length === 0 && <Loader />}
           {!playlists.loading && playlists.items.length === 0 && (
             <div className="empty">
               <div className="empty__icon">
@@ -466,7 +446,7 @@ export function ChannelPage({
             </div>
           )}
           {playlists.items.length > 0 && (
-            <div className="video-grid">
+            <div className="video-grid animate-fade-up">
               {playlists.items.map((playlist, index) => (
                 <PlaylistCard key={`${playlist.id}-${index}`} playlist={playlist} />
               ))}
@@ -477,7 +457,7 @@ export function ChannelPage({
 
       {/* ---- About tab ---- */}
       {tab === 'about' && (
-        <section className="channel__section channel__section--about">
+        <section key="channel-about" className="channel__section channel__section--about animate-fade-up">
           {!about ? (
             aboutError ? (
               <EmptyState
@@ -489,7 +469,7 @@ export function ChannelPage({
               <Loader label="Loading channel details…" />
             )
           ) : (
-            <div className="about">
+            <div className="about animate-fade-up">
               {about.description && <p className="about__description">{about.description}</p>}
               <div className="about__stats">
                 {about.subscriberCount && (

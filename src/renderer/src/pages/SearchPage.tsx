@@ -381,13 +381,13 @@ export function SearchPage({
       )}
 
       {results.length > 0 && (
-        <>
+        <div key={`${query}|${filter}`} className="search-results-wrap animate-fade-up">
           <div className="video-grid">
             {results.map((item, index) => renderItem(item, index))}
           </div>
           <div ref={sentinelRef} />
           {loadingMore && <Loader />}
-        </>
+        </div>
       )}
     </div>
   )

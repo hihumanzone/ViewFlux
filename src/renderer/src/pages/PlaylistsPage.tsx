@@ -83,12 +83,16 @@ export function PlaylistsPage(): React.JSX.Element {
           message="Create a playlist, then use the save option on any video — or save a YouTube playlist from its page."
         />
       ) : (
-        <div className="playlist-grid">
+        <div className="playlist-grid animate-fade-up">
           {playlists.map((playlist) => {
             const youtube = isYouTube(playlist)
             const active = menu?.playlist.id === playlist.id
             // YouTube playlists carry a thumbnail of their own; local ones show their first video.
             const thumb = youtube ? playlist.thumbnail : (playlist.videos[0]?.thumbnail ?? null)
+            const countText = youtube
+              ? (playlist.countText ?? 'YouTube playlist')
+              : `${playlist.videos.length} ${playlist.videos.length === 1 ? 'video' : 'videos'}`
+
             return (
               <div
                 key={playlist.id}
@@ -108,6 +112,11 @@ export function PlaylistsPage(): React.JSX.Element {
                   <span className={`playlist-card__kind${youtube ? '' : ' playlist-card__kind--local'}`}>
                     {youtube ? 'YouTube' : 'Local'}
                   </span>
+
+                  <span className="playlist-card__count-badge">
+                    <Icon name="playlist" size={13} />
+                    <span>{countText}</span>
+                  </span>
                 </div>
 
                 <div className="playlist-card__body">
@@ -124,12 +133,6 @@ export function PlaylistsPage(): React.JSX.Element {
                         setMenu(active ? null : { playlist, anchor: trigger })
                       }
                     />
-                  </div>
-                  <div className="playlist-card__count">
-                    <Icon name={youtube ? 'play' : 'bookmarkFilled'} size={13} />
-                    {youtube
-                      ? (playlist.countText ?? 'YouTube playlist')
-                      : `${playlist.videos.length} ${playlist.videos.length === 1 ? 'video' : 'videos'}`}
                   </div>
                 </div>
 

@@ -2,6 +2,11 @@ appId: app.viewflux.desktop
 productName: ViewFlux
 copyright: Copyright © 2026 ViewFlux Desktop Contributors
 
+publish:
+  provider: github
+  owner: hihumanzone
+  repo: ViewFlux
+
 directories:
   buildResources: build
   output: release
@@ -20,7 +25,7 @@ asar: true
 
 win:
   executableName: ViewFlux
-  icon: build/icon.png
+  icon: build/icon.ico
   target:
     - target: nsis
       arch:
@@ -36,6 +41,13 @@ nsis:
   uninstallDisplayName: ViewFlux
   artifactName: ViewFlux-Setup-${version}.${ext}
   deleteAppDataOnUninstall: true
+  include: build/installer.nsh
+  installerIcon: build/icon.ico
+  uninstallerIcon: build/icon.ico
+  installerHeaderIcon: build/icon.ico
+  installerSidebar: build/installerSidebar.bmp
+  uninstallerSidebar: build/uninstallerSidebar.bmp
+  installerHeader: build/installerHeader.bmp
 
 # No native modules are used, so skip the electron-rebuild pass entirely.
 npmRebuild: false

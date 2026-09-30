@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { Icon } from '../components/Icons'
 import { ChannelLine } from '../components/ChannelLine'
 import { InlineSearch } from '../components/InlineSearch'
@@ -11,6 +11,10 @@ import { useApp } from '../state/AppContext'
 export function HistoryPage(): React.JSX.Element {
   const { history, settings, refreshHistory, confirm, toast } = useApp()
   const [searchQuery, setSearchQuery] = useState('')
+
+  useEffect(() => {
+    void refreshHistory()
+  }, [refreshHistory])
 
   const remove = async (videoId: string): Promise<void> => {
     await window.api.removeHistory(videoId)
@@ -98,7 +102,7 @@ export function HistoryPage(): React.JSX.Element {
               Showing {filteredHistory.length} of {history.length} watched videos
             </div>
           )}
-          <ul className="list">
+          <ul key={searchQuery ? 'filtered' : 'all'} className="list animate-fade-up">
             {filteredHistory.map((entry, index) => {
             const hasDuration = entry.duration != null && entry.duration > 0
             const pct = hasDuration
