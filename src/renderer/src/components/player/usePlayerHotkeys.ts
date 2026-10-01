@@ -12,6 +12,9 @@ export interface UsePlayerHotkeysProps {
   volume: number
   chapters?: Chapter[]
   menuOpen: boolean
+  hasError?: boolean
+  fullscreen?: boolean
+  onDismissError?: () => void
   onTogglePlay: () => void
   onSeekBy: (delta: number) => void
   onSeekTo: (time: number) => void
@@ -35,6 +38,9 @@ export function usePlayerHotkeys({
   volume,
   chapters = [],
   menuOpen,
+  hasError,
+  fullscreen,
+  onDismissError,
   onTogglePlay,
   onSeekBy,
   onSeekTo,
@@ -188,6 +194,13 @@ export function usePlayerHotkeys({
           if (menuOpen) {
             event.preventDefault()
             onCloseMenu()
+          } else if (hasError) {
+            event.preventDefault()
+            if (fullscreen) {
+              onToggleFullscreen()
+            } else if (onDismissError) {
+              onDismissError()
+            }
           }
           break
         default:
@@ -200,6 +213,9 @@ export function usePlayerHotkeys({
       volume,
       chapters.length,
       menuOpen,
+      hasError,
+      fullscreen,
+      onDismissError,
       onTogglePlay,
       onSeekBy,
       onSeekTo,

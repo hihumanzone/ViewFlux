@@ -98,6 +98,90 @@ export interface LiveWindow {
   end: number
 }
 
+export interface PlayerErrorInfo {
+  title: string
+  message: string
+  code?: number
+}
+
+/**
+ * Maps raw playback or Shaka errors to user-friendly titles and explanations.
+ */
+export function formatPlayerError(err: unknown): PlayerErrorInfo {
+  const errObj =
+    err && typeof err === 'object'
+      ? ((err as { detail?: unknown }).detail ?? (err as { error?: unknown }).error ?? err)
+      : null
+
+  const code = (errObj as { code?: number })?.code
+  const rawMessage =
+    (errObj as { message?: string })?.message ??
+    (err instanceof Error ? err.message : typeof err === 'string' ? err : '')
+
+  if (code === 1001) {
+    return {
+      title: 'Stream connection error',
+      message: 'The media server returned an error while loading video segments (HTTP 1001). This is usually temporary.',
+      code: 1001
+    }
+  }
+
+  if (code === 1002) {
+    return {
+      title: 'Network error',
+      message: 'Could not connect to the video stream server. Please check your internet connection.',
+      code: 1002
+    }
+  }
+
+  if (code === 1003) {
+    return {
+      title: 'Connection timed out',
+      message: 'Loading the video stream timed out. Please try refreshing or retrying.',
+      code: 1003
+    }
+  }
+
+  if (code === 1011) {
+    return {
+      title: 'Live stream interrupted',
+      message: 'A live broadcast segment expired or is no longer available.',
+      code: 1011
+    }
+  }
+
+  if (code != null && code >= 3014 && code <= 3019) {
+    return {
+      title: 'Playback decoding error',
+      message: 'The media pipeline encountered an error while decoding video or audio segments.',
+      code
+    }
+  }
+
+  if (code === 4053) {
+    return {
+      title: 'Live stream starting',
+      message: 'The live stream has not generated media segments yet.',
+      code: 4053
+    }
+  }
+
+  // Generic fallback: clean up any raw "Shaka Error X (CATEGORY.CODE)" text
+  let message = rawMessage
+  if (message.startsWith('Shaka Error')) {
+    message = `The video player encountered a playback issue (${message}).`
+  }
+  if (!message || message.trim() === '') {
+    message = 'An unexpected playback error occurred. Please try retrying.'
+  }
+
+  return {
+    title: 'Playback interrupted',
+    message,
+    code: typeof code === 'number' ? code : undefined
+  }
+}
+
 export type VariantTrack = ReturnType<shaka.Player['getVariantTracks']>[number]
 export type TextTrack = ReturnType<shaka.Player['getTextTracks']>[number]
 export type AudioTrack = ReturnType<shaka.Player['getAudioTracks']>[number]

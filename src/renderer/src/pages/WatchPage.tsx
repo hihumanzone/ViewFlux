@@ -618,7 +618,7 @@ export function WatchPage({
                   className="btn btn--text btn--sm"
                   onClick={() => window.history.back()}
                 >
-                  <Icon name="forward" size={16} />
+                  <Icon name="back" size={16} />
                   Go back
                 </button>
               </div>

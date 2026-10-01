@@ -140,6 +140,12 @@
   transform: scale(0.92);
 }
 
+.icon-btn[aria-expanded="true"],
+.icon-btn[aria-expanded="true"]:hover,
+.icon-btn[aria-expanded="true"]:active {
+  transform: none !important;
+}
+
 .icon-btn--active {
   background: var(--secondary-container);
   color: var(--on-secondary-container);
@@ -1133,6 +1139,7 @@ div.loader__spinner {
   overscroll-behavior: contain;
   padding: 6px;
   box-sizing: border-box;
+  scrollbar-gutter: stable;
 }
 
 .menu__content::-webkit-scrollbar,

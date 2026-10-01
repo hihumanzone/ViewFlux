@@ -46,6 +46,51 @@ interface MenuProps {
 const CheckableContext = createContext(false)
 
 /**
+ * Returns a stable bounding rect for the anchor element, neutralizing any CSS scale
+ * transforms that may be active during :hover or :active interactions.
+ * This guarantees consistent positioning whether the menu mounts mid-click or
+ * re-positions while hovering or unfocused.
+ */
+function getAnchorRect(anchor: HTMLElement): {
+  top: number
+  bottom: number
+  left: number
+  right: number
+  width: number
+  height: number
+} {
+  const rect = anchor.getBoundingClientRect()
+  const offsetWidth = anchor.offsetWidth
+  const offsetHeight = anchor.offsetHeight
+
+  // If offset dimensions are unavailable or element is not scaled, return rect directly.
+  if (
+    !offsetWidth ||
+    !offsetHeight ||
+    (Math.abs(rect.width - offsetWidth) < 0.5 && Math.abs(rect.height - offsetHeight) < 0.5)
+  ) {
+    return rect
+  }
+
+  // Calculate the center of the element, which remains invariant under center-scaled CSS transforms
+  // (e.g. scale(0.92) or scale(1.06) on button hover/active states).
+  const cx = rect.left + rect.width / 2
+  const cy = rect.top + rect.height / 2
+
+  const left = cx - offsetWidth / 2
+  const top = cy - offsetHeight / 2
+
+  return {
+    left,
+    top,
+    right: left + offsetWidth,
+    bottom: top + offsetHeight,
+    width: offsetWidth,
+    height: offsetHeight
+  }
+}
+
+/**
  * Floating panel used for every option list in the app (player settings, quality,
  * audio, captions, channel sort, card overflow menus and settings dropdowns).
  *
@@ -73,7 +118,7 @@ export function Menu({
     const panel = panelRef.current
     if (!panel || !anchor) return
 
-    const rect = anchor.getBoundingClientRect()
+    const rect = getAnchorRect(anchor)
     const width = panel.offsetWidth
     const height = panel.offsetHeight
     const spaceBelow = window.innerHeight - rect.bottom - gap - MARGIN
@@ -88,10 +133,13 @@ export function Menu({
     } else {
       flip = height > spaceBelow && spaceAbove > spaceBelow
     }
-    const maxHeight = Math.max(140, Math.min(flip ? spaceAbove : spaceBelow, height, MAX_PANEL_HEIGHT))
-    const top = flip
+    const maxHeight = Math.round(
+      Math.max(140, Math.min(flip ? spaceAbove : spaceBelow, height, MAX_PANEL_HEIGHT))
+    )
+    const rawTop = flip
       ? Math.max(MARGIN, rect.top - Math.min(height, maxHeight) - gap)
       : rect.bottom + gap
+    const top = Math.round(rawTop)
 
     const preferred =
       align === 'end'
@@ -99,9 +147,11 @@ export function Menu({
         : align === 'center'
           ? rect.left + rect.width / 2 - width / 2
           : rect.left
-    const left = Math.min(
-      Math.max(MARGIN, preferred),
-      Math.max(MARGIN, window.innerWidth - width - MARGIN)
+    const left = Math.round(
+      Math.min(
+        Math.max(MARGIN, preferred),
+        Math.max(MARGIN, window.innerWidth - width - MARGIN)
+      )
     )
 
     setPlacement((prev) =>
@@ -134,12 +184,20 @@ export function Menu({
     if (!open) return
     window.addEventListener('resize', place)
     // Capture phase: menus anchored inside scrolling containers (settings, filter bars) must
-    // stay glued to their trigger while that container scrolls.
-    window.addEventListener('scroll', place, true)
+    // stay glued to their trigger while that container scrolls. Ignore scroll events originating
+    // from inside the menu panel itself so internal scrolling never triggers re-positioning.
+    const onScroll = (event: Event): void => {
+      const target = event.target as Node | null
+      if (target && panelRef.current?.contains(target)) {
+        return
+      }
+      place()
+    }
+    window.addEventListener('scroll', onScroll, true)
     document.addEventListener('fullscreenchange', place)
     return () => {
       window.removeEventListener('resize', place)
-      window.removeEventListener('scroll', place, true)
+      window.removeEventListener('scroll', onScroll, true)
       document.removeEventListener('fullscreenchange', place)
     }
   }, [open, place])

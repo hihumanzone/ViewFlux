@@ -427,6 +427,9 @@ export const Player = forwardRef<PlayerHandle, PlayerProps>(function Player(
     volume: audioGraph.volume,
     chapters,
     menuOpen: menu !== null,
+    hasError: shaka.status === 'error',
+    fullscreen,
+    onDismissError: shaka.dismissError,
     onTogglePlay: shaka.togglePlay,
     onSeekBy: shaka.seekBy,
     onSeekTo: shaka.seekTo,
@@ -563,10 +566,61 @@ export const Player = forwardRef<PlayerHandle, PlayerProps>(function Player(
 
       {/* Error display */}
       {shaka.status === 'error' && (
-        <div className="player__error">
+        <div className="player__error" role="alert">
+          <button
+            type="button"
+            className="player__error-close"
+            onClick={shaka.dismissError}
+            aria-label="Dismiss error"
+            title="Dismiss error"
+          >
+            <Icon name="close" size={18} />
+          </button>
+          <span className="player__error-icon">
+            <Icon name="info" size={28} />
+          </span>
           <div>
-            <p className="player__error-title">Unable to play this video</p>
-            <p>{shaka.errorMsg}</p>
+            <p className="player__error-title">{shaka.errorTitle || 'Playback interrupted'}</p>
+            <p>{shaka.errorMsg || 'Unable to play this video.'}</p>
+            {shaka.errorCode && (
+              <span className="player__error-code">Error code: {shaka.errorCode}</span>
+            )}
+          </div>
+          <div className="player__error-actions">
+            <button
+              type="button"
+              className="btn btn--filled btn--sm"
+              onClick={shaka.retryPlayback}
+            >
+              <Icon name="refresh" size={16} />
+              Retry
+            </button>
+            {fullscreen && (
+              <button
+                type="button"
+                className="btn btn--tonal btn--sm"
+                onClick={toggleFullscreen}
+              >
+                <Icon name="fullscreenExit" size={16} />
+                Exit fullscreen
+              </button>
+            )}
+            <button
+              type="button"
+              className="btn btn--tonal btn--sm"
+              onClick={shaka.dismissError}
+            >
+              <Icon name="close" size={16} />
+              Dismiss
+            </button>
+            <button
+              type="button"
+              className="btn btn--text btn--sm"
+              onClick={() => window.history.back()}
+            >
+              <Icon name="back" size={16} />
+              Go back
+            </button>
           </div>
         </div>
       )}

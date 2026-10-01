@@ -225,6 +225,15 @@
   transform: none !important;
 }
 
+.player .icon-btn[aria-expanded="true"],
+.player .icon-btn[aria-expanded="true"]:hover,
+.player .icon-btn[aria-expanded="true"]:active,
+.player .player__btn--tonal[aria-expanded="true"],
+.player .player__btn--tonal[aria-expanded="true"]:hover,
+.player .player__btn--tonal[aria-expanded="true"]:active {
+  transform: none !important;
+}
+
 .player .player__btn--tonal {
   border-radius: 16px;
   background: color-mix(in srgb, var(--surface-3) 55%, rgb(0 0 0 / 0.45));
@@ -930,6 +939,41 @@
   justify-content: center;
 }
 
+.player__error-close {
+  position: absolute;
+  top: 14px;
+  right: 14px;
+  width: 34px;
+  height: 34px;
+  display: grid;
+  place-items: center;
+  border-radius: var(--r-full);
+  background: color-mix(in srgb, var(--surface-3) 80%, transparent);
+  color: var(--on-surface-variant);
+  border: 1px solid var(--outline-variant);
+  cursor: pointer;
+  transition: all var(--t-fast) var(--ease-out);
+  z-index: 10;
+}
+
+.player__error-close:hover {
+  background: var(--surface-4);
+  color: var(--on-surface);
+  transform: scale(1.05);
+}
+
+.player__error-code {
+  display: inline-block;
+  margin-top: 6px;
+  padding: 2px 8px;
+  border-radius: var(--r-sm);
+  background: color-mix(in srgb, var(--surface-2) 80%, transparent);
+  border: 1px solid color-mix(in srgb, var(--outline) 25%, transparent);
+  font-family: ui-monospace, 'Cascadia Mono', Consolas, monospace;
+  font-size: 11px;
+  color: var(--on-surface-variant);
+}
+
 /* ---- Player settings sheet ---- */
 .sheet {
   width: min(388px, calc(100vw - 24px));
@@ -973,6 +1017,7 @@
   min-height: 0;
   overflow-y: auto;
   overflow-x: hidden;
+  scrollbar-gutter: stable;
 }
 
 .menu--playback-settings .menu__content::-webkit-scrollbar {
