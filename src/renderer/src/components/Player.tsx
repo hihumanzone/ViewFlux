@@ -13,6 +13,7 @@ import { useMediaSession } from '../lib/mediaSession'
 import { PlayerOsd } from './player/PlayerOsd'
 import { SeekBar } from './player/SeekBar'
 import { PlayerControls } from './player/PlayerControls'
+import { MiniPlayerControls } from './player/MiniPlayerControls'
 import { PlayerMenus } from './player/PlayerMenus'
 import { usePlayerAudioGraph } from './player/usePlayerAudioGraph'
 import { useShakaPlayer } from './player/useShakaPlayer'
@@ -64,7 +65,12 @@ export const Player = forwardRef<PlayerHandle, PlayerProps>(function Player(
     chapters = [],
     onPitchChange,
     onSkipSilenceChange,
-    onSubtitleStyleChange
+    onSubtitleStyleChange,
+    isMini = false,
+    onExpand,
+    onClose,
+    title,
+    author
   } = props
 
   const safeInitialSpeed =
@@ -104,11 +110,17 @@ export const Player = forwardRef<PlayerHandle, PlayerProps>(function Player(
   const [osd, setOsd] = useState<OsdState | null>(null)
   const osdTimerRef = useRef<number | null>(null)
 
+  useEffect(() => {
+    return () => {
+      if (osdTimerRef.current) window.clearTimeout(osdTimerRef.current)
+    }
+  }, [])
+
   const showOsd = useCallback((text: string, icon?: string) => {
     if (osdTimerRef.current) window.clearTimeout(osdTimerRef.current)
     const id = Date.now()
     setOsd({ id, text, icon })
-    osdTimerRef.current = window.setTimeout(() => setOsd(null), 800)
+    osdTimerRef.current = window.setTimeout(() => setOsd(null), 850)
   }, [])
 
   const maybeSkip = useCallback((time: number) => {
@@ -420,6 +432,12 @@ export const Player = forwardRef<PlayerHandle, PlayerProps>(function Player(
     [menu, closeMenu]
   )
 
+  useEffect(() => {
+    if (isMini && menu !== null) {
+      closeMenu()
+    }
+  }, [isMini, menu, closeMenu])
+
   // Hotkeys Hook
   usePlayerHotkeys({
     containerRef,
@@ -429,6 +447,9 @@ export const Player = forwardRef<PlayerHandle, PlayerProps>(function Player(
     menuOpen: menu !== null,
     hasError: shaka.status === 'error',
     fullscreen,
+    isMini,
+    onExpand,
+    onClose,
     onDismissError: shaka.dismissError,
     onTogglePlay: shaka.togglePlay,
     onSeekBy: shaka.seekBy,
@@ -478,8 +499,12 @@ export const Player = forwardRef<PlayerHandle, PlayerProps>(function Player(
       window.clearTimeout(clickTimerRef.current)
       clickTimerRef.current = null
     }
+    if (isMini) {
+      onExpand?.()
+      return
+    }
     toggleFullscreen()
-  }, [toggleFullscreen])
+  }, [isMini, onExpand, toggleFullscreen])
 
   const isControlsVisible = controlsVisible || menu !== null
 
@@ -627,11 +652,43 @@ export const Player = forwardRef<PlayerHandle, PlayerProps>(function Player(
 
       {shaka.status === 'ready' && (
         <>
-          <div
-            className="player__stage"
-            onClick={onStageClick}
-            onDoubleClick={onStageDoubleClick}
-          />
+          {isMini ? (
+            <MiniPlayerControls
+              playing={shaka.playing}
+              currentTime={shaka.currentTime}
+              duration={shaka.duration}
+              isLive={liveStream}
+              behindLive={shaka.behindLive}
+              liveWindow={
+                liveStream && shaka.liveWindow
+                  ? {
+                      ...shaka.liveWindow,
+                      behind: shaka.behindLive
+                    }
+                  : null
+              }
+              buffered={shaka.buffered}
+              chapters={visibleChapters}
+              segments={visibleSegments}
+              title={title}
+              author={author}
+              visible={isControlsVisible}
+              playlistNavigation={props.playlistNavigation}
+              onTogglePlay={shaka.togglePlay}
+              onSeek={shaka.seekTo}
+              onScrubStart={onScrubStart}
+              onScrubEnd={onScrubEnd}
+              onExpand={onExpand}
+              onClose={onClose}
+              onHeaderPointerDown={props.onMiniHeaderPointerDown}
+            />
+          ) : (
+            <>
+              <div
+                className="player__stage"
+                onClick={onStageClick}
+                onDoubleClick={onStageDoubleClick}
+              />
 
           {/* Big center play button when paused */}
           <div
@@ -743,6 +800,8 @@ export const Player = forwardRef<PlayerHandle, PlayerProps>(function Player(
           )}
         </>
       )}
-    </div>
+    </>
+  )}
+</div>
   )
 })

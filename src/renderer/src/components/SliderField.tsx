@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import { Slider } from './Slider'
 
 interface SliderFieldProps {
   value: number
@@ -10,6 +11,14 @@ interface SliderFieldProps {
   /** Decimals used when the slider is dragged. */
   precision?: number
   label: string
+  /** 'primary' (signature lilac) | 'tertiary' (boosted coral) */
+  accent?: 'primary' | 'tertiary'
+  /** 'sm' | 'md' */
+  size?: 'sm' | 'md'
+  /** Show the ceiling stop dot */
+  showEndStop?: boolean
+  /** Discrete stops */
+  stops?: boolean | number[]
   /** Fires continuously while dragging or while typing. */
   onChange: (value: number) => void
   /**
@@ -44,6 +53,10 @@ export function SliderField({
   suffix = '',
   precision = 0,
   label,
+  accent,
+  size,
+  showEndStop,
+  stops,
   onChange,
   onCommit
 }: SliderFieldProps): React.JSX.Element {
@@ -89,23 +102,22 @@ export function SliderField({
     onCommit?.(next)
   }
 
-  const percent = max > min ? ((value - min) / (max - min)) * 100 : 0
-
   return (
     <div className="slider-field">
-      <input
-        className="slider"
-        type="range"
+      <Slider
         min={min}
         max={max}
         step={step}
         value={value}
         aria-label={label}
-        style={{ ['--p' as string]: `${percent}%` }}
+        accent={accent}
+        size={size}
+        showEndStop={showEndStop}
+        stops={stops}
         onPointerDown={() => {
           draggingRef.current = true
         }}
-        onChange={(event) => onChange(Number(event.target.value))}
+        onChange={onChange}
         onKeyUp={(event) => {
           if (SLIDER_KEYS.has(event.key)) onCommit?.(valueRef.current)
         }}

@@ -14,6 +14,9 @@ export interface UsePlayerHotkeysProps {
   menuOpen: boolean
   hasError?: boolean
   fullscreen?: boolean
+  isMini?: boolean
+  onExpand?: () => void
+  onClose?: () => void
   onDismissError?: () => void
   onTogglePlay: () => void
   onSeekBy: (delta: number) => void
@@ -40,6 +43,9 @@ export function usePlayerHotkeys({
   menuOpen,
   hasError,
   fullscreen,
+  isMini,
+  onExpand,
+  onClose,
   onDismissError,
   onTogglePlay,
   onSeekBy,
@@ -125,7 +131,11 @@ export function usePlayerHotkeys({
         case 'f':
         case 'F':
           event.preventDefault()
-          onToggleFullscreen()
+          if (isMini) {
+            onExpand?.()
+          } else {
+            onToggleFullscreen()
+          }
           break
         case 'c':
         case 'C': {
@@ -201,6 +211,9 @@ export function usePlayerHotkeys({
             } else if (onDismissError) {
               onDismissError()
             }
+          } else if (isMini) {
+            event.preventDefault()
+            onClose?.()
           }
           break
         default:

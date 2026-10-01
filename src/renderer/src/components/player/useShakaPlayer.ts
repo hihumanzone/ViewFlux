@@ -623,6 +623,19 @@ export function useShakaPlayer({
     [clampToSeekable, videoRef]
   )
 
+  const seekAccumulatorRef = useRef<{ total: number; timer: number | null }>({
+    total: 0,
+    timer: null
+  })
+
+  useEffect(() => {
+    return () => {
+      if (seekAccumulatorRef.current.timer) {
+        window.clearTimeout(seekAccumulatorRef.current.timer)
+      }
+    }
+  }, [])
+
   const seekBy = useCallback(
     (delta: number) => {
       const video = videoRef.current
@@ -630,7 +643,20 @@ export function useShakaPlayer({
       const target = clampToSeekable(video.currentTime + delta)
       video.currentTime = target
       setCurrentTime(target)
-      onOsd?.(`${delta > 0 ? `+${delta}s` : `${delta}s`}`, delta > 0 ? 'forward' : 'back')
+
+      if (seekAccumulatorRef.current.timer) {
+        window.clearTimeout(seekAccumulatorRef.current.timer)
+      }
+      seekAccumulatorRef.current.total += delta
+
+      const total = seekAccumulatorRef.current.total
+      seekAccumulatorRef.current.timer = window.setTimeout(() => {
+        seekAccumulatorRef.current.total = 0
+      }, 850)
+
+      const formatted = total > 0 ? `+${total}s` : `${total}s`
+      const icon = total > 0 ? 'forward' : total < 0 ? 'back' : delta >= 0 ? 'forward' : 'back'
+      onOsd?.(formatted, icon)
     },
     [clampToSeekable, onOsd, videoRef]
   )

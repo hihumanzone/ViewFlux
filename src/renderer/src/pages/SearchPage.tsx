@@ -7,6 +7,7 @@ import { navigate, searchRoute } from '../lib/router'
 import { resolveYouTubeUrl } from '../lib/youtubeUrl'
 import { useApp } from '../state/AppContext'
 import { formatRelative } from '../lib/format'
+import { scrollPageToTop } from '../lib/scroll'
 import type { SearchFilter, SearchItem, VideoSummary } from '../../../shared/types'
 
 const FILTERS: { id: SearchFilter; label: string; icon: 'search' | 'play' | 'person' | 'playlist' | 'music_note' }[] = [
@@ -84,6 +85,7 @@ export function SearchPage({
     setLoading(true)
     setError(null)
     setResults([])
+    scrollPageToTop('auto')
     void window.api
       .search(q, filter)
       .then((page) => {
@@ -268,97 +270,99 @@ export function SearchPage({
   }
 
   return (
-    <div className="page">
-      <form
-        className="search-bar"
-        onSubmit={(e) => {
-          e.preventDefault()
-          submit()
-        }}
-      >
-        <div className="search-bar__field">
-          <Icon name="search" size={20} className="search-bar__lead" />
-          <input
-            ref={inputRef}
-            className="search-bar__input"
-            placeholder="Search videos, channels, playlists, music…"
-            value={input}
-            autoFocus
-            role="combobox"
-            aria-expanded={showSuggestions && suggestions.length > 0}
-            aria-controls="search-suggestions"
-            aria-autocomplete="list"
-            aria-activedescendant={
-              showSuggestions && activeSuggestion >= 0
-                ? `search-suggestion-${activeSuggestion}`
-                : undefined
-            }
-            aria-label="Search"
-            onChange={(e) => onInputChange(e.target.value)}
-            onPaste={onInputPaste}
-            onDrop={onInputDrop}
-            onKeyDown={onInputKeyDown}
-            onFocus={() => suggestions.length > 0 && setShowSuggestions(true)}
-            onBlur={() => window.setTimeout(() => setShowSuggestions(false), 140)}
-          />
-          {input && (
-            <button
-              type="button"
-              className="icon-btn icon-btn--sm search-bar__clear"
-              aria-label="Clear"
-              onClick={() => {
-                onInputChange('')
-                setInput('')
-                inputRef.current?.focus()
-              }}
-            >
-              <Icon name="close" size={18} />
-            </button>
-          )}
-          {showSuggestions && suggestions.length > 0 && (
-            <div className="suggestions" id="search-suggestions" role="listbox" aria-label="Search suggestions">
-              {suggestions.map((s, index) => (
-                <button
-                  type="button"
-                  key={s}
-                  id={`search-suggestion-${index}`}
-                  role="option"
-                  aria-selected={index === activeSuggestion}
-                  className={`suggestions__item${index === activeSuggestion ? ' suggestions__item--active' : ''}`}
-                  onMouseDown={(e) => {
-                    e.preventDefault()
-                    submit(s)
-                  }}
-                >
-                  <Icon name="search" size={18} />
-                  <span>{s}</span>
-                </button>
-              ))}
-            </div>
-          )}
-        </div>
-        <button type="submit" className="btn btn--filled">
-          <Icon name="search" size={18} />
-          Search
-        </button>
-      </form>
+    <div className="page page--search">
+      <div className="search-header">
+        <form
+          className="search-bar"
+          onSubmit={(e) => {
+            e.preventDefault()
+            submit()
+          }}
+        >
+          <div className="search-bar__field">
+            <Icon name="search" size={20} className="search-bar__lead" />
+            <input
+              ref={inputRef}
+              className="search-bar__input"
+              placeholder="Search videos, channels, playlists, music…"
+              value={input}
+              autoFocus
+              role="combobox"
+              aria-expanded={showSuggestions && suggestions.length > 0}
+              aria-controls="search-suggestions"
+              aria-autocomplete="list"
+              aria-activedescendant={
+                showSuggestions && activeSuggestion >= 0
+                  ? `search-suggestion-${activeSuggestion}`
+                  : undefined
+              }
+              aria-label="Search"
+              onChange={(e) => onInputChange(e.target.value)}
+              onPaste={onInputPaste}
+              onDrop={onInputDrop}
+              onKeyDown={onInputKeyDown}
+              onFocus={() => suggestions.length > 0 && setShowSuggestions(true)}
+              onBlur={() => window.setTimeout(() => setShowSuggestions(false), 140)}
+            />
+            {input && (
+              <button
+                type="button"
+                className="icon-btn icon-btn--sm search-bar__clear"
+                aria-label="Clear"
+                onClick={() => {
+                  onInputChange('')
+                  setInput('')
+                  inputRef.current?.focus()
+                }}
+              >
+                <Icon name="close" size={18} />
+              </button>
+            )}
+            {showSuggestions && suggestions.length > 0 && (
+              <div className="suggestions" id="search-suggestions" role="listbox" aria-label="Search suggestions">
+                {suggestions.map((s, index) => (
+                  <button
+                    type="button"
+                    key={s}
+                    id={`search-suggestion-${index}`}
+                    role="option"
+                    aria-selected={index === activeSuggestion}
+                    className={`suggestions__item${index === activeSuggestion ? ' suggestions__item--active' : ''}`}
+                    onMouseDown={(e) => {
+                      e.preventDefault()
+                      submit(s)
+                    }}
+                  >
+                    <Icon name="search" size={18} />
+                    <span>{s}</span>
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+          <button type="submit" className="btn btn--filled">
+            <Icon name="search" size={18} />
+            Search
+          </button>
+        </form>
 
-      {query && (
-        <div className="filter-chips" role="tablist" aria-label="Search filters">
-          {FILTERS.map((f) => (
-            <button
-              key={f.id}
-              role="tab"
-              aria-selected={filter === f.id}
-              className={`filter-chip${filter === f.id ? ' filter-chip--active' : ''}`}
-              onClick={() => goFilter(f.id)}
-            >
-              <Icon name={f.icon} size={16} />
-              {f.label}
-            </button>
-          ))}
-        </div>
-      )}
+        {query && (
+          <div className="filter-chips" role="tablist" aria-label="Search filters">
+            {FILTERS.map((f) => (
+              <button
+                key={f.id}
+                role="tab"
+                aria-selected={filter === f.id}
+                className={`filter-chip${filter === f.id ? ' filter-chip--active' : ''}`}
+                onClick={() => goFilter(f.id)}
+              >
+                <Icon name={f.icon} size={16} />
+                {f.label}
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
 
       {/* Announced politely so a screen reader hears the result count without
           the focus ever leaving the search field. */}

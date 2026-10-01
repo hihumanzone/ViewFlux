@@ -206,42 +206,274 @@ select.input {
   border-radius: var(--r-full);
 }
 
-/* ---- Slider (Material 3 Expressive Thick Pill Track) ---- */
+/* ============================================================
+   Material 3 Expressive Slider (Google M3 Expressive Specification)
+   ============================================================ */
+
+.m3-slider {
+  --m3-track-h: 22px;
+  --m3-thumb-w: 4px;
+  --m3-thumb-half-w: 2px;
+  --m3-thumb-h: 34px;
+  --m3-gap: 5px;
+  --m3-dot-size: 4px;
+  --m3-outer-r: 6px;
+  --m3-inner-r: 3px;
+
+  --m3-active-color: var(--primary);
+  --m3-inactive-color: color-mix(in srgb, var(--primary) 18%, var(--surface-3));
+  --m3-handle-color: var(--primary);
+  --m3-active-dot-color: var(--on-primary);
+  --m3-inactive-dot-color: var(--primary);
+
+  position: relative;
+  display: flex;
+  align-items: center;
+  width: 100%;
+  height: 38px;
+  user-select: none;
+  touch-action: none;
+}
+
+/* Size Variants */
+.m3-slider--sm {
+  --m3-track-h: 16px;
+  --m3-thumb-w: 4px;
+  --m3-thumb-half-w: 2px;
+  --m3-thumb-h: 24px;
+  --m3-gap: 4px;
+  --m3-dot-size: 3px;
+  --m3-outer-r: 4px;
+  --m3-inner-r: 2px;
+  height: 28px;
+}
+
+/* Accent Variants */
+.m3-slider--tertiary {
+  --m3-active-color: var(--tertiary);
+  --m3-inactive-color: color-mix(in srgb, var(--tertiary) 20%, var(--surface-3));
+  --m3-handle-color: var(--tertiary);
+  --m3-active-dot-color: var(--on-tertiary);
+  --m3-inactive-dot-color: var(--tertiary);
+}
+
+/* Native Accessible Input (Stretched, transparent, receives keyboard & pointer events) */
+.m3-slider__native {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  opacity: 0;
+  cursor: pointer;
+  z-index: 3;
+  -webkit-appearance: none;
+  appearance: none;
+  background: transparent;
+  outline: none !important;
+  border: none !important;
+  box-shadow: none !important;
+}
+
+.m3-slider__native:focus,
+.m3-slider__native:active,
+.m3-slider:focus,
+.m3-slider:focus-within {
+  outline: none !important;
+  box-shadow: none !important;
+}
+
+.m3-slider__native::-webkit-slider-runnable-track {
+  width: 100%;
+  height: 100%;
+  background: transparent;
+  border: none;
+}
+
+.m3-slider__native::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: var(--m3-thumb-w);
+  height: 100%;
+  background: transparent;
+  border: none;
+}
+
+/* Visual Stage */
+.m3-slider__visual {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+/* Active Track: Boxy rectangular bar with subtle rounded corners */
+.m3-slider__track-active {
+  position: absolute;
+  left: 0;
+  top: 50%;
+  transform: translateY(-50%);
+  height: var(--m3-track-h);
+  border-radius: var(--m3-outer-r) var(--m3-inner-r) var(--m3-inner-r) var(--m3-outer-r);
+  background: var(--m3-active-color);
+  width: max(0px, calc(var(--p) * (100% - var(--m3-thumb-w)) - var(--m3-gap)));
+  transition: height var(--t-fast) var(--ease-spring),
+    background var(--t-fast) var(--ease-out);
+}
+
+.m3-slider__track-active--full {
+  border-radius: var(--m3-outer-r);
+}
+
+.m3-slider__track-active--hidden {
+  opacity: 0;
+  visibility: hidden;
+}
+
+/* Inactive Track: Boxy rectangular bar with subtle rounded corners */
+.m3-slider__track-inactive {
+  position: absolute;
+  right: 0;
+  top: 50%;
+  transform: translateY(-50%);
+  height: var(--m3-track-h);
+  border-radius: var(--m3-inner-r) var(--m3-outer-r) var(--m3-outer-r) var(--m3-inner-r);
+  background: var(--m3-inactive-color);
+  left: calc(var(--m3-thumb-w) + var(--m3-gap) + var(--p) * (100% - var(--m3-thumb-w)));
+  transition: height var(--t-fast) var(--ease-spring),
+    background var(--t-fast) var(--ease-out);
+}
+
+.m3-slider__track-inactive--full {
+  border-radius: var(--m3-outer-r);
+}
+
+.m3-slider__track-inactive--hidden {
+  opacity: 0;
+  visibility: hidden;
+}
+
+/* Handle: Crisp vertical pill handle */
+.m3-slider__handle {
+  position: absolute;
+  top: 50%;
+  left: calc(var(--m3-thumb-half-w) + var(--p) * (100% - var(--m3-thumb-w)));
+  transform: translate(-50%, -50%);
+  width: var(--m3-thumb-w);
+  height: var(--m3-thumb-h);
+  border-radius: var(--r-full);
+  background: var(--m3-handle-color);
+  outline: none !important;
+  border: none !important;
+  box-shadow: none !important;
+  transition: transform var(--t-fast) var(--ease-spring),
+    background var(--t-fast) var(--ease-out);
+}
+
+/* Stop Indicators (Discrete & Ceiling Dots) */
+.m3-slider__stops {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+.m3-slider__stop-dot {
+  position: absolute;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  width: var(--m3-dot-size);
+  height: var(--m3-dot-size);
+  border-radius: var(--r-full);
+  pointer-events: none;
+  transition: background var(--t-fast) var(--ease-out), opacity var(--t-fast) var(--ease-out);
+}
+
+.m3-slider__stop-dot--active {
+  background: var(--m3-active-dot-color);
+  opacity: 0.85;
+}
+
+.m3-slider__stop-dot--inactive {
+  background: var(--m3-inactive-dot-color);
+  opacity: 0.9;
+}
+
+/* Ceiling Stop Dot inside the right end of inactive track */
+.m3-slider__stop-dot--end {
+  right: 8px;
+  left: auto;
+  transform: translate(50%, -50%);
+  background: var(--m3-inactive-dot-color);
+}
+
+/* Hover: subtle color tint on inactive track */
+.m3-slider:hover .m3-slider__track-inactive {
+  background: color-mix(in srgb, var(--primary) 22%, var(--surface-3));
+}
+
+.m3-slider--tertiary:hover .m3-slider__track-inactive {
+  background: color-mix(in srgb, var(--tertiary) 22%, var(--surface-3));
+}
+
+/* Active / Dragging: clean solid handle, no weird borders */
+.m3-slider--dragging .m3-slider__handle,
+.m3-slider:active .m3-slider__handle {
+  outline: none !important;
+  box-shadow: none !important;
+  border: none !important;
+}
+
+/* Keyboard navigation only: accessible focus outline around slider */
+.m3-slider__native:focus-visible ~ .m3-slider__visual {
+  border-radius: 8px;
+  outline: 2px solid color-mix(in srgb, var(--primary) 70%, transparent);
+  outline-offset: 4px;
+}
+
+/* Disabled */
+.m3-slider--disabled {
+  opacity: 0.38;
+  cursor: not-allowed;
+  pointer-events: none;
+}
+
+/* Fallback for standalone <input type="range" class="slider"> */
 .slider {
   -webkit-appearance: none;
   appearance: none;
-  height: 28px;
+  height: 38px;
   background: transparent;
   cursor: pointer;
+  width: 100%;
 }
 
 .slider::-webkit-slider-runnable-track {
-  height: 8px;
-  border-radius: var(--r-full);
-  background: var(--surface-4);
-  transition: height var(--t-fast) var(--ease-out);
+  height: 22px;
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--primary) 18%, var(--surface-3));
+  transition: height var(--t-fast) var(--ease-out), background var(--t-fast) var(--ease-out);
 }
 
 .slider::-webkit-slider-thumb {
   -webkit-appearance: none;
-  width: 20px;
-  height: 20px;
+  width: 4px;
+  height: 34px;
   margin-top: -6px;
   border: none;
   border-radius: var(--r-full);
   background: var(--primary);
-  box-shadow: 0 2px 6px rgb(0 0 0 / 0.4), 0 0 0 4px color-mix(in srgb, var(--primary) 20%, transparent);
-  transition: transform var(--t-fast) var(--ease-spring), box-shadow var(--t-fast) var(--ease-out);
+  box-shadow: none;
+  transition: transform var(--t-fast) var(--ease-spring);
 }
 
 .slider:hover::-webkit-slider-thumb {
-  transform: scale(1.2);
-  box-shadow: 0 3px 8px rgb(0 0 0 / 0.45), 0 0 0 6px color-mix(in srgb, var(--primary) 30%, transparent);
+  transform: scaleY(1.04);
 }
 
 .slider:active::-webkit-slider-thumb {
-  transform: scale(1.3);
-  box-shadow: 0 4px 12px rgb(0 0 0 / 0.5), 0 0 0 8px color-mix(in srgb, var(--primary) 35%, transparent);
+  width: 4px;
+  transform: none;
+  box-shadow: none;
 }
 
 /* ---- Switch (Material 3 Expressive Tactile Switch) ---- */
@@ -878,12 +1110,35 @@ select.input {
 }
 
 .playlist-card__count,
-.pl-card__byline {
+.pl-card__byline,
+.pl-card__meta {
   display: flex;
   align-items: center;
   gap: 6px;
   font-size: 12.5px;
   color: var(--on-surface-variant);
+  min-width: 0;
+  line-height: 1.4;
+}
+
+.pl-card__author {
+  min-width: 0;
+  flex: 0 1 auto;
+}
+
+.pl-card__meta-sep {
+  flex: none;
+  font-size: 10px;
+  color: var(--on-surface-variant);
+  opacity: 0.6;
+}
+
+.pl-card__year {
+  flex: none;
+  font-size: 12.5px;
+  color: var(--on-surface-variant);
+  font-weight: 500;
+  white-space: nowrap;
 }
 
 /* ---- States: empty / loader (Material 3 Expressive Scallop Rosette) ---- */
@@ -1283,6 +1538,11 @@ div.loader__spinner {
   flex-direction: column;
   gap: 10px;
   pointer-events: none;
+  transition: bottom var(--t-med) var(--ease-spring);
+}
+
+html[data-miniplayer="true"] .toast-stack {
+  bottom: 250px;
 }
 
 .toast {
@@ -1390,7 +1650,8 @@ div.loader__spinner {
   min-width: 220px;
 }
 
-.slider-field .slider {
+.slider-field .slider,
+.slider-field .m3-slider {
   flex: 1;
   min-width: 0;
 }
@@ -1835,7 +2096,12 @@ div.loader__spinner {
               background var(--t-fast) var(--ease-out),
               box-shadow var(--t-fast) var(--ease-out),
               color var(--t-fast) var(--ease-out),
-              border-color var(--t-fast) var(--ease-out);
+              border-color var(--t-fast) var(--ease-out),
+              bottom var(--t-med) var(--ease-spring);
+}
+
+html[data-miniplayer="true"] .scroll-to-top {
+  bottom: 250px;
 }
 
 .scroll-to-top--visible {

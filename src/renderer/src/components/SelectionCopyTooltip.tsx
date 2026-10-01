@@ -23,7 +23,7 @@ export function SelectionCopyTooltip(): React.JSX.Element | null {
       }
     }
 
-    const checkSelection = (fromPointerUp = false): void => {
+    const checkSelection = (): void => {
       const selection = window.getSelection()
       if (!selection || selection.isCollapsed || selection.rangeCount === 0) {
         setPos(null)
@@ -52,11 +52,6 @@ export function SelectionCopyTooltip(): React.JSX.Element | null {
           return
         }
 
-        // When selection was made via left-click mouse release, auto-copy to clipboard
-        if (fromPointerUp) {
-          void navigator.clipboard.writeText(text).catch(() => undefined)
-        }
-
         const top = rect.top >= 48 ? rect.top - 38 : rect.bottom + 8
         const left = Math.max(12, Math.min(window.innerWidth - 110, rect.left + rect.width / 2 - 45))
 
@@ -64,15 +59,8 @@ export function SelectionCopyTooltip(): React.JSX.Element | null {
           top,
           left,
           text,
-          copied: fromPointerUp ? true : (prev?.text === text ? prev.copied : false)
+          copied: prev?.text === text ? prev.copied : false
         }))
-
-        if (fromPointerUp) {
-          if (timerRef.current) window.clearTimeout(timerRef.current)
-          timerRef.current = window.setTimeout(() => {
-            setPos((curr) => (curr ? { ...curr, copied: false } : null))
-          }, 2000)
-        }
       } catch {
         setPos(null)
       }
@@ -82,14 +70,14 @@ export function SelectionCopyTooltip(): React.JSX.Element | null {
       if (e.button === 0) {
         isMouseDownRef.current = false
         if (upTimerRef.current) window.clearTimeout(upTimerRef.current)
-        upTimerRef.current = window.setTimeout(() => checkSelection(true), 10)
+        upTimerRef.current = window.setTimeout(() => checkSelection(), 10)
       }
     }
 
     const handleSelectionChange = (): void => {
       // Don't reposition continuously while user is still actively dragging
       if (isMouseDownRef.current) return
-      checkSelection(false)
+      checkSelection()
     }
 
     document.addEventListener('mousedown', handlePointerDown)

@@ -209,6 +209,7 @@ export function SettingsPage(): React.JSX.Element {
               step={5}
               suffix="%"
               label="Default volume"
+              accent={settings.defaultVolume > 1 ? 'tertiary' : 'primary'}
               onChange={(percent) => updateQuietly({ defaultVolume: percent / 100 })}
               onCommit={() => toast('Settings saved')}
             />

@@ -18,7 +18,7 @@
   grid-row: 2;
   overflow-y: auto;
   overflow-x: hidden;
-  padding: 24px var(--content-pad) 24px;
+  padding: var(--content-pad-top) var(--content-pad) 24px;
   scroll-behavior: smooth;
 }
 

@@ -86,6 +86,18 @@ export interface PlayerProps {
   mediaSession?: MediaSessionMeta | null
   /** Optional playlist forward/back navigation controls when video is part of a playlist */
   playlistNavigation?: PlaylistNavigation | null
+  /** True when player is rendered as a floating compact miniplayer */
+  isMini?: boolean
+  /** Handler invoked when user requests expanding from miniplayer to full player */
+  onExpand?: () => void
+  /** Handler invoked when user closes miniplayer */
+  onClose?: () => void
+  /** Video title for display in miniplayer overlay */
+  title?: string
+  /** Video creator/channel name for display in miniplayer overlay */
+  author?: string
+  /** Optional pointer-down handler for dragging the miniplayer window */
+  onMiniHeaderPointerDown?: (event: React.PointerEvent<HTMLDivElement>) => void
 }
 
 /**

@@ -175,17 +175,20 @@ export const PlaylistCard = memo(function PlaylistCard({
         </div>
         <div className="pl-card__meta">
           {playlist.author ? (
-            <>
-              <ChannelLine
-                className="pl-card__author"
-                name={playlist.author}
-                channelId={playlist.authorId ?? null}
-                avatar={playlist.authorAvatar ?? null}
-              />
-              {playlist.year && <span className="pl-card__year">{playlist.year}</span>}
-            </>
+            <ChannelLine
+              className="pl-card__author"
+              name={playlist.author}
+              channelId={playlist.authorId ?? null}
+              avatar={playlist.authorAvatar ?? null}
+            />
           ) : (
             <span>{playlist.isAlbum ? 'Music release' : 'YouTube playlist'}</span>
+          )}
+          {playlist.year && (
+            <>
+              <span className="pl-card__meta-sep" aria-hidden="true">•</span>
+              <span className="pl-card__year">{playlist.year}</span>
+            </>
           )}
         </div>
       </div>

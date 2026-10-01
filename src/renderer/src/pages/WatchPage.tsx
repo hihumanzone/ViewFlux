@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Player, type PlayerHandle } from '../components/Player'
 import { AddToPlaylistDialog } from '../components/AddToPlaylistDialog'
-import { EmptyState, Loader } from '../components/EmptyState'
+import { EmptyState, Loader, Spinner } from '../components/EmptyState'
 import { Icon } from '../components/Icons'
 import { navigate } from '../lib/router'
 import { useApp } from '../state/AppContext'
@@ -82,11 +82,19 @@ function renderDescriptionWithTimestamps(
 export function WatchPage({
   videoId,
   listId,
-  initialSeek
+  initialSeek,
+  isMini = false,
+  onClose,
+  onExpand,
+  onAdvanceVideo
 }: {
   videoId: string
   listId: string | null
   initialSeek?: number | null
+  isMini?: boolean
+  onClose?: () => void
+  onExpand?: () => void
+  onAdvanceVideo?: (nextVideoId: string) => void
 }): React.JSX.Element {
   const { settings, playlists, refreshHistory, updateHistoryPosition, saveSettings, toast, getHistoryProgress } = useApp()
   const playerRef = useRef<PlayerHandle>(null)
@@ -164,6 +172,90 @@ export function WatchPage({
       return next
     })
   }
+
+  // Miniplayer draggable position state
+  const [miniPos, setMiniPos] = useState<{ x: number; y: number } | null>(null)
+  const miniElRef = useRef<HTMLDivElement>(null)
+
+  // On window resize or orientation changes, keep miniplayer within bounds
+  useEffect(() => {
+    if (!isMini || !miniPos) return
+    const clampPosition = (): void => {
+      const el = miniElRef.current
+      const width = el?.offsetWidth ?? 380
+      const height = el?.offsetHeight ?? 214
+      const margin = 16
+      const minTop = 44
+      const maxLeft = Math.max(margin, window.innerWidth - width - margin)
+      const maxTop = Math.max(minTop, window.innerHeight - height - margin)
+
+      setMiniPos((prev) => {
+        if (!prev) return null
+        return {
+          x: Math.min(Math.max(margin, prev.x), maxLeft),
+          y: Math.min(Math.max(minTop, prev.y), maxTop)
+        }
+      })
+    }
+
+    window.addEventListener('resize', clampPosition)
+    window.addEventListener('orientationchange', clampPosition)
+    return () => {
+      window.removeEventListener('resize', clampPosition)
+      window.removeEventListener('orientationchange', clampPosition)
+    }
+  }, [isMini, miniPos])
+
+  const dragMovedRef = useRef(false)
+
+  const handleMiniHeaderPointerDown = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
+    if (e.button !== 0) return
+    const el = miniElRef.current
+    if (!el) return
+
+    const rect = el.getBoundingClientRect()
+    const startX = e.clientX
+    const startY = e.clientY
+    const startLeft = rect.left
+    const startTop = rect.top
+    const width = rect.width
+    const height = rect.height
+    dragMovedRef.current = false
+
+    const handlePointerMove = (moveEv: PointerEvent): void => {
+      const dx = moveEv.clientX - startX
+      const dy = moveEv.clientY - startY
+      if (Math.abs(dx) > 4 || Math.abs(dy) > 4) {
+        dragMovedRef.current = true
+      }
+      const margin = 16
+      const minTop = 44
+      const maxLeft = Math.max(margin, window.innerWidth - width - margin)
+      const maxTop = Math.max(minTop, window.innerHeight - height - margin)
+
+      const targetX = Math.min(Math.max(margin, startLeft + dx), maxLeft)
+      const targetY = Math.min(Math.max(minTop, startTop + dy), maxTop)
+      setMiniPos({ x: targetX, y: targetY })
+    }
+
+    const handlePointerUp = (): void => {
+      window.removeEventListener('pointermove', handlePointerMove)
+      window.removeEventListener('pointerup', handlePointerUp)
+      window.removeEventListener('pointercancel', handlePointerUp)
+    }
+
+    window.addEventListener('pointermove', handlePointerMove)
+    window.addEventListener('pointerup', handlePointerUp)
+    window.addEventListener('pointercancel', handlePointerUp)
+  }, [])
+
+  const handleExpand = useCallback(() => {
+    if (dragMovedRef.current) {
+      dragMovedRef.current = false
+      return
+    }
+    onExpand?.()
+  }, [onExpand])
 
   // Re-check resume once metadata details load with authoritative duration
   useEffect(() => {
@@ -337,9 +429,15 @@ export function WatchPage({
     }
     if (settings.autoplayPlaylists && queue && queueIndex >= 0) {
       const next = queue.items[queueIndex + 1]
-      if (next) navigate(`#/watch/${next.videoId}?list=${queue.id}`)
+      if (next) {
+        if (isMini && onAdvanceVideo) {
+          onAdvanceVideo(next.videoId)
+        } else {
+          navigate(`#/watch/${next.videoId}?list=${queue.id}`)
+        }
+      }
     }
-  }, [videoId, queue, queueIndex, details?.duration, settings.autoplayPlaylists, settings.saveWatchHistory, updateHistoryPosition])
+  }, [videoId, queue, queueIndex, details?.duration, settings.autoplayPlaylists, settings.saveWatchHistory, updateHistoryPosition, isMini, onAdvanceVideo])
 
   const onTimeUpdate = useCallback(
     (position: number, duration: number) => {
@@ -366,20 +464,32 @@ export function WatchPage({
   const onMediaPrevious = useCallback(() => {
     if (queue && queueIndex > 0) {
       const prev = queue.items[queueIndex - 1]
-      if (prev) navigate(`#/watch/${prev.videoId}?list=${queue.id}`)
+      if (prev) {
+        if (isMini && onAdvanceVideo) {
+          onAdvanceVideo(prev.videoId)
+        } else {
+          navigate(`#/watch/${prev.videoId}?list=${queue.id}`)
+        }
+      }
       return
     }
     playerRef.current?.previousChapter()
-  }, [queue, queueIndex])
+  }, [queue, queueIndex, isMini, onAdvanceVideo])
 
   const onMediaNext = useCallback(() => {
     if (queue && queueIndex >= 0 && queueIndex < queue.items.length - 1) {
       const next = queue.items[queueIndex + 1]
-      if (next) navigate(`#/watch/${next.videoId}?list=${queue.id}`)
+      if (next) {
+        if (isMini && onAdvanceVideo) {
+          onAdvanceVideo(next.videoId)
+        } else {
+          navigate(`#/watch/${next.videoId}?list=${queue.id}`)
+        }
+      }
       return
     }
     playerRef.current?.nextChapter()
-  }, [queue, queueIndex])
+  }, [queue, queueIndex, isMini, onAdvanceVideo])
 
   const playlistNavigation = useMemo(() => {
     if (!queue) return null
@@ -389,17 +499,29 @@ export function WatchPage({
       onPrevious: () => {
         if (queue && queueIndex > 0) {
           const prev = queue.items[queueIndex - 1]
-          if (prev) navigate(`#/watch/${prev.videoId}?list=${queue.id}`)
+          if (prev) {
+            if (isMini && onAdvanceVideo) {
+              onAdvanceVideo(prev.videoId)
+            } else {
+              navigate(`#/watch/${prev.videoId}?list=${queue.id}`)
+            }
+          }
         }
       },
       onNext: () => {
         if (queue && queueIndex >= 0 && queueIndex < queue.items.length - 1) {
           const next = queue.items[queueIndex + 1]
-          if (next) navigate(`#/watch/${next.videoId}?list=${queue.id}`)
+          if (next) {
+            if (isMini && onAdvanceVideo) {
+              onAdvanceVideo(next.videoId)
+            } else {
+              navigate(`#/watch/${next.videoId}?list=${queue.id}`)
+            }
+          }
         }
       }
     }
-  }, [queue, queueIndex])
+  }, [queue, queueIndex, isMini, onAdvanceVideo])
 
   const updateSettings = useCallback(
     (patch: Partial<Settings>) => {
@@ -498,6 +620,20 @@ export function WatchPage({
   )
 
   if (loading) {
+    if (isMini) {
+      return (
+        <div className="watch watch--mini">
+          <div className="watch__main watch__main--mini">
+            <div className="watch__player watch__player--mini">
+              <div className="miniplayer__loading">
+                <Spinner />
+                <span className="miniplayer__loading-text">Loading video…</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      )
+    }
     return (
       <div className={`page${typeof document !== 'undefined' && document.fullscreenElement ? ' page--fullscreen' : ''}`}>
         <Loader label="Loading video…" />
@@ -506,6 +642,25 @@ export function WatchPage({
   }
 
   if (error || !details) {
+    if (isMini) {
+      return (
+        <div className="watch watch--mini">
+          <div className="watch__main watch__main--mini">
+            <div className="watch__player watch__player--mini">
+              <div className="miniplayer__error">
+                <Icon name="close" size={20} />
+                <span>Could not load video</span>
+                {onClose && (
+                  <button type="button" className="btn btn--text btn--sm" onClick={onClose}>
+                    Close
+                  </button>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+      )
+    }
     return (
       <div className="page">
         <EmptyState
@@ -529,7 +684,7 @@ export function WatchPage({
 
   return (
     <div
-      className={`watch${
+      className={`watch${isMini ? ' watch--mini' : ''}${
         queue
           ? queueCollapsed
             ? ' watch--queue-collapsed'
@@ -537,8 +692,16 @@ export function WatchPage({
           : ' watch--solo'
       }`}
     >
-      <div className="watch__main">
-        <div className="watch__player">
+      <div className={`watch__main${isMini ? ' watch__main--mini' : ''}`}>
+        <div
+          ref={miniElRef}
+          className={`watch__player${isMini ? ' watch__player--mini' : ''}`}
+          style={
+            isMini && miniPos
+              ? { left: `${miniPos.x}px`, top: `${miniPos.y}px`, right: 'auto', bottom: 'auto' }
+              : undefined
+          }
+        >
           {details.playable && details.manifestUrl && ready ? (
             <Player
               key={videoId}
@@ -582,6 +745,12 @@ export function WatchPage({
               onEnded={onEnded}
               onSkipped={onSkipped}
               mediaSession={playerMediaSession}
+              isMini={isMini}
+              onExpand={handleExpand}
+              onClose={onClose}
+              title={details.title}
+              author={details.author}
+              onMiniHeaderPointerDown={handleMiniHeaderPointerDown}
             />
           ) : (
             <div className="player__error">
@@ -626,7 +795,9 @@ export function WatchPage({
           )}
         </div>
 
-        <h1 className="watch__title">{details.title}</h1>
+        {!isMini && (
+          <>
+            <h1 className="watch__title">{details.title}</h1>
 
 
         <div className="watch__bar">
@@ -799,9 +970,11 @@ export function WatchPage({
             </button>
           )}
         </div>
+          </>
+        )}
       </div>
 
-      {queue && (
+      {!isMini && queue && (
         <aside
           ref={queueAsideRef}
           className={`watch__side${queueCollapsed ? ' watch__side--collapsed' : ''}`}
@@ -867,7 +1040,9 @@ export function WatchPage({
         </aside>
       )}
 
-      {addVideo && <AddToPlaylistDialog video={addVideo} onClose={() => setAddVideo(null)} />}
+      {!isMini && addVideo && (
+        <AddToPlaylistDialog video={addVideo} onClose={() => setAddVideo(null)} />
+      )}
     </div>
   )
 }

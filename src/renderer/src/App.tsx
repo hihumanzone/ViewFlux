@@ -5,7 +5,7 @@ import { ErrorBoundary } from './components/ErrorBoundary'
 import { ShortcutsDialog } from './components/ShortcutsDialog'
 import { ScrollToTop } from './components/ScrollToTop'
 import { SelectionCopyTooltip } from './components/SelectionCopyTooltip'
-import { goBack, goForward, useRoute, type Route } from './lib/router'
+import { goBack, goForward, navigate, parse, useRoute, type Route } from './lib/router'
 import { scrollPageToTop } from './lib/scroll'
 import { clearPlaylistSession } from './lib/playlistSession'
 import { SearchPage } from './pages/SearchPage'
@@ -23,7 +23,7 @@ function routeKey(route: Route): string {
   return route.name === 'watch'
     ? `watch:${route.videoId}`
     : route.name === 'search'
-      ? `search:${route.query}|${route.filter}`
+      ? 'search'
       : route.name === 'channel'
         ? `channel:${route.channelId}|${route.tab ?? ''}`
         : route.name === 'playlist'
@@ -51,6 +51,37 @@ export function App(): React.JSX.Element {
   const route = useRoute()
   const key = useMemo(() => routeKey(route), [route])
   const [shortcutsOpen, setShortcutsOpen] = useState(false)
+
+  const [activeWatch, setActiveWatch] = useState<{
+    videoId: string
+    listId: string | null
+    time?: number | null
+  } | null>(() => {
+    const init = parse(typeof window !== 'undefined' ? window.location.hash : '')
+    return init.name === 'watch'
+      ? { videoId: init.videoId, listId: init.listId, time: init.time }
+      : null
+  })
+
+  // Sync activeWatch when navigating to a watch route
+  useEffect(() => {
+    if (route.name === 'watch') {
+      setActiveWatch((prev) => {
+        if (prev?.videoId === route.videoId && prev?.listId === route.listId) {
+          return prev
+        }
+        return { videoId: route.videoId, listId: route.listId, time: route.time }
+      })
+    }
+  }, [route])
+
+  const isMini = Boolean(
+    activeWatch && (route.name !== 'watch' || route.videoId !== activeWatch.videoId)
+  )
+
+  useEffect(() => {
+    document.documentElement.dataset.miniplayer = isMini ? 'true' : 'false'
+  }, [isMini])
 
   // Reset page scroller to top on route change
   useEffect(() => {
@@ -144,10 +175,10 @@ export function App(): React.JSX.Element {
     if (route.name !== 'watch' && typeof document !== 'undefined' && document.fullscreenElement) {
       void document.exitFullscreen().catch(() => undefined)
     }
-    if (route.name !== 'watch' || !route.listId) {
+    if (!activeWatch?.listId && (route.name !== 'watch' || !route.listId)) {
       clearPlaylistSession()
     }
-  }, [route.name, route.name === 'watch' ? route.listId : null])
+  }, [route.name, route.name === 'watch' ? route.listId : null, activeWatch?.listId])
 
   return (
     <div className="app">
@@ -158,8 +189,37 @@ export function App(): React.JSX.Element {
       </a>
       <TitleBar />
       <Sidebar />
-      <main className="content" id="main-content" tabIndex={-1}>
-        <ErrorBoundary resetKey={key}>{renderRoute(route)}</ErrorBoundary>
+      <main
+        className={`content${route.name === 'search' ? ' content--search' : ''}`}
+        id="main-content"
+        tabIndex={-1}
+      >
+        {route.name !== 'watch' && (
+          <ErrorBoundary resetKey={key}>{renderRoute(route)}</ErrorBoundary>
+        )}
+        {activeWatch && (
+          <WatchPage
+            key={activeWatch.videoId}
+            videoId={activeWatch.videoId}
+            listId={activeWatch.listId}
+            initialSeek={activeWatch.time}
+            isMini={isMini}
+            onClose={() => {
+              setActiveWatch(null)
+              clearPlaylistSession()
+            }}
+            onExpand={() =>
+              navigate(
+                activeWatch.listId
+                  ? `#/watch/${activeWatch.videoId}?list=${activeWatch.listId}`
+                  : `#/watch/${activeWatch.videoId}`
+              )
+            }
+            onAdvanceVideo={(nextId) =>
+              setActiveWatch((prev) => (prev ? { ...prev, videoId: nextId, time: 0 } : null))
+            }
+          />
+        )}
       </main>
       <ScrollToTop />
       <SelectionCopyTooltip />
@@ -182,18 +242,9 @@ function focusContent(event: React.MouseEvent<HTMLAnchorElement>): void {
 function renderRoute(route: Route): React.JSX.Element | null {
   switch (route.name) {
     case 'search':
-      return (
-        <SearchPage key={`${route.query}|${route.filter}`} query={route.query} filter={route.filter} />
-      )
+      return <SearchPage query={route.query} filter={route.filter} />
     case 'watch':
-      return (
-        <WatchPage
-          key={route.videoId}
-          videoId={route.videoId}
-          listId={route.listId}
-          initialSeek={route.time}
-        />
-      )
+      return null
     case 'playlists':
       return <PlaylistsPage />
     case 'playlist':

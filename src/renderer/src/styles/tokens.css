@@ -92,6 +92,7 @@
   --sidebar-w: 232px;
   --sidebar-collapsed-w: 72px;
   --content-pad: 32px;
+  --content-pad-top: 24px;
   --bottom-nav-h: 68px;
 
   color-scheme: dark;

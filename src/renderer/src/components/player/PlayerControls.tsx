@@ -1,5 +1,6 @@
 import { memo, useCallback, useEffect, useState } from 'react'
 import { Icon } from '../Icons'
+import { Slider } from '../Slider'
 import { formatTime as fmt } from '../../lib/format'
 import type { AudioTrack, Chapter, MenuKind, PlaylistNavigation, TextTrack } from './types'
 
@@ -136,14 +137,14 @@ export const PlayerControls = memo(function PlayerControls({
         </button>
         {/* Collapsing happens on this wrapper rather than on the slider itself */}
         <div className="player__volume-slider">
-          <input
-            className="slider"
-            type="range"
+          <Slider
+            size="sm"
             min={0}
             max={3}
             step={0.05}
             value={muted ? 0 : volume}
-            onChange={(e) => onChangeVolume(Number(e.target.value))}
+            accent={volume > 1 ? 'tertiary' : 'primary'}
+            onChange={onChangeVolume}
             aria-label="Volume"
             aria-valuetext={`${Math.round((muted ? 0 : volume) * 100)} percent${
               volume > 1 ? ', amplified' : ''
