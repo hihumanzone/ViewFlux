@@ -3,7 +3,10 @@
   "version": "1.0.0",
   "description": "A fast, native YouTube client for Windows, Linux, and macOS focused on searching and watching videos.",
   "main": "./out/main/index.js",
-  "author": "ViewFlux Desktop Contributors",
+  "author": {
+    "name": "ViewFlux Desktop Contributors",
+    "email": "contributors@viewflux.app"
+  },
   "license": "GPL-3.0-or-later",
   "private": true,
   "scripts": {
