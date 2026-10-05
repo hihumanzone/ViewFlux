@@ -77,5 +77,59 @@ export function formatExact(value: number | null | undefined): string {
   return value.toLocaleString()
 }
 
+/** Formats card upload age, turning absolute stream/premiere dates into relative times. */
+export function formatVideoPublished(video: {
+  published?: string | null
+  publishTimestamp?: number | null
+  isPremiere?: boolean
+  isStreamed?: boolean
+  isLive?: boolean
+}): string | null {
+  if (video.isLive) return 'Live'
+
+  let relTime: string | null = null
+  if (video.publishTimestamp && !Number.isNaN(video.publishTimestamp)) {
+    relTime = formatRelative(video.publishTimestamp)
+  }
+
+  const raw = video.published?.trim() || ''
+
+  if (!relTime && raw) {
+    const dateMatch = raw.match(
+      /(?:streamed(?: live)?|premiered)?\s*(?:on\s+)?([A-Za-z]+ \d{1,2}, \d{4}|\d{4}-\d{2}-\d{2})/i
+    )
+    if (dateMatch) {
+      const parsed = Date.parse(dateMatch[1])
+      if (!Number.isNaN(parsed)) {
+        relTime = formatRelative(parsed)
+      }
+    }
+  }
+
+  const isStreamed = Boolean(video.isStreamed || /streamed/i.test(raw))
+  const isPrem = Boolean(video.isPremiere || /premiere/i.test(raw))
+
+  if (relTime) {
+    if (isPrem) return `Premiered ${relTime}`
+    if (isStreamed) return `Streamed ${relTime}`
+    return relTime
+  }
+
+  if (raw) {
+    if (isPrem && !/premiered/i.test(raw)) {
+      return `Premiered ${raw}`
+    }
+    if (isStreamed && !/streamed/i.test(raw)) {
+      return `Streamed ${raw}`
+    }
+    if (/^streamed live\b/i.test(raw)) {
+      return raw.replace(/^streamed live\s*(?:on\s*)?/i, 'Streamed ')
+    }
+    return raw
+  }
+
+  return null
+}
+
 
 

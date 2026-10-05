@@ -5,10 +5,11 @@ import { EmptyState, Loader, Spinner } from '../components/EmptyState'
 import { Icon } from '../components/Icons'
 import { navigate } from '../lib/router'
 import { useApp } from '../state/AppContext'
-import { formatCount, formatTime } from '../lib/format'
+import { formatCount, formatTime, formatRelative } from '../lib/format'
 import { toPlaylistVideo } from '../lib/map'
 import { useCopyLink, videoUrl } from '../lib/copyLink'
 import { scrollPageToTop } from '../lib/scroll'
+import { resolveYouTubeUrl } from '../lib/youtubeUrl'
 import { useAsync } from '../lib/useAsync'
 import { useBrokenImage } from '../lib/useBrokenImage'
 import { readStoredWithLegacy, writeStored } from '../lib/storage'
@@ -39,37 +40,79 @@ function renderDescriptionWithTimestamps(
   onSeek: (seconds: number) => void
 ): React.ReactNode[] {
   if (!descText) return []
-  const timestampRegex = /\b(?:(\d{1,2}):)?(\d{1,2}):(\d{2})\b/g
+  const tokenRegex = /(https?:\/\/[^\s<>"'()]+|www\.[^\s<>"'()]+|\b(?:(?:\d{1,2}):)?\d{1,2}:\d{2}\b)/g
   const parts: React.ReactNode[] = []
   let lastIndex = 0
   let match: RegExpExecArray | null
 
-  while ((match = timestampRegex.exec(descText)) !== null) {
+  while ((match = tokenRegex.exec(descText)) !== null) {
     if (match.index > lastIndex) {
       parts.push(descText.substring(lastIndex, match.index))
     }
-    const hours = match[1] ? parseInt(match[1], 10) : 0
-    const mins = parseInt(match[2], 10)
-    const secs = parseInt(match[3], 10)
-    const seconds = hours * 3600 + mins * 60 + secs
-    const rawTime = match[0]
+    const token = match[0]
+    const matchIndex = match.index
 
-    parts.push(
-      <button
-        key={match.index}
-        type="button"
-        className="watch__description-timestamp"
-        onClick={(e) => {
-          e.stopPropagation()
-          onSeek(seconds)
-          scrollPageToTop()
-        }}
-        title={`Jump to ${rawTime}`}
-      >
-        {rawTime}
-      </button>
-    )
-    lastIndex = timestampRegex.lastIndex
+    if (/^https?:\/\/|^www\./i.test(token)) {
+      let cleanUrl = token
+      let trailingPunct = ''
+      const punctMatch = cleanUrl.match(/[.,;:!?)]+$/)
+      if (punctMatch) {
+        trailingPunct = punctMatch[0]
+        cleanUrl = cleanUrl.slice(0, -trailingPunct.length)
+      }
+      const fullUrl = cleanUrl.startsWith('http') ? cleanUrl : `https://${cleanUrl}`
+      const internalRoute = resolveYouTubeUrl(fullUrl)
+
+      parts.push(
+        <a
+          key={`link-${matchIndex}`}
+          href={fullUrl}
+          className="watch__description-link"
+          onClick={(e) => {
+            e.preventDefault()
+            e.stopPropagation()
+            if (internalRoute) {
+              navigate(internalRoute)
+            } else {
+              void window.api.openExternal(fullUrl)
+            }
+          }}
+          title={internalRoute ? `Open in ViewFlux: ${fullUrl}` : `Open in browser: ${fullUrl}`}
+        >
+          {cleanUrl}
+        </a>
+      )
+      if (trailingPunct) {
+        parts.push(trailingPunct)
+      }
+    } else {
+      const tsMatch = token.match(/\b(?:(\d{1,2}):)?(\d{1,2}):(\d{2})\b/)
+      if (tsMatch) {
+        const hours = tsMatch[1] ? parseInt(tsMatch[1], 10) : 0
+        const mins = parseInt(tsMatch[2], 10)
+        const secs = parseInt(tsMatch[3], 10)
+        const seconds = hours * 3600 + mins * 60 + secs
+
+        parts.push(
+          <button
+            key={`ts-${matchIndex}`}
+            type="button"
+            className="watch__description-timestamp"
+            onClick={(e) => {
+              e.stopPropagation()
+              onSeek(seconds)
+              scrollPageToTop()
+            }}
+            title={`Jump to ${token}`}
+          >
+            {token}
+          </button>
+        )
+      } else {
+        parts.push(token)
+      }
+    }
+    lastIndex = tokenRegex.lastIndex
   }
 
   if (lastIndex < descText.length) {
@@ -77,6 +120,34 @@ function renderDescriptionWithTimestamps(
   }
 
   return parts
+}
+
+interface MiniBounds {
+  x: number
+  y: number
+  width: number
+}
+
+let memoryMiniBounds: MiniBounds | null = null
+try {
+  const saved = typeof localStorage !== 'undefined' ? localStorage.getItem('viewflux.miniplayer-bounds') : null
+  if (saved) {
+    const parsed = JSON.parse(saved)
+    if (typeof parsed?.x === 'number' && typeof parsed?.y === 'number' && typeof parsed?.width === 'number') {
+      memoryMiniBounds = parsed
+    }
+  }
+} catch {
+  // ignore
+}
+
+function saveMiniBounds(bounds: MiniBounds): void {
+  memoryMiniBounds = bounds
+  try {
+    localStorage.setItem('viewflux.miniplayer-bounds', JSON.stringify(bounds))
+  } catch {
+    // ignore
+  }
 }
 
 export function WatchPage({
@@ -95,7 +166,7 @@ export function WatchPage({
   onClose?: () => void
   onExpand?: () => void
   onAdvanceVideo?: (nextVideoId: string) => void
-}): React.JSX.Element {
+}): React.JSX.Element | null {
   const { settings, playlists, refreshHistory, updateHistoryPosition, saveSettings, toast, getHistoryProgress } = useApp()
   const playerRef = useRef<PlayerHandle>(null)
 
@@ -173,28 +244,38 @@ export function WatchPage({
     })
   }
 
-  // Miniplayer draggable position state
-  const [miniPos, setMiniPos] = useState<{ x: number; y: number } | null>(null)
+  // Miniplayer draggable & resizable bounds state
+  const [miniBounds, setMiniBounds] = useState<MiniBounds | null>(() => memoryMiniBounds)
   const miniElRef = useRef<HTMLDivElement>(null)
+  const watchContainerRef = useRef<HTMLDivElement>(null)
+
+  // Queue sidebar width state
+  const [queueWidth, setQueueWidth] = useState<number>(() => {
+    const stored = readStoredWithLegacy('viewflux.queue-w', 'libretube.queue-w')
+    const val = stored ? parseInt(stored, 10) : 380
+    return Number.isFinite(val) ? Math.max(220, Math.min(560, val)) : 380
+  })
 
   // On window resize or orientation changes, keep miniplayer within bounds
   useEffect(() => {
-    if (!isMini || !miniPos) return
+    if (!isMini || !miniBounds) return
     const clampPosition = (): void => {
-      const el = miniElRef.current
-      const width = el?.offsetWidth ?? 380
-      const height = el?.offsetHeight ?? 214
+      const width = miniBounds.width || 380
+      const height = width * (9 / 16)
       const margin = 16
       const minTop = 44
       const maxLeft = Math.max(margin, window.innerWidth - width - margin)
       const maxTop = Math.max(minTop, window.innerHeight - height - margin)
 
-      setMiniPos((prev) => {
+      setMiniBounds((prev) => {
         if (!prev) return null
-        return {
+        const clamped: MiniBounds = {
           x: Math.min(Math.max(margin, prev.x), maxLeft),
-          y: Math.min(Math.max(minTop, prev.y), maxTop)
+          y: Math.min(Math.max(minTop, prev.y), maxTop),
+          width: Math.min(prev.width, window.innerWidth - margin * 2)
         }
+        saveMiniBounds(clamped)
+        return clamped
       })
     }
 
@@ -204,7 +285,7 @@ export function WatchPage({
       window.removeEventListener('resize', clampPosition)
       window.removeEventListener('orientationchange', clampPosition)
     }
-  }, [isMini, miniPos])
+  }, [isMini, miniBounds])
 
   const dragMovedRef = useRef(false)
 
@@ -235,19 +316,206 @@ export function WatchPage({
 
       const targetX = Math.min(Math.max(margin, startLeft + dx), maxLeft)
       const targetY = Math.min(Math.max(minTop, startTop + dy), maxTop)
-      setMiniPos({ x: targetX, y: targetY })
+      const bounds: MiniBounds = { x: targetX, y: targetY, width }
+      setMiniBounds(bounds)
+      saveMiniBounds(bounds)
     }
 
     const handlePointerUp = (): void => {
       window.removeEventListener('pointermove', handlePointerMove)
       window.removeEventListener('pointerup', handlePointerUp)
       window.removeEventListener('pointercancel', handlePointerUp)
+      ;(document.activeElement as HTMLElement)?.blur()
     }
 
     window.addEventListener('pointermove', handlePointerMove)
     window.addEventListener('pointerup', handlePointerUp)
     window.addEventListener('pointercancel', handlePointerUp)
   }, [])
+
+  const handleMiniResizePointerDown = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
+    if (e.button !== 0) return
+    e.stopPropagation()
+    const el = miniElRef.current
+    if (!el) return
+
+    const rect = el.getBoundingClientRect()
+    const startX = e.clientX
+    const startWidth = rect.width
+    const startRight = rect.right
+    const startBottom = rect.bottom
+
+    const handlePointerMove = (moveEv: PointerEvent): void => {
+      const dx = moveEv.clientX - startX
+      const minW = 280
+      const maxW = Math.min(window.innerWidth - 32, 860)
+      const targetW = Math.max(minW, Math.min(maxW, startWidth - dx))
+      const targetH = targetW * (9 / 16)
+
+      let newLeft = startRight - targetW
+      let newTop = startBottom - targetH
+
+      if (newLeft < 16) newLeft = 16
+      if (newTop < 44) newTop = 44
+
+      const bounds: MiniBounds = {
+        x: newLeft,
+        y: newTop,
+        width: targetW
+      }
+      setMiniBounds(bounds)
+      saveMiniBounds(bounds)
+    }
+
+    const handlePointerUp = (): void => {
+      window.removeEventListener('pointermove', handlePointerMove)
+      window.removeEventListener('pointerup', handlePointerUp)
+      window.removeEventListener('pointercancel', handlePointerUp)
+      ;(document.activeElement as HTMLElement)?.blur()
+    }
+
+    window.addEventListener('pointermove', handlePointerMove)
+    window.addEventListener('pointerup', handlePointerUp)
+    window.addEventListener('pointercancel', handlePointerUp)
+  }, [])
+
+  const handleQueueResizePointerDown = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
+    if (e.button !== 0) return
+    e.preventDefault()
+
+    const aside = queueAsideRef.current
+    const watchEl = watchContainerRef.current
+    if (!aside || !watchEl) return
+
+    const resizerEl = e.currentTarget
+    try {
+      resizerEl.setPointerCapture?.(e.pointerId)
+    } catch {
+      // ignore
+    }
+
+    const asideRect = aside.getBoundingClientRect()
+    const asideRight = asideRect.right
+
+    document.documentElement.dataset.resizing = 'true'
+    watchEl.classList.add('watch--resizing')
+    watchEl.classList.add('watch--resizing-active')
+
+    let isCollapsed = queueCollapsed
+    let currentWidth = queueWidth
+    let reopenTimer: ReturnType<typeof setTimeout> | null = null
+    let rafId = 0
+
+    const minW = 220
+    const collapseThreshold = 200
+
+    const updateDOM = (nextCollapsed: boolean, nextW: number, isReopen: boolean): void => {
+      const container = watchContainerRef.current
+      const asideEl = queueAsideRef.current
+      if (!container) return
+
+      if (nextCollapsed) {
+        // Drag to collapse: enable transition for smooth exit
+        container.classList.remove('watch--resizing-active')
+        container.classList.add('watch--queue-collapsed')
+        container.classList.remove('watch--has-queue')
+        asideEl?.classList.add('watch__side--collapsed')
+      } else {
+        // Drag to reopen or active resize
+        container.style.setProperty('--queue-w', `${nextW}px`)
+        container.classList.remove('watch--queue-collapsed')
+        container.classList.add('watch--has-queue')
+        asideEl?.classList.remove('watch__side--collapsed')
+
+        if (isReopen) {
+          // Play smooth reopen animation without transition suppression
+          container.classList.remove('watch--resizing-active')
+          if (reopenTimer) clearTimeout(reopenTimer)
+          reopenTimer = setTimeout(() => {
+            reopenTimer = null
+            if (!isCollapsed && watchContainerRef.current) {
+              watchContainerRef.current.classList.add('watch--resizing-active')
+            }
+          }, 320)
+        } else if (!reopenTimer) {
+          // Normal 1:1 active resize tracking
+          container.classList.add('watch--resizing-active')
+        }
+      }
+    }
+
+    const handlePointerMove = (moveEv: PointerEvent): void => {
+      const rawWidth = asideRight - moveEv.clientX
+      const maxW = Math.min(560, Math.max(minW, window.innerWidth - 380))
+
+      if (rawWidth < collapseThreshold) {
+        if (!isCollapsed) {
+          isCollapsed = true
+          if (reopenTimer) {
+            clearTimeout(reopenTimer)
+            reopenTimer = null
+          }
+          if (rafId) cancelAnimationFrame(rafId)
+          rafId = requestAnimationFrame(() => {
+            rafId = 0
+            updateDOM(true, currentWidth, false)
+          })
+        }
+      } else {
+        const targetW = Math.max(minW, Math.min(maxW, rawWidth))
+        currentWidth = targetW
+
+        if (isCollapsed) {
+          isCollapsed = false
+          if (rafId) cancelAnimationFrame(rafId)
+          rafId = requestAnimationFrame(() => {
+            rafId = 0
+            updateDOM(false, targetW, true)
+          })
+        } else {
+          if (rafId) cancelAnimationFrame(rafId)
+          rafId = requestAnimationFrame(() => {
+            rafId = 0
+            updateDOM(false, targetW, false)
+          })
+        }
+      }
+    }
+
+    const handlePointerUp = (upEv: PointerEvent): void => {
+      if (rafId) cancelAnimationFrame(rafId)
+      if (reopenTimer) clearTimeout(reopenTimer)
+
+      try {
+        if (resizerEl.hasPointerCapture?.(upEv.pointerId)) {
+          resizerEl.releasePointerCapture?.(upEv.pointerId)
+        }
+      } catch {
+        // ignore
+      }
+
+      delete document.documentElement.dataset.resizing
+      watchContainerRef.current?.classList.remove('watch--resizing')
+      watchContainerRef.current?.classList.remove('watch--resizing-active')
+
+      window.removeEventListener('pointermove', handlePointerMove)
+      window.removeEventListener('pointerup', handlePointerUp)
+      window.removeEventListener('pointercancel', handlePointerUp)
+
+      setQueueCollapsed(isCollapsed)
+      writeStored('viewflux.queue', isCollapsed ? 'collapsed' : 'expanded')
+
+      if (!isCollapsed) {
+        setQueueWidth(currentWidth)
+        writeStored('viewflux.queue-w', String(currentWidth))
+        watchContainerRef.current?.style.setProperty('--queue-w', `${currentWidth}px`)
+      }
+    }
+
+    window.addEventListener('pointermove', handlePointerMove)
+    window.addEventListener('pointerup', handlePointerUp)
+    window.addEventListener('pointercancel', handlePointerUp)
+  }, [queueCollapsed, queueWidth])
 
   const handleExpand = useCallback(() => {
     if (dragMovedRef.current) {
@@ -357,7 +625,13 @@ export function WatchPage({
         // clickable channel name; re-recording once the avatar lands fills them
         // in (the store keeps any value already stored).
         authorId: details.authorId,
-        authorAvatar
+        authorAvatar,
+        viewCount: details.viewCount,
+        published: details.relativeDate || details.publishDate,
+        publishTimestamp: details.publishTimestamp,
+        isPremiere: details.isPremiere,
+        isStreamed: details.isStreamed,
+        isLive: details.isLive
       })
       await refreshHistory()
     })()
@@ -540,62 +814,16 @@ export function WatchPage({
 
     const handleWheel = (event: WheelEvent): void => {
       if (event.deltaY === 0) return
-
-      const isBelow = window.innerWidth <= 1200
       const list = aside.querySelector<HTMLElement>('.queue')
       if (!list) return
 
-      if (!isBelow) {
-        // Desktop side-by-side mode:
-        // When cursor is over header or chrome (not the list itself), hand deltas to list
-        if (event.target !== list && !list.contains(event.target as Node)) {
-          const max = list.scrollHeight - list.clientHeight
-          const next = Math.min(max, Math.max(0, list.scrollTop + event.deltaY))
-          if (next !== list.scrollTop) {
-            list.scrollTop = next
-            event.preventDefault()
-          }
-        }
-        return
-      }
-
-      // Stacked mode (playlist is below description):
-      const page =
-        aside.closest<HTMLElement>('.content') ??
-        document.querySelector<HTMLElement>('.content')
-      if (!page) return
-
-      const isPageAtBottom =
-        Math.ceil(page.scrollTop + page.clientHeight) >= page.scrollHeight - 2
-      const isQueueAtTop = list.scrollTop <= 0
-      const isQueueAtBottom =
-        Math.ceil(list.scrollTop + list.clientHeight) >= list.scrollHeight - 2
-
-      if (event.deltaY > 0) {
-        // Scrolling DOWN: Prioritize page scrolling until page reaches bottom
-        if (!isPageAtBottom) {
+      // When cursor is over header or chrome (not the list itself), hand deltas to list
+      if (event.target !== list && !list.contains(event.target as Node)) {
+        const max = list.scrollHeight - list.clientHeight
+        const next = Math.min(max, Math.max(0, list.scrollTop + event.deltaY))
+        if (next !== list.scrollTop) {
+          list.scrollTop = next
           event.preventDefault()
-          page.scrollTop += event.deltaY
-        } else {
-          // Page is at bottom: scroll down playlist items
-          if (!isQueueAtBottom) {
-            if (event.target !== list && !list.contains(event.target as Node)) {
-              event.preventDefault()
-              list.scrollTop += event.deltaY
-            }
-          }
-        }
-      } else {
-        // Scrolling UP: Prioritize playlist scrolling until it reaches the top
-        if (!isQueueAtTop) {
-          if (event.target !== list && !list.contains(event.target as Node)) {
-            event.preventDefault()
-            list.scrollTop = Math.max(0, list.scrollTop + event.deltaY)
-          }
-        } else {
-          // Playlist is at top: scroll the whole page up
-          event.preventDefault()
-          page.scrollTop = Math.max(0, page.scrollTop + event.deltaY)
         }
       }
     }
@@ -619,6 +847,20 @@ export function WatchPage({
     [details, queue?.name, onMediaNext, onMediaPrevious]
   )
 
+  const isUnavailable = Boolean(
+    error || (!loading && (!details || !details.playable || !details.manifestUrl))
+  )
+
+  useEffect(() => {
+    if (isMini && isUnavailable) {
+      onClose?.()
+    }
+  }, [isMini, isUnavailable, onClose])
+
+  if (isMini && isUnavailable) {
+    return null
+  }
+
   if (loading) {
     if (isMini) {
       return (
@@ -626,6 +868,22 @@ export function WatchPage({
           <div className="watch__main watch__main--mini">
             <div className="watch__player watch__player--mini">
               <div className="miniplayer__loading">
+                {onClose && (
+                  <div
+                    className="miniplayer__actions"
+                    style={{ position: 'absolute', top: 8, right: 8, zIndex: 10 }}
+                  >
+                    <button
+                      type="button"
+                      className="miniplayer__action-btn miniplayer__action-btn--close"
+                      aria-label="Close miniplayer"
+                      title="Close miniplayer"
+                      onClick={onClose}
+                    >
+                      <Icon name="close" size={17} />
+                    </button>
+                  </div>
+                )}
                 <Spinner />
                 <span className="miniplayer__loading-text">Loading video…</span>
               </div>
@@ -648,6 +906,33 @@ export function WatchPage({
           <div className="watch__main watch__main--mini">
             <div className="watch__player watch__player--mini">
               <div className="miniplayer__error">
+                <div
+                  className="miniplayer__actions"
+                  style={{ position: 'absolute', top: 8, right: 8, zIndex: 10 }}
+                >
+                  {onExpand && (
+                    <button
+                      type="button"
+                      className="miniplayer__action-btn"
+                      aria-label="Expand to full player"
+                      title="Expand to full player"
+                      onClick={onExpand}
+                    >
+                      <Icon name="openInFull" size={17} />
+                    </button>
+                  )}
+                  {onClose && (
+                    <button
+                      type="button"
+                      className="miniplayer__action-btn miniplayer__action-btn--close"
+                      aria-label="Close miniplayer"
+                      title="Close miniplayer"
+                      onClick={onClose}
+                    >
+                      <Icon name="close" size={17} />
+                    </button>
+                  )}
+                </div>
                 <Icon name="close" size={20} />
                 <span>Could not load video</span>
                 {onClose && (
@@ -684,6 +969,7 @@ export function WatchPage({
 
   return (
     <div
+      ref={watchContainerRef}
       className={`watch${isMini ? ' watch--mini' : ''}${
         queue
           ? queueCollapsed
@@ -691,14 +977,21 @@ export function WatchPage({
             : ' watch--has-queue'
           : ' watch--solo'
       }`}
+      style={!isMini && queue ? ({ '--queue-w': `${queueWidth}px` } as React.CSSProperties) : undefined}
     >
       <div className={`watch__main${isMini ? ' watch__main--mini' : ''}`}>
         <div
           ref={miniElRef}
           className={`watch__player${isMini ? ' watch__player--mini' : ''}`}
           style={
-            isMini && miniPos
-              ? { left: `${miniPos.x}px`, top: `${miniPos.y}px`, right: 'auto', bottom: 'auto' }
+            isMini && miniBounds
+              ? {
+                  left: `${miniBounds.x}px`,
+                  top: `${miniBounds.y}px`,
+                  width: `${miniBounds.width}px`,
+                  right: 'auto',
+                  bottom: 'auto'
+                }
               : undefined
           }
         >
@@ -751,7 +1044,45 @@ export function WatchPage({
               title={details.title}
               author={details.author}
               onMiniHeaderPointerDown={handleMiniHeaderPointerDown}
+              onMiniResizePointerDown={handleMiniResizePointerDown}
             />
+          ) : isMini ? (
+            <div className="miniplayer__error">
+              <div
+                className="miniplayer__actions"
+                style={{ position: 'absolute', top: 8, right: 8, zIndex: 10 }}
+              >
+                {handleExpand && (
+                  <button
+                    type="button"
+                    className="miniplayer__action-btn"
+                    aria-label="Expand to full player"
+                    title="Expand to full player"
+                    onClick={handleExpand}
+                  >
+                    <Icon name="openInFull" size={17} />
+                  </button>
+                )}
+                {onClose && (
+                  <button
+                    type="button"
+                    className="miniplayer__action-btn miniplayer__action-btn--close"
+                    aria-label="Close miniplayer"
+                    title="Close miniplayer"
+                    onClick={onClose}
+                  >
+                    <Icon name="close" size={17} />
+                  </button>
+                )}
+              </div>
+              <Icon name="info" size={20} />
+              <span>{details.isLive ? 'Live stream unavailable' : 'Video unavailable'}</span>
+              {onClose && (
+                <button type="button" className="btn btn--text btn--sm" onClick={onClose}>
+                  Close
+                </button>
+              )}
+            </div>
           ) : (
             <div className="player__error">
               <span className="player__error-icon">
@@ -862,7 +1193,11 @@ export function WatchPage({
                     authorId: details.authorId,
                     authorAvatar: details.authorThumbnail,
                     viewCount: details.viewCount,
-                    published: details.publishDate,
+                    published: details.relativeDate || details.publishDate,
+                    publishTimestamp: details.publishTimestamp,
+                    isPremiere: details.isPremiere,
+                    isStreamed: details.isStreamed,
+                    isLive: details.isLive,
                     thumbnail: details.thumbnails[0]?.url ?? '',
                     duration: details.duration || null
                   })
@@ -951,7 +1286,36 @@ export function WatchPage({
         >
           <span className="watch__description-text" ref={descRef}>
             <strong>
-              {formatCount(details.viewCount)} views · {details.publishDate}
+              {(() => {
+                const parts: string[] = []
+                if (details.viewCount != null) {
+                  parts.push(`${formatCount(details.viewCount)} views`)
+                }
+                const dateStr = details.publishDate
+                let relStr = details.relativeDate
+                if (!relStr && details.publishTimestamp) {
+                  relStr = formatRelative(details.publishTimestamp)
+                }
+                if (!relStr && dateStr) {
+                  const m = dateStr.match(/([A-Za-z]+ \d{1,2}, \d{4}|\d{4}-\d{2}-\d{2})/)
+                  if (m) {
+                    const parsed = Date.parse(m[1])
+                    if (!Number.isNaN(parsed)) relStr = formatRelative(parsed)
+                  }
+                }
+                if (dateStr && relStr) {
+                  if (dateStr.toLowerCase().includes(relStr.toLowerCase())) {
+                    parts.push(dateStr)
+                  } else {
+                    parts.push(`${dateStr} · ${relStr}`)
+                  }
+                } else if (dateStr) {
+                  parts.push(dateStr)
+                } else if (relStr) {
+                  parts.push(relStr)
+                }
+                return parts.join(' · ')
+              })()}
             </strong>
             {'\n'}
             {details.description
@@ -980,6 +1344,11 @@ export function WatchPage({
           className={`watch__side${queueCollapsed ? ' watch__side--collapsed' : ''}`}
           aria-hidden={queueCollapsed}
         >
+          <div
+            className="watch__side-resizer"
+            onPointerDown={handleQueueResizePointerDown}
+            title="Drag to resize playlist (drag below 200px to collapse)"
+          />
           <div className="watch__side-head">
             <h2 className="watch__side-title" title={`${queue.name} · ${positionText}`}>
               <span className="watch__side-name">{queue.name}</span>

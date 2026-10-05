@@ -324,6 +324,19 @@ export function SettingsPage(): React.JSX.Element {
               }
             />
           </Row>
+          <Row
+            label="Default content layout"
+            hint="Global display preference for videos and playlists across the app. Each section can also be toggled individually."
+          >
+            <SelectField
+              value={settings.defaultViewMode ?? 'grid'}
+              options={[
+                { value: 'grid', label: 'Grid view', icon: 'grid' as const },
+                { value: 'list', label: 'List view', icon: 'list' as const }
+              ]}
+              onSelect={(defaultViewMode) => update({ defaultViewMode })}
+            />
+          </Row>
         </section>
 
         <section className="settings-section">
@@ -483,7 +496,7 @@ export function SettingsPage(): React.JSX.Element {
             <Icon name="info" size={18} />
             About & Updates
           </div>
-          <Row label="ViewFlux Desktop" hint="A native Windows client focused on searching and watching.">
+          <Row label="ViewFlux Desktop" hint="A fast desktop client focused on searching and watching videos.">
             <span className="about-version">{APP_VERSION_LABEL}</span>
           </Row>
           <Row

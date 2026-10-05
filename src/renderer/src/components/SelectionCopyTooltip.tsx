@@ -17,9 +17,37 @@ export function SelectionCopyTooltip(): React.JSX.Element | null {
 
   useEffect(() => {
     const handlePointerDown = (e: MouseEvent): void => {
-      // Track left mouse button down
       if (e.button === 0) {
         isMouseDownRef.current = true
+
+        const selection = window.getSelection()
+        if (selection && !selection.isCollapsed && selection.rangeCount > 0) {
+          const target = e.target as HTMLElement | null
+          // Do not clear if clicking the copy pill itself
+          if (target?.closest('.selection-copy-pill')) {
+            return
+          }
+
+          try {
+            const range = selection.getRangeAt(0)
+            const rects = Array.from(range.getClientRects())
+            const clickedInside = rects.some(
+              (r) =>
+                e.clientX >= r.left &&
+                e.clientX <= r.right &&
+                e.clientY >= r.top &&
+                e.clientY <= r.bottom
+            )
+
+            if (!clickedInside) {
+              selection.removeAllRanges()
+              setPos(null)
+            }
+          } catch {
+            selection.removeAllRanges()
+            setPos(null)
+          }
+        }
       }
     }
 
@@ -80,13 +108,13 @@ export function SelectionCopyTooltip(): React.JSX.Element | null {
       checkSelection()
     }
 
-    document.addEventListener('mousedown', handlePointerDown)
-    document.addEventListener('mouseup', handlePointerUp)
+    document.addEventListener('pointerdown', handlePointerDown, { capture: true })
+    document.addEventListener('pointerup', handlePointerUp)
     document.addEventListener('selectionchange', handleSelectionChange)
 
     return () => {
-      document.removeEventListener('mousedown', handlePointerDown)
-      document.removeEventListener('mouseup', handlePointerUp)
+      document.removeEventListener('pointerdown', handlePointerDown, { capture: true })
+      document.removeEventListener('pointerup', handlePointerUp)
       document.removeEventListener('selectionchange', handleSelectionChange)
       if (timerRef.current) window.clearTimeout(timerRef.current)
       if (upTimerRef.current) window.clearTimeout(upTimerRef.current)

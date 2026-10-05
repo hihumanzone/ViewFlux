@@ -13,6 +13,10 @@
   transition: grid-template-columns var(--t-med) var(--ease-spring-subtle);
 }
 
+:root[data-resizing='true'] {
+  user-select: none !important;
+}
+
 .content {
   grid-column: 2;
   grid-row: 2;
@@ -35,6 +39,10 @@
   border-bottom: 1px solid color-mix(in srgb, var(--outline-variant) 40%, transparent);
   -webkit-app-region: drag;
   z-index: 30;
+}
+
+:root[data-platform='darwin'] .titlebar {
+  padding-left: 78px;
 }
 
 .titlebar button {
@@ -101,6 +109,7 @@
 
 /* ---- Sidebar (Material 3 Expressive Navigation Rail & Dock) ---- */
 .sidebar {
+  position: relative;
   grid-column: 1;
   grid-row: 2;
   display: flex;
@@ -111,6 +120,31 @@
   overflow: hidden;
   box-sizing: border-box;
 }
+
+.sidebar__resizer {
+  position: absolute;
+  top: 0;
+  right: -3px;
+  width: 6px;
+  height: 100%;
+  cursor: col-resize;
+  z-index: 25;
+  user-select: none;
+  touch-action: none;
+  transition: background var(--t-fast) var(--ease-out);
+}
+
+.sidebar__resizer:hover,
+.sidebar__resizer:active {
+  background: var(--primary);
+}
+
+[data-sidebar='collapsed'] .sidebar__resizer {
+  background: transparent !important;
+  opacity: 0;
+  pointer-events: none;
+}
+
 
 .sidebar__brand {
   display: flex;

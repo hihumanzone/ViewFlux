@@ -36,30 +36,103 @@ const ALBUMS_SHELF_TITLE = /album/i
 export class ChannelService {
   private readonly channelCache = new Map<string, CachedChannel>()
   private readonly inFlightChannels = new Map<string, Promise<any>>()
+  private readonly canonicalIdCache = new Map<string, string>()
+  private readonly inFlightResolutions = new Map<string, Promise<string>>()
 
   constructor(private readonly tokens: TokenStore) {}
 
-  async getChannel(id: string): Promise<any> {
-    const cached = this.channelCache.get(id)
-    if (cached && Date.now() - cached.fetchedAt < CHANNEL_TTL_MS) {
-      this.channelCache.delete(id)
-      this.channelCache.set(id, cached)
-      return cached.channel
+  async resolveCanonicalId(id: string): Promise<string> {
+    const trimmed = id.trim()
+    if (/^(UC|HC)[a-zA-Z0-9_-]{22}$/.test(trimmed)) {
+      return trimmed
     }
-    const pending = this.inFlightChannels.get(id)
+    const cached = this.canonicalIdCache.get(trimmed)
+    if (cached) return cached
+
+    const pending = this.inFlightResolutions.get(trimmed)
     if (pending) return pending
 
     const promise = (async () => {
       const yt = await getClient()
-      const channel = await yt.getChannel(id)
-      this.channelCache.set(id, { channel, fetchedAt: Date.now() })
+      let url: string
+      if (/^https?:\/\//i.test(trimmed)) {
+        url = trimmed
+      } else if (trimmed.startsWith('@')) {
+        url = `https://www.youtube.com/${trimmed}`
+      } else if (
+        trimmed.startsWith('c/') ||
+        trimmed.startsWith('user/') ||
+        trimmed.startsWith('u/') ||
+        trimmed.startsWith('custom/')
+      ) {
+        url = `https://www.youtube.com/${trimmed.startsWith('u/') ? 'user/' + trimmed.slice(2) : trimmed}`
+      } else {
+        url = `https://www.youtube.com/@${trimmed}`
+      }
+
+      try {
+        const endpoint = await yt.resolveURL(url)
+        const browseId = (endpoint?.payload as { browseId?: string } | undefined)?.browseId
+        if (browseId && typeof browseId === 'string' && /^(UC|HC)[a-zA-Z0-9_-]{22}$/.test(browseId)) {
+          this.canonicalIdCache.set(trimmed, browseId)
+          return browseId
+        }
+      } catch (err: any) {
+        if (!trimmed.startsWith('@') && !trimmed.startsWith('c/') && !trimmed.startsWith('user/')) {
+          try {
+            const fallbackUrl = `https://www.youtube.com/${trimmed}`
+            const endpoint = await yt.resolveURL(fallbackUrl)
+            const browseId = (endpoint?.payload as { browseId?: string } | undefined)?.browseId
+            if (browseId && typeof browseId === 'string' && /^(UC|HC)[a-zA-Z0-9_-]{22}$/.test(browseId)) {
+              this.canonicalIdCache.set(trimmed, browseId)
+              return browseId
+            }
+          } catch {
+            // continue to throw
+          }
+        }
+        const msg = err?.info?.error?.message || err?.message || 'Not found'
+        throw new Error(`Channel not found: ${trimmed} (${msg})`)
+      }
+      throw new Error(`Channel not found: ${trimmed}`)
+    })().finally(() => {
+      this.inFlightResolutions.delete(trimmed)
+    })
+
+    this.inFlightResolutions.set(trimmed, promise)
+    return promise
+  }
+
+  async getChannel(id: string): Promise<any> {
+    const canonicalId = await this.resolveCanonicalId(id)
+
+    const cached = this.channelCache.get(canonicalId) ?? this.channelCache.get(id)
+    if (cached && Date.now() - cached.fetchedAt < CHANNEL_TTL_MS) {
+      this.channelCache.delete(canonicalId)
+      this.channelCache.set(canonicalId, cached)
+      if (id !== canonicalId) {
+        this.channelCache.set(id, cached)
+      }
+      return cached.channel
+    }
+    const pending = this.inFlightChannels.get(canonicalId)
+    if (pending) return pending
+
+    const promise = (async () => {
+      const yt = await getClient()
+      const channel = await yt.getChannel(canonicalId)
+      const entry = { channel, fetchedAt: Date.now() }
+      this.channelCache.set(canonicalId, entry)
+      if (id !== canonicalId) {
+        this.channelCache.set(id, entry)
+      }
       pruneMap(this.channelCache, 40)
       return channel
     })().finally(() => {
-      this.inFlightChannels.delete(id)
+      this.inFlightChannels.delete(canonicalId)
     })
 
-    this.inFlightChannels.set(id, promise)
+    this.inFlightChannels.set(canonicalId, promise)
     return promise
   }
 
@@ -108,8 +181,9 @@ export class ChannelService {
     }
     if (tabs.length === 0) tabs.push('videos', 'playlists', 'about')
 
+    const canonicalId = (meta.external_id as string) || (channel.id as string) || id
     return {
-      id,
+      id: canonicalId,
       name: text(meta.title) || text(headerContent.page_title) || text(headerContent.title),
       avatar: meta.avatar ? pickThumbnail(meta.avatar, 240) : null,
       banner: this.bannerUrl(headerContent.banner),
@@ -230,6 +304,35 @@ export class ChannelService {
     let done = 0
     onProgress?.(done, total)
 
+    const fetchChannelRssTimestamps = async (channelId: string): Promise<Map<string, number>> => {
+      const map = new Map<string, number>()
+      try {
+        const canonical = await this.resolveCanonicalId(channelId).catch(() => channelId)
+        const res = await fetch(`https://www.youtube.com/feeds/videos.xml?channel_id=${canonical}`, {
+          headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)' },
+          signal: AbortSignal.timeout(6000)
+        })
+        if (!res.ok) return map
+        const xml = await res.text()
+        const entryRegex = /<entry>([\s\S]*?)<\/entry>/g
+        let match: RegExpExecArray | null
+        while ((match = entryRegex.exec(xml)) !== null) {
+          const entryContent = match[1]
+          const idMatch = entryContent.match(/<yt:videoId>([^<]+)<\/yt:videoId>/)
+          const pubMatch = entryContent.match(/<published>([^<]+)<\/published>/)
+          if (idMatch && pubMatch) {
+            const time = Date.parse(pubMatch[1])
+            if (!Number.isNaN(time)) {
+              map.set(idMatch[1], time)
+            }
+          }
+        }
+      } catch {
+        // RSS fallback
+      }
+      return map
+    }
+
     const fetchChannelWithTimeout = async (id: string): Promise<ChannelVideosPage | null> => {
       let timer: NodeJS.Timeout | null = null
       try {
@@ -253,15 +356,26 @@ export class ChannelService {
       while (currentIndex < uniqueIds.length) {
         const idx = currentIndex++
         const id = uniqueIds[idx]
-        const page = await fetchChannelWithTimeout(id)
+        const [page, rssTimestamps] = await Promise.all([
+          fetchChannelWithTimeout(id),
+          fetchChannelRssTimestamps(id)
+        ])
         done += 1
         if (page?.items) {
-          for (const item of page.items) {
+          page.items.forEach((item, itemIdx) => {
             if (!seenVideoIds.has(item.videoId)) {
               seenVideoIds.add(item.videoId)
+              const rssTs = rssTimestamps.get(item.videoId)
+              let publishTs = rssTs ?? item.publishTimestamp ?? null
+              if (publishTs == null) {
+                const ageDays = parseAgoDays(item.published) ?? 99999
+                // Subtract itemIdx to keep channel-native chronological order as deterministic tie-breaker
+                publishTs = Date.now() - ageDays * 86400000 - itemIdx * 1000
+              }
+              item.publishTimestamp = publishTs
               allVideos.push(item)
             }
-          }
+          })
         }
         onProgress?.(done, total)
       }
@@ -271,18 +385,24 @@ export class ChannelService {
     const workers = Array.from({ length: workerCount }, () => worker())
     await Promise.all(workers)
 
-    const withAge = allVideos.map((v) => ({
-      video: v,
-      age: parseAgoDays(v.published) ?? 99999
-    }))
-
+    const now = Date.now()
     const filtered =
       typeof maxAgeDays === 'number' && maxAgeDays > 0
-        ? withAge.filter((item) => item.age <= maxAgeDays)
-        : withAge
+        ? allVideos.filter((v) => {
+            const ts = v.publishTimestamp ?? (now - (parseAgoDays(v.published) ?? 99999) * 86400000)
+            return now - ts <= maxAgeDays * 86400000
+          })
+        : allVideos
 
-    filtered.sort((a, b) => a.age - b.age)
-    return filtered.map((item) => item.video)
+    // Sort strictly by exact publish timestamps (newest first).
+    // Break ties deterministically by video ID so internal order is 100% stable and deterministic.
+    filtered.sort((a, b) => {
+      const diff = (b.publishTimestamp ?? 0) - (a.publishTimestamp ?? 0)
+      if (diff !== 0) return diff
+      return a.videoId.localeCompare(b.videoId)
+    })
+
+    return filtered
   }
 
   async getChannelPlaylists(id: string): Promise<{ items: PlaylistSummary[]; continuation: string | null }> {

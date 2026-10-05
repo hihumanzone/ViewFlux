@@ -3,11 +3,15 @@ import { Icon } from '../components/Icons'
 import { ChannelLine } from '../components/ChannelLine'
 import { EmptyState, Loader } from '../components/EmptyState'
 import { ListRow } from '../components/ListRow'
+import { VideoCard } from '../components/VideoCard'
+import { ViewModeToggle } from '../components/ViewModeToggle'
+import { useViewMode } from '../lib/useViewMode'
 import { Menu, MenuItem } from '../components/Menu'
 import { VideoOptions } from '../components/VideoOptions'
 import { navigate } from '../lib/router'
-import { formatCount } from '../lib/format'
+import { formatCount, formatVideoPublished } from '../lib/format'
 import { toPlaylistVideo } from '../lib/map'
+import { enrichVideoWithHistory } from '../lib/enrich'
 import { useCopyLink, playlistUrl } from '../lib/copyLink'
 import { useRemotePlaylist } from '../lib/useRemotePlaylist'
 import { useApp } from '../state/AppContext'
@@ -70,8 +74,9 @@ export function PlaylistDetailPage({ id }: { id: string }): React.JSX.Element {
 
 /** Bookmarks stored on this device: full reordering and removal. */
 function LocalPlaylist({ playlist }: { playlist: Playlist }): React.JSX.Element {
-  const { refreshPlaylists, confirm, toast } = useApp()
+  const { history, refreshPlaylists, confirm, toast } = useApp()
   const [current, setCurrent] = useState(playlist)
+  const [viewMode, setViewMode] = useViewMode('playlist-detail')
 
   useEffect(() => {
     setCurrent(playlist)
@@ -124,6 +129,7 @@ function LocalPlaylist({ playlist }: { playlist: Playlist }): React.JSX.Element 
             <Icon name="play_arrow" size={18} />
             Play all
           </button>
+          <ViewModeToggle value={viewMode} onChange={setViewMode} />
           <button
             className="icon-btn"
             aria-label="Delete playlist"
@@ -140,56 +146,74 @@ function LocalPlaylist({ playlist }: { playlist: Playlist }): React.JSX.Element 
           title="This playlist is empty"
           message="Use the save option on any video to add it here."
         />
+      ) : viewMode === 'grid' ? (
+        <div key={current.id} className="video-grid animate-fade-up">
+          {current.videos.map((video) => {
+            const enrichedVideo = enrichVideoWithHistory(video, history)
+            return (
+              <VideoCard
+                key={video.videoId}
+                video={enrichedVideo}
+                to={`#/watch/${video.videoId}?list=${current.id}`}
+              />
+            )
+          })}
+        </div>
       ) : (
         <ul key={current.id} className="list animate-fade-up">
-          {current.videos.map((video, index) => (
-            <ListRow
-              key={`${video.videoId}-${index}`}
-              to={`#/watch/${video.videoId}?list=${current.id}`}
-              videoId={video.videoId}
-              thumbnail={video.thumbnail}
-              title={video.title}
-              duration={video.duration}
-              actions={
-                <>
-                  <VideoOptions video={video} label="Video options" />
-                  <button
-                    className="icon-btn icon-btn--sm"
-                    aria-label={`Move “${video.title}” up`}
-                    disabled={index === 0}
-                    onClick={() => void move(index, index - 1)}
-                  >
-                    <Icon name="up" size={18} />
-                  </button>
-                  <button
-                    className="icon-btn icon-btn--sm"
-                    aria-label={`Move “${video.title}” down`}
-                    disabled={index === current.videos.length - 1}
-                    onClick={() => void move(index, index + 1)}
-                  >
-                    <Icon name="down" size={18} />
-                  </button>
-                  <button
-                    className="icon-btn icon-btn--sm"
-                    aria-label={`Remove “${video.title}” from this playlist`}
-                    onClick={() => void removeItem(video.videoId)}
-                  >
-                    <Icon name="close" size={18} />
-                  </button>
-                </>
-              }
-            >
-              <ChannelLine
-                name={video.author}
-                channelId={video.authorId ?? null}
-                avatar={video.authorAvatar ?? null}
-              />
-              <RowStats
-                viewCount={video.viewCount ?? null}
-                published={video.published ?? null}
-              />
-            </ListRow>
-          ))}
+          {current.videos.map((video, index) => {
+            const enrichedVideo = enrichVideoWithHistory(video, history)
+            return (
+              <ListRow
+                key={`${video.videoId}-${index}`}
+                to={`#/watch/${video.videoId}?list=${current.id}`}
+                videoId={video.videoId}
+                thumbnail={enrichedVideo.thumbnail}
+                title={enrichedVideo.title}
+                duration={enrichedVideo.duration}
+                isPremiere={enrichedVideo.isPremiere}
+                isLive={enrichedVideo.isLive}
+                actions={
+                  <>
+                    <VideoOptions video={enrichedVideo} label="Video options" />
+                    <button
+                      className="icon-btn icon-btn--sm"
+                      aria-label={`Move “${video.title}” up`}
+                      disabled={index === 0}
+                      onClick={() => void move(index, index - 1)}
+                    >
+                      <Icon name="up" size={18} />
+                    </button>
+                    <button
+                      className="icon-btn icon-btn--sm"
+                      aria-label={`Move “${video.title}” down`}
+                      disabled={index === current.videos.length - 1}
+                      onClick={() => void move(index, index + 1)}
+                    >
+                      <Icon name="down" size={18} />
+                    </button>
+                    <button
+                      className="icon-btn icon-btn--sm"
+                      aria-label={`Remove “${video.title}” from this playlist`}
+                      onClick={() => void removeItem(video.videoId)}
+                    >
+                      <Icon name="close" size={18} />
+                    </button>
+                  </>
+                }
+              >
+                <ChannelLine
+                  name={enrichedVideo.author}
+                  channelId={enrichedVideo.authorId ?? null}
+                  avatar={enrichedVideo.authorAvatar ?? null}
+                />
+                <RowStats
+                  viewCount={enrichedVideo.viewCount ?? null}
+                  published={formatVideoPublished(enrichedVideo)}
+                />
+              </ListRow>
+            )
+          })}
         </ul>
       )}
     </div>
@@ -202,8 +226,9 @@ function LocalPlaylist({ playlist }: { playlist: Playlist }): React.JSX.Element 
  * is stored locally (YouTube itself cannot be edited without signing in).
  */
 function SavedYouTubePlaylist({ playlist }: { playlist: Playlist }): React.JSX.Element {
-  const { refreshPlaylists, confirm, toast, touchYoutubePlaylist } = useApp()
+  const { refreshPlaylists, confirm, toast, touchYoutubePlaylist, history } = useApp()
   const copyLink = useCopyLink()
+  const [viewMode, setViewMode] = useViewMode('playlist-detail')
   const { playlist: remote, items, loading, loadingMore, error, loadMore, reload } =
     useRemotePlaylist(playlist.youtubeId ?? null)
   const [menuAnchor, setMenuAnchor] = useState<HTMLElement | null>(null)
@@ -249,7 +274,7 @@ function SavedYouTubePlaylist({ playlist }: { playlist: Playlist }): React.JSX.E
     try {
       const created = await window.api.createPlaylist(`${playlist.name} (copy)`)
       for (const video of items) {
-        await window.api.addToPlaylist(created.id, toPlaylistVideo(video))
+        await window.api.addToPlaylist(created.id, toPlaylistVideo(enrichVideoWithHistory(video, history)))
       }
       await refreshPlaylists()
       toast(`Saved ${items.length} videos as “${created.name}”`)
@@ -289,6 +314,7 @@ function SavedYouTubePlaylist({ playlist }: { playlist: Playlist }): React.JSX.E
             <Icon name="play_arrow" size={18} />
             Play all
           </button>
+          <ViewModeToggle value={viewMode} onChange={setViewMode} />
           <button className="icon-btn" aria-label="Playlist options" aria-haspopup="menu" onClick={(e) => setMenuAnchor(e.currentTarget)}>
             <Icon name="more" size={20} />
           </button>
@@ -333,26 +359,49 @@ function SavedYouTubePlaylist({ playlist }: { playlist: Playlist }): React.JSX.E
       )}
 
       {items.length > 0 && (
-        <ul key={`yt-synced-${playlist.id}`} className="list animate-fade-up">
-          {items.map((video: VideoSummary, index: number) => (
-            <ListRow
-              key={`${video.videoId}-${index}`}
-              to={`#/watch/${video.videoId}?list=yt:${playlist.youtubeId}`}
-              videoId={video.videoId}
-              thumbnail={video.thumbnail}
-              title={video.title}
-              duration={video.duration}
-              actions={<VideoOptions video={video} label="Video options" />}
-            >
-              <ChannelLine
-                name={video.author}
-                channelId={video.authorId}
-                avatar={video.authorAvatar}
-              />
-              <RowStats viewCount={video.viewCount} published={video.published} />
-            </ListRow>
-          ))}
-        </ul>
+        viewMode === 'grid' ? (
+          <div key={`yt-synced-${playlist.id}`} className="video-grid animate-fade-up">
+            {items.map((video: VideoSummary) => {
+              const enrichedVideo = enrichVideoWithHistory(video, history)
+              return (
+                <VideoCard
+                  key={video.videoId}
+                  video={enrichedVideo}
+                  to={`#/watch/${video.videoId}?list=yt:${playlist.youtubeId}`}
+                />
+              )
+            })}
+          </div>
+        ) : (
+          <ul key={`yt-synced-${playlist.id}`} className="list animate-fade-up">
+            {items.map((video: VideoSummary, index: number) => {
+              const enrichedVideo = enrichVideoWithHistory(video, history)
+              return (
+                <ListRow
+                  key={`${video.videoId}-${index}`}
+                  to={`#/watch/${video.videoId}?list=yt:${playlist.youtubeId}`}
+                  videoId={video.videoId}
+                  thumbnail={enrichedVideo.thumbnail}
+                  title={enrichedVideo.title}
+                  duration={enrichedVideo.duration}
+                  isPremiere={enrichedVideo.isPremiere}
+                  isLive={enrichedVideo.isLive}
+                  actions={<VideoOptions video={enrichedVideo} label="Video options" />}
+                >
+                  <ChannelLine
+                    name={enrichedVideo.author}
+                    channelId={enrichedVideo.authorId}
+                    avatar={enrichedVideo.authorAvatar}
+                  />
+                  <RowStats
+                    viewCount={enrichedVideo.viewCount}
+                    published={formatVideoPublished(enrichedVideo)}
+                  />
+                </ListRow>
+              )
+            })}
+          </ul>
+        )
       )}
 
       {items.length > 0 && <div ref={sentinelRef} />}

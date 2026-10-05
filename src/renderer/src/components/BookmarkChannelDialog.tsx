@@ -34,6 +34,7 @@ export function BookmarkChannelDialog({
 
   const [folderId, setFolderId] = useState<string | null>(existing?.folderId ?? null)
   const [labels, setLabels] = useState<string[]>(existing?.labels ?? [])
+  const [isFavorite, setIsFavorite] = useState<boolean>(existing?.isFavorite ?? false)
   const [newLabelText, setNewLabelText] = useState('')
   const [creatingFolder, setCreatingFolder] = useState(false)
   const [newFolderName, setNewFolderName] = useState('')
@@ -68,7 +69,8 @@ export function BookmarkChannelDialog({
         avatar: avatar ?? null,
         savedAt: existing?.savedAt ?? Date.now(),
         folderId: finalFolderId,
-        labels
+        labels,
+        isFavorite
       })
 
       toast(existing ? `Updated bookmark for “${title}”` : `Bookmarked “${title}”`)
@@ -229,6 +231,43 @@ export function BookmarkChannelDialog({
             Add
           </button>
         </div>
+      </div>
+
+      {/* Favorite Channel Toggle */}
+      <div className="dialog__field" style={{ marginTop: '8px' }}>
+        <button
+          type="button"
+          className="category-row"
+          role="checkbox"
+          aria-checked={isFavorite}
+          onClick={() => setIsFavorite((prev) => !prev)}
+          style={{
+            cursor: 'pointer',
+            padding: '8px 10px',
+            userSelect: 'none',
+            background: 'transparent',
+            border: 'none',
+            textAlign: 'left',
+            width: '100%'
+          }}
+        >
+          <span className={`checkbox${isFavorite ? ' checkbox--on' : ''}`}>
+            {isFavorite && <Icon name="check" size={14} />}
+          </span>
+          <span
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: '6px',
+              fontSize: '13.5px',
+              fontWeight: 600,
+              color: isFavorite ? 'var(--primary)' : 'var(--on-surface)'
+            }}
+          >
+            <Icon name={isFavorite ? 'starFilled' : 'star'} size={17} />
+            Favorite channel (feed prioritized)
+          </span>
+        </button>
       </div>
 
       <div className="modal__actions modal__actions--split">

@@ -39,6 +39,8 @@ const api: AppApi = {
   saveChannel: (channel: SavedChannel) => ipcRenderer.invoke('channels:saved:save', channel),
   updateSavedChannel: (channelId: string, patch: Partial<SavedChannel>) =>
     ipcRenderer.invoke('channels:saved:update', channelId, patch),
+  toggleFavoriteChannel: (channelId: string) =>
+    ipcRenderer.invoke('channels:saved:toggle-favorite', channelId),
   removeSavedChannel: (channelId: string) =>
     ipcRenderer.invoke('channels:saved:remove', channelId),
 
@@ -112,7 +114,9 @@ const api: AppApi = {
     return () => {
       ipcRenderer.removeListener('updater:status', listener)
     }
-  }
+  },
+
+  platform: process.platform
 }
 
 contextBridge.exposeInMainWorld('api', api)

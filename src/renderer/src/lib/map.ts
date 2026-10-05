@@ -19,6 +19,10 @@ export function toPlaylistVideo(
     authorAvatar: video.authorAvatar ?? null,
     viewCount: video.viewCount ?? null,
     published: video.published ?? null,
+    publishTimestamp: video.publishTimestamp ?? null,
+    isPremiere: video.isPremiere ?? false,
+    isStreamed: video.isStreamed ?? false,
+    isLive: video.isLive ?? false,
     thumbnail: video.thumbnail,
     duration: video.duration ?? null,
     // Preserve the original ordering when re-saving something already saved.

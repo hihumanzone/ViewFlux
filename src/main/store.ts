@@ -103,16 +103,22 @@ export class Store {
   private async load(): Promise<void> {
     try {
       let raw: string | null = null
-      try {
-        raw = await fs.readFile(this.file, 'utf8')
-      } catch {
-        // Fallback: migrate existing data from legacy libretube-data.json
+      const candidatePaths = [
+        this.file,
+        this.legacyFile,
+        join(app.getPath('appData'), 'libretube-desktop', 'viewflux-data.json'),
+        join(app.getPath('appData'), 'libretube-desktop', 'libretube-data.json')
+      ]
+      for (const p of candidatePaths) {
         try {
-          raw = await fs.readFile(this.legacyFile, 'utf8')
-          this.dirty = true // trigger saving to viewflux-data.json
-          this.isStructuralDirty = true
+          raw = await fs.readFile(p, 'utf8')
+          if (p !== this.file) {
+            this.dirty = true
+            this.isStructuralDirty = true
+          }
+          break
         } catch {
-          raw = null
+          // try next candidate
         }
       }
 
@@ -153,7 +159,20 @@ export class Store {
       playlists: Array.isArray(parsed.playlists) ? parsed.playlists : [],
       searchHistory: Array.isArray(parsed.searchHistory) ? parsed.searchHistory : [],
       settings: withSettingDefaults(parsed.settings),
-      savedChannels: Array.isArray(parsed.savedChannels) ? parsed.savedChannels : [],
+      savedChannels: Array.isArray(parsed.savedChannels)
+        ? parsed.savedChannels
+            .filter((c: any) => c && (c.channelId || c.id))
+            .map((c: any) => ({
+              channelId: c.channelId || c.id,
+              title: c.title || c.name || 'Untitled Channel',
+              handle: c.handle ?? null,
+              avatar: c.avatar ?? null,
+              savedAt: typeof c.savedAt === 'number' ? c.savedAt : Date.now(),
+              folderId: c.folderId ?? null,
+              labels: Array.isArray(c.labels) ? c.labels : [],
+              isFavorite: Boolean(c.isFavorite)
+            }))
+        : [],
       channelFolders: Array.isArray(parsed.channelFolders) ? parsed.channelFolders : []
     }
     this.trimToLimits()
@@ -256,11 +275,11 @@ export class Store {
    * waiting for the next append.
    */
   private trimToLimits(): void {
-    const maxWatch = this.data.settings.maxWatchHistory || 500
+    const maxWatch = this.data.settings?.maxWatchHistory || 500
     if (this.data.history.length > maxWatch) {
       this.data.history.length = maxWatch
     }
-    const maxSearch = this.data.settings.maxSearchHistory || 50
+    const maxSearch = this.data.settings?.maxSearchHistory || 50
     if (this.data.searchHistory.length > maxSearch) {
       this.data.searchHistory.length = maxSearch
     }
@@ -284,7 +303,12 @@ export class Store {
         // Channel details resolve a tick after the video info does, so never let
         // a late `null` wipe an id/avatar an earlier pass already stored.
         authorId: entry.authorId ?? existing.authorId ?? null,
-        authorAvatar: entry.authorAvatar ?? existing.authorAvatar ?? null
+        authorAvatar: entry.authorAvatar ?? existing.authorAvatar ?? null,
+        viewCount: entry.viewCount ?? existing.viewCount ?? null,
+        published: entry.published ?? existing.published ?? null,
+        publishTimestamp: entry.publishTimestamp ?? existing.publishTimestamp ?? null,
+        isPremiere: entry.isPremiere ?? existing.isPremiere ?? false,
+        isLive: entry.isLive ?? existing.isLive ?? false
       }
       this.data.history.unshift(finalEntry)
     } else {
@@ -425,9 +449,22 @@ export class Store {
   addToPlaylist(id: string, video: PlaylistVideo): Playlist | undefined {
     const playlist = this.findPlaylist(id)
     if (!playlist) return undefined
+    const fullVideo = { ...video }
+    if (fullVideo.viewCount == null || !fullVideo.published) {
+      const historyEntry = this.historyMap.get(video.videoId)
+      if (historyEntry) {
+        fullVideo.viewCount = fullVideo.viewCount ?? historyEntry.viewCount ?? null
+        fullVideo.published = fullVideo.published ?? historyEntry.published ?? null
+        fullVideo.publishTimestamp = fullVideo.publishTimestamp ?? historyEntry.publishTimestamp ?? null
+        fullVideo.isPremiere = fullVideo.isPremiere ?? historyEntry.isPremiere ?? false
+        fullVideo.isLive = fullVideo.isLive ?? historyEntry.isLive ?? false
+        fullVideo.authorAvatar = fullVideo.authorAvatar ?? historyEntry.authorAvatar ?? null
+        fullVideo.authorId = fullVideo.authorId ?? historyEntry.authorId ?? null
+      }
+    }
     const existing = playlist.videos.findIndex((v) => v.videoId === video.videoId)
     if (existing !== -1) playlist.videos.splice(existing, 1)
-    playlist.videos.unshift(video)
+    playlist.videos.unshift(fullVideo)
     this.scheduleSave()
     return structuredClone(playlist)
   }
@@ -473,6 +510,14 @@ export class Store {
     const channel = this.data.savedChannels.find((c) => c.channelId === channelId)
     if (!channel) return undefined
     Object.assign(channel, patch)
+    this.scheduleSave()
+    return { ...channel }
+  }
+
+  toggleFavoriteChannel(channelId: string): SavedChannel | undefined {
+    const channel = this.data.savedChannels.find((c) => c.channelId === channelId)
+    if (!channel) return undefined
+    channel.isFavorite = !channel.isFavorite
     this.scheduleSave()
     return { ...channel }
   }

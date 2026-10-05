@@ -115,7 +115,7 @@ export function toSummary(node: unknown): VideoSummary | null {
     }
     if (!published) {
       const match = viText.match(
-        /((?:streamed|premiered\s+)?(?:\d+\s+(?:years?|months?|weeks?|days?|hours?|minutes?|y|mo|w|d|h|m)\s+ago|\w+\s+\d{1,2},\s*\d{4}))/i
+        /((?:(?:streamed(?: live)?|premiered)\s+)?(?:\d+\s+(?:years?|months?|weeks?|days?|hours?|minutes?|y|mo|w|d|h|m)\s+ago|\w+\s+\d{1,2},\s*\d{4}))/i
       )
       if (match) published = match[1]
     }
@@ -130,9 +130,36 @@ export function toSummary(node: unknown): VideoSummary | null {
     }
     if (!published) {
       const pMatch = a11y.match(
-        /((?:streamed|premiered\s+)?\d+\s+(?:years?|months?|weeks?|days?|hours?|minutes?)\s+ago)/i
+        /((?:(?:streamed(?: live)?|premiered)\s+)?\d+\s+(?:years?|months?|weeks?|days?|hours?|minutes?)\s+ago)/i
       )
       if (pMatch) published = pMatch[1]
+    }
+  }
+
+  const isLive = Boolean(v.is_live)
+  const isPremiere = Boolean(
+    (v as any).is_premiere ||
+    (v as any).badges?.some((b: any) => /premiere/i.test(text(b?.label ?? b?.text))) ||
+    /premiered?/i.test(viText) ||
+    /premiered?/i.test(published ?? '')
+  )
+  const isStreamed = Boolean(
+    !isLive && (
+      /streamed/i.test(viText) ||
+      /streamed/i.test(published ?? '') ||
+      /streamed/i.test(v.accessibility_label ?? '') ||
+      (v as any).badges?.some((b: any) => /streamed/i.test(text(b?.label ?? b?.text)))
+    )
+  )
+
+  let publishTimestamp: number | null = null
+  if (published) {
+    const dateMatch = published.match(
+      /(?:streamed(?: live)?|premiered)?\s*(?:on\s+)?([A-Za-z]+ \d{1,2}, \d{4}|\d{4}-\d{2}-\d{2})/i
+    )
+    if (dateMatch) {
+      const parsed = Date.parse(dateMatch[1])
+      if (!Number.isNaN(parsed)) publishTimestamp = parsed
     }
   }
 
@@ -147,7 +174,10 @@ export function toSummary(node: unknown): VideoSummary | null {
     thumbnail: pickThumbnail(v.thumbnails),
     viewCount,
     published,
-    isLive: Boolean(v.is_live)
+    publishTimestamp,
+    isPremiere,
+    isStreamed,
+    isLive
   }
 }
 
@@ -241,6 +271,32 @@ export function toLockupVideo(
     }
   }
 
+  const isLive = Boolean(durationBadge && /live/i.test(durationBadge))
+  const isPremiere = Boolean(
+    badges.some((b) => /premiere/i.test(b)) ||
+    (node as any).metadata?.badges?.some((b: any) => /premiere/i.test(text(b))) ||
+    rows.some((r) => r.some((part) => /premiered?/i.test(part))) ||
+    /premiered?/i.test(published ?? '')
+  )
+  const isStreamed = Boolean(
+    !isLive && (
+      rows.some((r) => r.some((part) => /streamed/i.test(part))) ||
+      /streamed/i.test(published ?? '') ||
+      badges.some((b) => /streamed/i.test(b))
+    )
+  )
+
+  let publishTimestamp: number | null = null
+  if (published) {
+    const dateMatch = published.match(
+      /(?:streamed(?: live)?|premiered)?\s*(?:on\s+)?([A-Za-z]+ \d{1,2}, \d{4}|\d{4}-\d{2}-\d{2})/i
+    )
+    if (dateMatch) {
+      const parsed = Date.parse(dateMatch[1])
+      if (!Number.isNaN(parsed)) publishTimestamp = parsed
+    }
+  }
+
   return {
     videoId: node.content_id,
     title: text(node.metadata?.title),
@@ -251,7 +307,10 @@ export function toLockupVideo(
     thumbnail: pickThumbnail(thumbs, 480),
     viewCount: parseCompactCount(viewsText),
     published,
-    isLive: Boolean(durationBadge && /live/i.test(durationBadge))
+    publishTimestamp,
+    isPremiere,
+    isStreamed,
+    isLive
   }
 }
 

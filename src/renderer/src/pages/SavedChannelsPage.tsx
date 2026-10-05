@@ -4,7 +4,15 @@ import { InlineSearch } from '../components/InlineSearch'
 import { SelectField, type SelectOption } from '../components/SelectField'
 import { VideoCard } from '../components/VideoCard'
 import { BookmarkChannelDialog } from '../components/BookmarkChannelDialog'
+import { RandomChannelDialog } from '../components/RandomChannelDialog'
 import { EmptyState } from '../components/EmptyState'
+import { ListRow } from '../components/ListRow'
+import { ChannelLine } from '../components/ChannelLine'
+import { VideoOptions } from '../components/VideoOptions'
+import { ViewModeToggle } from '../components/ViewModeToggle'
+import { useViewMode } from '../lib/useViewMode'
+import { formatCount, formatVideoPublished } from '../lib/format'
+import { enrichVideoWithHistory } from '../lib/enrich'
 import { navigate } from '../lib/router'
 import { useApp } from '../state/AppContext'
 import { activationProps } from '../lib/keyboard'
@@ -28,12 +36,17 @@ export function SavedChannelsPage({ initialTab }: { initialTab?: string | null }
   const {
     savedChannels,
     channelFolders,
+    toggleFavoriteChannel,
     createChannelFolder,
     renameChannelFolder,
     deleteChannelFolder,
     confirm,
     toast,
+    history
   } = useApp()
+
+  const [feedViewMode, setFeedViewMode] = useViewMode('channels-feed')
+  const [channelsViewMode, setChannelsViewMode] = useViewMode('channels-list')
 
   // Tab lives in the URL so it survives a reload and Back steps out of it,
   // matching how channel tabs behave. Anything unrecognised falls back to feed.
@@ -70,12 +83,13 @@ export function SavedChannelsPage({ initialTab }: { initialTab?: string | null }
   const [editFolderName, setEditFolderName] = useState('')
   const [newFolderName, setNewFolderName] = useState('')
   const [creatingFolder, setCreatingFolder] = useState(false)
+  const [randomizeOpen, setRandomizeOpen] = useState(false)
 
   // Collect all unique labels
   const allLabels = useMemo(() => {
     const set = new Set<string>()
     for (const ch of savedChannels) {
-      for (const l of ch.labels) set.add(l)
+      for (const l of ch.labels ?? []) set.add(l)
     }
     return Array.from(set).sort()
   }, [savedChannels])
@@ -131,7 +145,7 @@ export function SavedChannelsPage({ initialTab }: { initialTab?: string | null }
       list = list.filter((c) => c.folderId === selectedFolderId)
     }
     if (selectedLabel !== 'all') {
-      list = list.filter((c) => c.labels.includes(selectedLabel))
+      list = list.filter((c) => (c.labels ?? []).includes(selectedLabel))
     }
     return list.map((c) => c.channelId)
   }, [savedChannels, selectedFolderId, selectedLabel])
@@ -176,6 +190,26 @@ export function SavedChannelsPage({ initialTab }: { initialTab?: string | null }
     }
   }, [activeTab, loadFeed])
 
+  const favoriteChannelIds = useMemo(() => {
+    return new Set(savedChannels.filter((c) => c.isFavorite).map((c) => c.channelId))
+  }, [savedChannels])
+
+  const sortedFeedVideos = useMemo(() => {
+    return [...feedVideos].sort((a, b) => {
+      const aFav = favoriteChannelIds.has(a.authorId ?? '')
+      const bFav = favoriteChannelIds.has(b.authorId ?? '')
+      if (aFav !== bFav) {
+        return aFav ? -1 : 1
+      }
+      const aTime = a.publishTimestamp ?? 0
+      const bTime = b.publishTimestamp ?? 0
+      if (aTime !== bTime) {
+        return bTime - aTime
+      }
+      return a.videoId.localeCompare(b.videoId)
+    })
+  }, [feedVideos, favoriteChannelIds])
+
   // Channels tab filtering
   const filteredChannels = useMemo(() => {
     let list = savedChannels
@@ -186,12 +220,17 @@ export function SavedChannelsPage({ initialTab }: { initialTab?: string | null }
     if (q) {
       list = list.filter(
         (c) =>
-          c.title.toLowerCase().includes(q) ||
+          (c.title || '').toLowerCase().includes(q) ||
           (c.handle && c.handle.toLowerCase().includes(q)) ||
-          c.labels.some((l) => l.toLowerCase().includes(q)),
+          (c.labels ?? []).some((l) => l.toLowerCase().includes(q)),
       )
     }
-    return list
+    return [...list].sort((a, b) => {
+      if (Boolean(a.isFavorite) !== Boolean(b.isFavorite)) {
+        return a.isFavorite ? -1 : 1
+      }
+      return (a.title || '').localeCompare(b.title || '')
+    })
   }, [savedChannels, selectedChannelsFolder, channelSearchQuery])
 
   const handleCreateFolder = async (): Promise<void> => {
@@ -235,6 +274,22 @@ export function SavedChannelsPage({ initialTab }: { initialTab?: string | null }
           <p className="page__subtitle">
             Organize bookmarks in folders and browse on-demand recent uploads.
           </p>
+        </div>
+        <div className="page__actions">
+          <button
+            type="button"
+            className="btn btn--filled"
+            onClick={() => setRandomizeOpen(true)}
+            disabled={savedChannels.length === 0}
+            title={
+              savedChannels.length === 0
+                ? 'No saved channels to randomize'
+                : 'Pick a random channel from your saved channels'
+            }
+          >
+            <Icon name="shuffle" size={18} />
+            Randomize
+          </button>
         </div>
       </div>
 
@@ -312,17 +367,20 @@ export function SavedChannelsPage({ initialTab }: { initialTab?: string | null }
               />
             </div>
 
-            {/* Refresh button */}
-            <button
-              type="button"
-              className="btn btn--tonal btn--sm filter-bar__end"
-              disabled={feedLoading || feedChannelIds.length === 0}
-              onClick={() => void loadFeed()}
-              title="Refresh recent videos feed"
-            >
-              <Icon name="refresh" size={16} />
-              {feedLoading ? 'Fetching...' : 'Refresh'}
-            </button>
+            {/* View Mode Toggle and Refresh button */}
+            <div className="filter-bar__end" style={{ display: 'inline-flex', alignItems: 'center', gap: '8px' }}>
+              <ViewModeToggle value={feedViewMode} onChange={setFeedViewMode} />
+              <button
+                type="button"
+                className="btn btn--tonal btn--sm"
+                disabled={feedLoading || feedChannelIds.length === 0}
+                onClick={() => void loadFeed()}
+                title="Refresh recent videos feed"
+              >
+                <Icon name="refresh" size={16} />
+                {feedLoading ? 'Fetching...' : 'Refresh'}
+              </button>
+            </div>
           </div>
 
           {/* Feed Content */}
@@ -386,7 +444,7 @@ export function SavedChannelsPage({ initialTab }: { initialTab?: string | null }
                 Retry
               </button>
             </div>
-          ) : feedVideos.length === 0 ? (
+          ) : sortedFeedVideos.length === 0 ? (
             <EmptyState
               iconSize={32}
               icon="history"
@@ -396,14 +454,48 @@ export function SavedChannelsPage({ initialTab }: { initialTab?: string | null }
           ) : (
             <div key={`feed-${lastFetchedAt ?? 'init'}-${selectedFolderId}-${selectedLabel}`} className="animate-fade-up">
               <div className="feed-summary">
-                Showing {feedVideos.length} recent uploads from {feedChannelIds.length} channels
+                Showing {sortedFeedVideos.length} recent uploads from {feedChannelIds.length} channels
                 {lastFetchedAt ? ` · Updated ${new Date(lastFetchedAt).toLocaleTimeString()}` : ''}
               </div>
-              <div className="video-grid">
-                {feedVideos.map((video) => (
-                  <VideoCard key={video.videoId} video={video} />
-                ))}
-              </div>
+              {feedViewMode === 'list' ? (
+                <ul className="list animate-fade-up">
+                  {sortedFeedVideos.map((video) => {
+                    const enrichedVideo = enrichVideoWithHistory(video, history)
+                    return (
+                      <ListRow
+                        key={video.videoId}
+                        to={`#/watch/${video.videoId}`}
+                        videoId={video.videoId}
+                        thumbnail={enrichedVideo.thumbnail}
+                        title={enrichedVideo.title}
+                        duration={enrichedVideo.duration}
+                        isPremiere={enrichedVideo.isPremiere}
+                        isLive={enrichedVideo.isLive}
+                        actions={<VideoOptions video={enrichedVideo} label="Video options" />}
+                      >
+                        <ChannelLine
+                          name={enrichedVideo.author}
+                          channelId={enrichedVideo.authorId ?? null}
+                          avatar={enrichedVideo.authorAvatar ?? null}
+                        />
+                        <div className="list-row__stats">
+                          {[
+                            enrichedVideo.viewCount != null ? `${formatCount(enrichedVideo.viewCount)} views` : null,
+                            formatVideoPublished(enrichedVideo)
+                          ].filter(Boolean).join(' · ')}
+                        </div>
+                      </ListRow>
+                    )
+                  })}
+                </ul>
+              ) : (
+                <div className="video-grid">
+                  {sortedFeedVideos.map((video) => {
+                    const enrichedVideo = enrichVideoWithHistory(video, history)
+                    return <VideoCard key={video.videoId} video={enrichedVideo} />
+                  })}
+                </div>
+              )}
             </div>
           )}
         </div>
@@ -564,6 +656,7 @@ export function SavedChannelsPage({ initialTab }: { initialTab?: string | null }
               placeholder="Search saved channels or labels..."
               ariaLabel="Search saved channels"
             />
+            <ViewModeToggle value={channelsViewMode} onChange={setChannelsViewMode} />
             <div className="toolbar-row__count">
               {filteredChannels.length} {filteredChannels.length === 1 ? 'channel' : 'channels'}
             </div>
@@ -585,7 +678,7 @@ export function SavedChannelsPage({ initialTab }: { initialTab?: string | null }
               message="No bookmarked channels match your search."
             />
           ) : (
-            <div className="saved-grid">
+            <div className={`saved-grid${channelsViewMode === 'list' ? ' saved-grid--list' : ''}`}>
               {filteredChannels.map((channel) => {
                 const folder = channelFolders.find((f) => f.id === channel.folderId)
                 return (
@@ -615,13 +708,19 @@ export function SavedChannelsPage({ initialTab }: { initialTab?: string | null }
                       )}
 
                       <div className="saved-channel__tags">
+                        {channel.isFavorite && (
+                          <span className="tag tag--favorite" title="Favorite channel">
+                            <Icon name="starFilled" size={12} />
+                            Favorite
+                          </span>
+                        )}
                         {folder && (
                           <span className="tag tag--folder">
                             <Icon name="folder" size={12} />
                             {folder.name}
                           </span>
                         )}
-                        {channel.labels.map((l) => (
+                        {(channel.labels ?? []).map((l) => (
                           <span className="tag tag--label" key={l}>
                             <Icon name="label" size={12} />
                             {l}
@@ -631,6 +730,18 @@ export function SavedChannelsPage({ initialTab }: { initialTab?: string | null }
                     </div>
 
                     <div className="saved-channel__actions">
+                      <button
+                        type="button"
+                        className={`icon-btn icon-btn--sm${channel.isFavorite ? ' icon-btn--active' : ''}`}
+                        title={channel.isFavorite ? 'Remove from favorites' : 'Mark as favorite'}
+                        aria-label={channel.isFavorite ? 'Remove from favorites' : 'Mark as favorite'}
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          void toggleFavoriteChannel(channel.channelId)
+                        }}
+                      >
+                        <Icon name={channel.isFavorite ? 'starFilled' : 'star'} size={16} />
+                      </button>
                       <button
                         type="button"
                         className="icon-btn icon-btn--sm"
@@ -663,6 +774,11 @@ export function SavedChannelsPage({ initialTab }: { initialTab?: string | null }
           avatar={editingChannel.avatar}
           onClose={() => setEditingChannel(null)}
         />
+      )}
+
+      {/* Random channel dialog */}
+      {randomizeOpen && (
+        <RandomChannelDialog onClose={() => setRandomizeOpen(false)} />
       )}
     </div>
   )

@@ -1,10 +1,16 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { VideoCard } from '../components/VideoCard'
+import { ListRow } from '../components/ListRow'
+import { VideoOptions } from '../components/VideoOptions'
 import { PlaylistCard } from '../components/ResultCards'
 import { BookmarkChannelDialog } from '../components/BookmarkChannelDialog'
 import { Icon, MusicBadge } from '../components/Icons'
 import { Menu, MenuItem } from '../components/Menu'
 import { EmptyState, Loader } from '../components/EmptyState'
+import { ViewModeToggle } from '../components/ViewModeToggle'
+import { useViewMode } from '../lib/useViewMode'
+import { formatCount, formatVideoPublished } from '../lib/format'
+import { enrichVideoWithHistory } from '../lib/enrich'
 import { useApp } from '../state/AppContext'
 import { useCopyLink, useOpenExternal, channelUrl } from '../lib/copyLink'
 import { useAsync } from '../lib/useAsync'
@@ -47,18 +53,25 @@ export function ChannelPage({
   channelId: string
   initialTab: string | null
 }): React.JSX.Element {
-  const { savedChannels } = useApp()
+  const { savedChannels, toggleFavoriteChannel, history } = useApp()
   const [bookmarkModalOpen, setBookmarkModalOpen] = useState(false)
-  const isSaved = savedChannels.some((c) => c.channelId === channelId)
   const [optionsAnchor, setOptionsAnchor] = useState<HTMLElement | null>(null)
   const copyLink = useCopyLink()
   const openExternal = useOpenExternal()
+  const [viewMode, setViewMode] = useViewMode('channel-videos')
 
   // ---- Channel info ----------------------------------------------------------
   const { data: info = null, error, reload: reloadInfo } = useAsync<ChannelInfo>(
     () => window.api.getChannel(channelId),
     [channelId]
   )
+
+  const canonicalId = info?.id || channelId
+  const savedChannel = savedChannels.find(
+    (c) => c.channelId === channelId || (info && c.channelId === info.id)
+  )
+  const isSaved = Boolean(savedChannel)
+  const isFavorite = Boolean(savedChannel?.isFavorite)
   // InnerTube omits tabs a channel does not expose (no playlists, say); fall
   // back to the full set so the tab bar never renders empty.
   const normalizedTabs = (info?.tabs ?? [])
@@ -293,6 +306,17 @@ export function ChannelPage({
               >
                 <Icon name="more" size={18} />
               </button>
+              {isSaved && (
+                <button
+                  type="button"
+                  className={`icon-btn${isFavorite ? ' icon-btn--active' : ''}`}
+                  onClick={() => void toggleFavoriteChannel(savedChannel?.channelId || canonicalId)}
+                  title={isFavorite ? 'Remove from favorites' : 'Mark as favorite'}
+                  aria-label={isFavorite ? 'Remove from favorites' : 'Mark as favorite'}
+                >
+                  <Icon name={isFavorite ? 'starFilled' : 'star'} size={18} />
+                </button>
+              )}
               <button
                 type="button"
                 className={`btn ${isSaved ? 'btn--filled' : 'btn--tonal'}`}
@@ -313,7 +337,11 @@ export function ChannelPage({
                   label="Copy link"
                   onSelect={() => {
                     setOptionsAnchor(null)
-                    copyLink(channelUrl(channelId))
+                    copyLink(
+                      channelUrl(
+                        info?.handle ? `@${info.handle.replace(/^@/, '')}` : canonicalId
+                      )
+                    )
                   }}
                 />
               </Menu>
@@ -353,6 +381,7 @@ export function ChannelPage({
               <Icon name="sort" size={16} />
               {SORTS.find((s) => s.id === sort)?.label}
             </button>
+            <ViewModeToggle value={viewMode} onChange={setViewMode} />
           </>
         )}
       </div>
@@ -370,14 +399,45 @@ export function ChannelPage({
             </div>
           )}
           {videos.items.length > 0 && (
-            <div key={`video-grid-${sort}`} className="video-grid animate-fade-up">
-              {videos.items.map((video, index) => (
-                <VideoCard
-                  key={`${video.videoId}-${index}`}
-                  video={video}
-                />
-              ))}
-            </div>
+            viewMode === 'grid' ? (
+              <div key={`video-grid-${sort}`} className="video-grid animate-fade-up">
+                {videos.items.map((video, index) => {
+                  const enrichedVideo = enrichVideoWithHistory(video, history)
+                  return (
+                    <VideoCard
+                      key={`${video.videoId}-${index}`}
+                      video={enrichedVideo}
+                    />
+                  )
+                })}
+              </div>
+            ) : (
+              <ul key={`video-list-${sort}`} className="list animate-fade-up">
+                {videos.items.map((video, index) => {
+                  const enrichedVideo = enrichVideoWithHistory(video, history)
+                  return (
+                    <ListRow
+                      key={`${video.videoId}-${index}`}
+                      to={`#/watch/${video.videoId}`}
+                      videoId={video.videoId}
+                      thumbnail={enrichedVideo.thumbnail}
+                      title={enrichedVideo.title}
+                      duration={enrichedVideo.duration}
+                      isPremiere={enrichedVideo.isPremiere}
+                      isLive={enrichedVideo.isLive}
+                      actions={<VideoOptions video={enrichedVideo} label="Video options" />}
+                    >
+                      <div className="list-row__stats">
+                        {[
+                          enrichedVideo.viewCount != null ? `${formatCount(enrichedVideo.viewCount)} views` : null,
+                          formatVideoPublished(enrichedVideo)
+                        ].filter(Boolean).join(' · ')}
+                      </div>
+                    </ListRow>
+                  )
+                })}
+              </ul>
+            )
           )}
           <div ref={sentinelRef} />
           {videos.loading && videos.items.length > 0 && <Loader />}
@@ -528,7 +588,7 @@ export function ChannelPage({
 
       {bookmarkModalOpen && info && (
         <BookmarkChannelDialog
-          channelId={channelId}
+          channelId={savedChannel?.channelId || canonicalId}
           title={info.name}
           handle={info.handle}
           avatar={info.avatar}

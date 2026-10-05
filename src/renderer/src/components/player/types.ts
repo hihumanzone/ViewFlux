@@ -98,6 +98,8 @@ export interface PlayerProps {
   author?: string
   /** Optional pointer-down handler for dragging the miniplayer window */
   onMiniHeaderPointerDown?: (event: React.PointerEvent<HTMLDivElement>) => void
+  /** Optional pointer-down handler for resizing the miniplayer window */
+  onMiniResizePointerDown?: (event: React.PointerEvent<HTMLDivElement>) => void
 }
 
 /**

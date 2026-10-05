@@ -116,6 +116,34 @@ export class VideoService {
       ) || null
     const chapters = this.extractChapters(info, duration, description)
 
+    const publishDate = info.primary_info?.published ? text(info.primary_info.published) || null : null
+    const relativeDate = info.primary_info?.relative_date ? text(info.primary_info.relative_date) || null : null
+    const isLive = Boolean(basic.is_live)
+    const isPremiere = Boolean(
+      (basic as any).is_premiere ||
+      /premiere/i.test(publishDate ?? '') ||
+      /premiere/i.test(relativeDate ?? '')
+    )
+    const isStreamed = Boolean(
+      !isLive && (
+        /streamed/i.test(publishDate ?? '') ||
+        /streamed/i.test(relativeDate ?? '') ||
+        Boolean((basic as any).start_timestamp)
+      )
+    )
+    let publishTimestamp: number | null = null
+    const rawStart = (basic as any).start_timestamp
+    if (rawStart) {
+      const p = Date.parse(rawStart)
+      if (!Number.isNaN(p)) publishTimestamp = p
+    } else if (publishDate) {
+      const m = publishDate.match(/([A-Za-z]+ \d{1,2}, \d{4}|\d{4}-\d{2}-\d{2})/)
+      if (m) {
+        const p = Date.parse(m[1])
+        if (!Number.isNaN(p)) publishTimestamp = p
+      }
+    }
+
     return {
       videoId: basic.id ?? videoId,
       title: basic.title ?? '',
@@ -125,10 +153,14 @@ export class VideoService {
       duration,
       viewCount: basic.view_count ?? null,
       likeCount: basic.like_count ?? null,
-      publishDate: info.primary_info?.published ? text(info.primary_info.published) || null : null,
+      publishDate,
+      relativeDate,
+      publishTimestamp,
       description,
       thumbnails: thumbs,
-      isLive: Boolean(basic.is_live),
+      isLive,
+      isPremiere,
+      isStreamed,
       playable,
       reason: playable ? null : (status?.reason ?? 'This video is not available'),
       manifestUrl: playable && this.proxyBase ? `${this.proxyBase}/manifest?id=${videoId}` : null,

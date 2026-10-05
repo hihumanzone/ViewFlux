@@ -4,6 +4,8 @@ import { Dialog } from '../components/Dialog'
 import { EmptyState } from '../components/EmptyState'
 import { Menu, MenuItem } from '../components/Menu'
 import { OverflowButton } from '../components/OverflowButton'
+import { ViewModeToggle } from '../components/ViewModeToggle'
+import { useViewMode } from '../lib/useViewMode'
 import { navigate } from '../lib/router'
 import { useCopyLink, playlistUrl } from '../lib/copyLink'
 import { activationProps } from '../lib/keyboard'
@@ -14,6 +16,7 @@ const isYouTube = (playlist: Playlist): boolean => playlist.kind === 'youtube'
 
 export function PlaylistsPage(): React.JSX.Element {
   const { playlists, refreshPlaylists, confirm, toast } = useApp()
+  const [viewMode, setViewMode] = useViewMode('playlists')
   const copyLink = useCopyLink()
   const [dialog, setDialog] = useState<{ mode: 'create' } | { mode: 'rename'; playlist: Playlist } | null>(
     null
@@ -73,6 +76,7 @@ export function PlaylistsPage(): React.JSX.Element {
             <Icon name="add" size={18} />
             New playlist
           </button>
+          <ViewModeToggle value={viewMode} onChange={setViewMode} />
         </div>
       </div>
 
@@ -83,7 +87,7 @@ export function PlaylistsPage(): React.JSX.Element {
           message="Create a playlist, then use the save option on any video — or save a YouTube playlist from its page."
         />
       ) : (
-        <div className="playlist-grid animate-fade-up">
+        <div className={`playlist-grid${viewMode === 'list' ? ' playlist-grid--list' : ''} animate-fade-up`}>
           {playlists.map((playlist) => {
             const youtube = isYouTube(playlist)
             const active = menu?.playlist.id === playlist.id
@@ -109,14 +113,18 @@ export function PlaylistsPage(): React.JSX.Element {
                     </div>
                   )}
 
-                  <span className={`playlist-card__kind${youtube ? '' : ' playlist-card__kind--local'}`}>
-                    {youtube ? 'YouTube' : 'Local'}
-                  </span>
+                  {viewMode === 'grid' && (
+                    <>
+                      <span className={`playlist-card__kind${youtube ? '' : ' playlist-card__kind--local'}`}>
+                        {youtube ? 'YouTube' : 'Local'}
+                      </span>
 
-                  <span className="playlist-card__count-badge">
-                    <Icon name="playlist" size={13} />
-                    <span>{countText}</span>
-                  </span>
+                      <span className="playlist-card__count-badge">
+                        <Icon name="playlist" size={13} />
+                        <span>{countText}</span>
+                      </span>
+                    </>
+                  )}
                 </div>
 
                 <div className="playlist-card__body">
@@ -134,6 +142,22 @@ export function PlaylistsPage(): React.JSX.Element {
                       }
                     />
                   </div>
+                  {viewMode === 'list' && (
+                    <div className="playlist-card__meta">
+                      <span
+                        className={`playlist-card__kind-badge${
+                          youtube ? ' playlist-card__kind-badge--youtube' : ' playlist-card__kind-badge--local'
+                        }`}
+                      >
+                        {youtube ? 'YouTube' : 'Local'}
+                      </span>
+                      <span className="playlist-card__meta-sep" aria-hidden="true">•</span>
+                      <span className="playlist-card__count-text">
+                        <Icon name="playlist" size={13} />
+                        <span>{countText}</span>
+                      </span>
+                    </div>
+                  )}
                 </div>
 
                 <Menu

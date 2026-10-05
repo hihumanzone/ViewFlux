@@ -3,11 +3,17 @@ import { VideoCard } from '../components/VideoCard'
 import { ChannelCard, PlaylistCard } from '../components/ResultCards'
 import { EmptyState, Loader } from '../components/EmptyState'
 import { Icon } from '../components/Icons'
+import { ListRow } from '../components/ListRow'
+import { ChannelLine } from '../components/ChannelLine'
+import { VideoOptions } from '../components/VideoOptions'
+import { ViewModeToggle } from '../components/ViewModeToggle'
+import { useViewMode } from '../lib/useViewMode'
 import { navigate, searchRoute } from '../lib/router'
 import { resolveYouTubeUrl } from '../lib/youtubeUrl'
 import { useApp } from '../state/AppContext'
-import { formatRelative } from '../lib/format'
+import { formatCount, formatRelative, formatVideoPublished } from '../lib/format'
 import { scrollPageToTop } from '../lib/scroll'
+import { enrichVideoWithHistory } from '../lib/enrich'
 import type { SearchFilter, SearchItem, VideoSummary } from '../../../shared/types'
 
 const FILTERS: { id: SearchFilter; label: string; icon: 'search' | 'play' | 'person' | 'playlist' | 'music_note' }[] = [
@@ -34,8 +40,10 @@ export function SearchPage({
     confirm,
     isYoutubePlaylistSaved,
     saveYoutubePlaylistSummary,
-    removeYoutubePlaylist
+    removeYoutubePlaylist,
+    history
   } = useApp()
+  const [viewMode, setViewMode] = useViewMode('search')
   const [input, setInput] = useState(query)
   const [suggestions, setSuggestions] = useState<string[]>([])
   const [showSuggestions, setShowSuggestions] = useState(false)
@@ -236,7 +244,8 @@ export function SearchPage({
 
   const renderItem = (item: SearchItem, index: number): React.JSX.Element => {
     if (item.type === 'video') {
-      const video = item as VideoSummary & { type: 'video' }
+      const rawVideo = item as VideoSummary & { type: 'video' }
+      const video = enrichVideoWithHistory(rawVideo, history)
       return (
         <VideoCard
           key={`v-${video.videoId}-${index}`}
@@ -245,7 +254,7 @@ export function SearchPage({
       )
     }
     if (item.type === 'channel') {
-      return <ChannelCard key={`c-${item.id}-${index}`} channel={item} />
+      return <ChannelCard key={`c-${item.id}-${index}`} channel={item} viewMode="grid" />
     }
     return (
       <PlaylistCard
@@ -257,6 +266,55 @@ export function SearchPage({
         onSave={() => void saveYoutubePlaylistSummary(item)}
         onRemove={(target) => void removeYoutubePlaylist(target.id)}
       />
+    )
+  }
+
+  const renderListItem = (item: SearchItem, index: number): React.JSX.Element => {
+    if (item.type === 'video') {
+      const rawVideo = item as VideoSummary & { type: 'video' }
+      const video = enrichVideoWithHistory(rawVideo, history)
+      return (
+        <ListRow
+          key={`v-${video.videoId}-${index}`}
+          to={`#/watch/${video.videoId}`}
+          videoId={video.videoId}
+          thumbnail={video.thumbnail}
+          title={video.title}
+          duration={video.duration}
+          isLive={video.isLive}
+          isPremiere={video.isPremiere}
+          actions={<VideoOptions video={video} label="Video options" />}
+        >
+          <ChannelLine
+            name={video.author}
+            channelId={video.authorId}
+            avatar={video.authorAvatar}
+          />
+          <div className="list-row__stats">
+            {[
+              video.viewCount != null ? `${formatCount(video.viewCount)} views` : null,
+              formatVideoPublished(video)
+            ].filter(Boolean).join(' · ')}
+          </div>
+        </ListRow>
+      )
+    }
+    if (item.type === 'channel') {
+      return (
+        <li key={`c-${item.id}-${index}`} style={{ listStyle: 'none' }}>
+          <ChannelCard channel={item} viewMode="list" />
+        </li>
+      )
+    }
+    return (
+      <li key={`p-${item.id}-${index}`} style={{ listStyle: 'none' }}>
+        <PlaylistCard
+          playlist={item}
+          saved={isYoutubePlaylistSaved(item.id)}
+          onSave={() => void saveYoutubePlaylistSummary(item)}
+          onRemove={(target) => void removeYoutubePlaylist(target.id)}
+        />
+      </li>
     )
   }
 
@@ -347,19 +405,22 @@ export function SearchPage({
         </form>
 
         {query && (
-          <div className="filter-chips" role="tablist" aria-label="Search filters">
-            {FILTERS.map((f) => (
-              <button
-                key={f.id}
-                role="tab"
-                aria-selected={filter === f.id}
-                className={`filter-chip${filter === f.id ? ' filter-chip--active' : ''}`}
-                onClick={() => goFilter(f.id)}
-              >
-                <Icon name={f.icon} size={16} />
-                {f.label}
-              </button>
-            ))}
+          <div className="search-header__filter-row">
+            <div className="filter-chips" role="tablist" aria-label="Search filters">
+              {FILTERS.map((f) => (
+                <button
+                  key={f.id}
+                  role="tab"
+                  aria-selected={filter === f.id}
+                  className={`filter-chip${filter === f.id ? ' filter-chip--active' : ''}`}
+                  onClick={() => goFilter(f.id)}
+                >
+                  <Icon name={f.icon} size={16} />
+                  {f.label}
+                </button>
+              ))}
+            </div>
+            <ViewModeToggle value={viewMode} onChange={setViewMode} />
           </div>
         )}
       </div>
@@ -439,9 +500,15 @@ export function SearchPage({
 
       {results.length > 0 && (
         <div key={`${query}|${filter}`} className="search-results-wrap animate-fade-up">
-          <div className="video-grid">
-            {results.map((item, index) => renderItem(item, index))}
-          </div>
+          {viewMode === 'grid' ? (
+            <div className="video-grid">
+              {results.map((item, index) => renderItem(item, index))}
+            </div>
+          ) : (
+            <ul className="list animate-fade-up">
+              {results.map((item, index) => renderListItem(item, index))}
+            </ul>
+          )}
           <div ref={sentinelRef} />
           {loadingMore && <Loader />}
         </div>

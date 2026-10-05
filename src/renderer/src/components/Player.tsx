@@ -681,6 +681,7 @@ export const Player = forwardRef<PlayerHandle, PlayerProps>(function Player(
               onExpand={onExpand}
               onClose={onClose}
               onHeaderPointerDown={props.onMiniHeaderPointerDown}
+              onResizePointerDown={props.onMiniResizePointerDown}
             />
           ) : (
             <>

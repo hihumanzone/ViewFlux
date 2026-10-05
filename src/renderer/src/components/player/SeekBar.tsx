@@ -1,4 +1,4 @@
-import { memo, useMemo, useRef, useState } from 'react'
+import { memo, useEffect, useMemo, useRef, useState } from 'react'
 import { formatTime as fmt } from '../../lib/format'
 import { SponsorLayer } from './SponsorLayer'
 import { clamp, clamp01, type Chapter, type LiveWindow, type SponsorSegment } from './types'
@@ -39,7 +39,21 @@ export const SeekBar = memo(function SeekBar({
   const [scrubTime, setScrubTime] = useState(0)
   const [seekTarget, setSeekTarget] = useState<number | null>(null)
   const [hoverFraction, setHoverFraction] = useState<number | null>(null)
+  const [hoverX, setHoverX] = useState<number | null>(null)
+  const [barWidth, setBarWidth] = useState<number | null>(null)
+  const [tooltipWidth, setTooltipWidth] = useState<number>(100)
+  const tooltipRef = useRef<HTMLDivElement>(null)
   const scrubTimeRef = useRef(0)
+
+  // Measure tooltip width whenever it renders or chapter title changes
+  useEffect(() => {
+    if (tooltipRef.current) {
+      const w = tooltipRef.current.offsetWidth
+      if (w > 0 && w !== tooltipWidth) {
+        setTooltipWidth(w)
+      }
+    }
+  })
 
   // VOD scrubs [0, duration]; live scrubs the DVR window, whose `start` slides
   // forward as the broadcast continues. Everything below is expressed relative
@@ -77,7 +91,10 @@ export const SeekBar = memo(function SeekBar({
     if (scrubbing) {
       updateScrub(event)
     } else if (hasRange) {
-      setHoverFraction(fractionFromEvent(event))
+      const rect = event.currentTarget.getBoundingClientRect()
+      setHoverFraction(clamp01((event.clientX - rect.left) / rect.width))
+      setHoverX(event.clientX - rect.left)
+      setBarWidth(rect.width)
     }
   }
 
@@ -92,7 +109,10 @@ export const SeekBar = memo(function SeekBar({
   }
 
   const onPointerLeave = (): void => {
-    if (!scrubbing) setHoverFraction(null)
+    if (!scrubbing) {
+      setHoverFraction(null)
+      setHoverX(null)
+    }
   }
 
   const onSeekKeyDown = (event: React.KeyboardEvent<HTMLDivElement>): void => {
@@ -160,6 +180,20 @@ export const SeekBar = memo(function SeekBar({
     return chapters.find((c) => hoverTime >= c.start && hoverTime < c.end) ?? null
   }, [hoverTime, hasChapters, chapters])
 
+  const tooltipStyle = useMemo(() => {
+    if (hoverX == null || barWidth == null) return undefined
+    const tw = tooltipWidth || 100
+    const pad = 8
+    const minLeft = pad
+    const maxLeft = Math.max(pad, barWidth - tw - pad)
+    const idealLeft = hoverX - tw / 2
+    const clampedLeft = Math.max(minLeft, Math.min(maxLeft, idealLeft))
+    return {
+      left: `${clampedLeft}px`,
+      transform: 'none'
+    }
+  }, [hoverX, barWidth, tooltipWidth])
+
   const ariaValue = live
     ? {
         // Relative to the window start, so the values mean something to a
@@ -197,8 +231,9 @@ export const SeekBar = memo(function SeekBar({
       {/* Floating Hover Time Preview Tooltip */}
       {hoverPct != null && hoverTime != null && !scrubbing && (
         <div
+          ref={tooltipRef}
           className="seek__tooltip"
-          style={{ left: `${hoverPct}%` }}
+          style={tooltipStyle ?? { left: `${hoverPct}%` }}
           aria-hidden="true"
         >
           {live ? (

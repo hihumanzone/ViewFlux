@@ -1505,34 +1505,44 @@
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  padding: 6px 12px;
+  padding: 6px 14px;
   border-radius: var(--r-full);
-  background: color-mix(in srgb, var(--surface-4) 92%, #000);
-  color: var(--on-surface);
-  border: 1px solid color-mix(in srgb, var(--outline) 40%, transparent);
-  box-shadow: 0 4px 16px rgb(0 0 0 / 0.5), 0 1px 3px rgb(0 0 0 / 0.3);
-  backdrop-filter: blur(12px);
+  background: #1e232d;
+  color: #f1f3f9;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.65), 0 1px 3px rgba(0, 0, 0, 0.4);
   font-size: 12px;
   font-weight: 600;
   cursor: pointer;
   user-select: none;
   animation: modal-enter var(--t-fast) var(--ease-spring);
-  transition: transform var(--t-fast) var(--ease-out), background var(--t-fast) var(--ease-out), color var(--t-fast) var(--ease-out);
+  transition: transform var(--t-fast) var(--ease-out), background var(--t-fast) var(--ease-out), border-color var(--t-fast) var(--ease-out), color var(--t-fast) var(--ease-out);
 }
 
 .selection-copy-pill:hover {
-  background: var(--surface-5);
+  background: #2d3545;
+  color: #ffffff;
+  border-color: rgba(255, 255, 255, 0.4);
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.75), 0 2px 6px rgba(0, 0, 0, 0.5);
   transform: translateY(-1px) scale(1.04);
 }
 
 .selection-copy-pill:active {
+  background: #161b24;
   transform: translateY(0) scale(0.96);
 }
 
 .selection-copy-pill--copied {
-  background: var(--primary-container);
-  color: var(--on-primary-container);
-  border-color: color-mix(in srgb, var(--primary) 50%, transparent);
+  background: var(--primary-container, #4f378b);
+  color: #ffffff;
+  border-color: rgba(208, 188, 255, 0.4);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.65), 0 0 12px rgba(208, 188, 255, 0.25);
+}
+
+.selection-copy-pill--copied:hover {
+  background: color-mix(in srgb, var(--primary-container, #4f378b) 85%, #fff);
+  color: #ffffff;
+  border-color: rgba(208, 188, 255, 0.55);
 }
 
 /* ============================================================
@@ -1560,8 +1570,7 @@
 }
 
 .miniplayer__controls--visible,
-.watch__player--mini:hover .miniplayer__controls,
-.watch__player--mini:focus-within .miniplayer__controls {
+.watch__player--mini:hover .miniplayer__controls {
   opacity: 1;
   pointer-events: auto;
 }
@@ -1577,8 +1586,10 @@
   pointer-events: auto;
 }
 
-.miniplayer__header:active {
-  cursor: grabbing;
+.miniplayer__header:active,
+.miniplayer--dragging .miniplayer__header,
+.miniplayer--dragging .miniplayer__info {
+  cursor: grabbing !important;
 }
 
 .miniplayer__info {
@@ -1586,9 +1597,49 @@
   flex-direction: column;
   min-width: 0;
   flex: 1;
-  cursor: pointer;
+  cursor: grab;
   text-decoration: none;
   padding-right: 4px;
+}
+
+.miniplayer__info:active {
+  cursor: grabbing;
+}
+
+/* Corner resize handle for miniplayer */
+.miniplayer__resize-handle {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 20px;
+  height: 20px;
+  cursor: nwse-resize;
+  z-index: 60;
+  user-select: none;
+  touch-action: none;
+}
+
+.miniplayer__resize-handle::before {
+  content: '';
+  position: absolute;
+  top: 4px;
+  left: 4px;
+  width: 8px;
+  height: 8px;
+  border-top: 2px solid rgba(255, 255, 255, 0.7);
+  border-left: 2px solid rgba(255, 255, 255, 0.7);
+  border-top-left-radius: 3px;
+  opacity: 0;
+  transition: opacity var(--t-fast) var(--ease-out);
+}
+
+.watch__player--mini:hover .miniplayer__resize-handle::before {
+  opacity: 1;
+}
+
+.miniplayer__resize-handle:hover::before {
+  border-color: var(--primary, #388bfd);
+  opacity: 1;
 }
 
 .miniplayer__title {
@@ -1774,6 +1825,11 @@
   z-index: 15;
 }
 
+.watch__player--mini:hover .miniplayer__slim-progress,
+.miniplayer__controls--visible .miniplayer__slim-progress {
+  display: none !important;
+}
+
 .miniplayer__slim-progress-fill {
   height: 100%;
   background: var(--primary);
@@ -1782,6 +1838,7 @@
 
 .miniplayer__loading,
 .miniplayer__error {
+  position: relative;
   display: flex;
   align-items: center;
   justify-content: center;

@@ -4,13 +4,17 @@ import { ChannelLine } from '../components/ChannelLine'
 import { InlineSearch } from '../components/InlineSearch'
 import { EmptyState } from '../components/EmptyState'
 import { ListRow } from '../components/ListRow'
+import { VideoCard } from '../components/VideoCard'
 import { VideoOptions } from '../components/VideoOptions'
-import { formatDuration, formatRelative } from '../lib/format'
+import { ViewModeToggle } from '../components/ViewModeToggle'
+import { useViewMode } from '../lib/useViewMode'
+import { formatCount, formatDuration, formatRelative, formatVideoPublished } from '../lib/format'
 import { useApp } from '../state/AppContext'
 
 export function HistoryPage(): React.JSX.Element {
   const { history, settings, refreshHistory, confirm, toast } = useApp()
   const [searchQuery, setSearchQuery] = useState('')
+  const [viewMode, setViewMode] = useViewMode('history')
 
   useEffect(() => {
     void refreshHistory()
@@ -60,6 +64,7 @@ export function HistoryPage(): React.JSX.Element {
               placeholder="Search history by title or channel..."
               ariaLabel="Search watch history"
             />
+            <ViewModeToggle value={viewMode} onChange={setViewMode} />
             <button className="btn btn--tonal" onClick={() => void clear()}>
               <Icon name="delete" size={18} />
               Clear all
@@ -102,67 +107,101 @@ export function HistoryPage(): React.JSX.Element {
               Showing {filteredHistory.length} of {history.length} watched videos
             </div>
           )}
-          <ul key={searchQuery ? 'filtered' : 'all'} className="list animate-fade-up">
-            {filteredHistory.map((entry, index) => {
-            const hasDuration = entry.duration != null && entry.duration > 0
-            const pct = hasDuration
-              ? Math.min(100, Math.max(0, (entry.position / entry.duration!) * 100))
-              : 0
-            const hasProgress = hasDuration && entry.position > 0 && pct > 0
+          {viewMode === 'grid' ? (
+            <div key={searchQuery ? 'filtered-grid' : 'all-grid'} className="video-grid animate-fade-up">
+              {filteredHistory.map((entry) => {
+                const hasDuration = entry.duration != null && entry.duration > 0
+                const pct = hasDuration && entry.position > 0 ? entry.position / entry.duration! : undefined
+                return (
+                  <VideoCard
+                    key={entry.videoId}
+                    video={{
+                      videoId: entry.videoId,
+                      title: entry.title,
+                      author: entry.author,
+                      thumbnail: entry.thumbnail,
+                      duration: entry.duration,
+                      authorId: entry.authorId ?? null,
+                      authorAvatar: entry.authorAvatar ?? null,
+                      viewCount: entry.viewCount ?? null,
+                      published: entry.published ?? null,
+                      publishTimestamp: entry.publishTimestamp ?? null,
+                      isPremiere: entry.isPremiere,
+                      isStreamed: entry.isStreamed,
+                      isLive: Boolean(entry.isLive)
+                    }}
+                    progress={pct}
+                  />
+                )
+              })}
+            </div>
+          ) : (
+            <ul key={searchQuery ? 'filtered' : 'all'} className="list animate-fade-up">
+              {filteredHistory.map((entry, index) => {
+                const hasDuration = entry.duration != null && entry.duration > 0
+                const pct = hasDuration
+                  ? Math.min(100, Math.max(0, (entry.position / entry.duration!) * 100))
+                  : 0
+                const hasProgress = hasDuration && entry.position > 0 && pct > 0
 
-            return (
-              <ListRow
-                key={`${entry.videoId}-${index}`}
-                to={`#/watch/${entry.videoId}`}
-                videoId={entry.videoId}
-                thumbnail={entry.thumbnail}
-                title={entry.title}
-                duration={entry.duration}
-                hasProgress={hasProgress}
-                thumbnailOverlay={
-                  hasProgress ? (
-                    <div
-                      className="video-card__progress"
-                      title={`Watched ${Math.round(pct)}% · Resumes at ${formatDuration(entry.position)}`}
-                    >
-                      <i style={{ width: `${pct}%` }} />
+                return (
+                  <ListRow
+                    key={`${entry.videoId}-${index}`}
+                    to={`#/watch/${entry.videoId}`}
+                    videoId={entry.videoId}
+                    thumbnail={entry.thumbnail}
+                    title={entry.title}
+                    duration={entry.duration}
+                    isPremiere={entry.isPremiere}
+                    isLive={Boolean(entry.isLive)}
+                    hasProgress={hasProgress}
+                    thumbnailOverlay={
+                      hasProgress ? (
+                        <div
+                          className="video-card__progress"
+                          title={`Watched ${Math.round(pct)}% · Resumes at ${formatDuration(entry.position)}`}
+                        >
+                          <i style={{ width: `${pct}%` }} />
+                        </div>
+                      ) : null
+                    }
+                    actions={
+                      <>
+                        <VideoOptions video={entry} label="Video options" />
+                        <button
+                          className="icon-btn icon-btn--sm"
+                          aria-label={`Remove "${entry.title}" from history`}
+                          onClick={() => void remove(entry.videoId)}
+                        >
+                          <Icon name="close" size={18} />
+                        </button>
+                      </>
+                    }
+                  >
+                    <ChannelLine
+                      name={entry.author}
+                      channelId={entry.authorId ?? null}
+                      avatar={entry.authorAvatar ?? null}
+                    />
+                    <div className="list-row__meta">
+                      {entry.viewCount != null && <span>{formatCount(entry.viewCount)} views</span>}
+                      {formatVideoPublished(entry) && <span>{formatVideoPublished(entry)}</span>}
+                      <span>Watched {formatRelative(entry.watchedAt)}</span>
+                      {entry.position > 0 && hasDuration && (
+                        <span
+                          className="list-row__resume-pill"
+                          title={`Playback resumes at ${formatDuration(entry.position)}`}
+                        >
+                          <Icon name="history" size={13} />
+                          Resume at {formatDuration(entry.position)} ({Math.round(pct)}%)
+                        </span>
+                      )}
                     </div>
-                  ) : null
-                }
-                actions={
-                  <>
-                    <VideoOptions video={entry} label="Video options" />
-                    <button
-                      className="icon-btn icon-btn--sm"
-                      aria-label={`Remove "${entry.title}" from history`}
-                      onClick={() => void remove(entry.videoId)}
-                    >
-                      <Icon name="close" size={18} />
-                    </button>
-                  </>
-                }
-              >
-                <ChannelLine
-                  name={entry.author}
-                  channelId={entry.authorId ?? null}
-                  avatar={entry.authorAvatar ?? null}
-                />
-                <div className="list-row__meta">
-                  <span>Watched {formatRelative(entry.watchedAt)}</span>
-                  {entry.position > 0 && hasDuration && (
-                    <span
-                      className="list-row__resume-pill"
-                      title={`Playback resumes at ${formatDuration(entry.position)}`}
-                    >
-                      <Icon name="history" size={13} />
-                      Resume at {formatDuration(entry.position)} ({Math.round(pct)}%)
-                    </span>
-                  )}
-                </div>
-              </ListRow>
-            )
-          })}
-          </ul>
+                  </ListRow>
+                )
+              })}
+            </ul>
+          )}
         </div>
       )}
     </div>

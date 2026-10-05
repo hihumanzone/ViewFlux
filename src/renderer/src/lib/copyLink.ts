@@ -16,6 +16,7 @@ export function playlistUrl(id: string): string {
 }
 
 export function channelUrl(id: string): string {
+  if (id.startsWith('@')) return `https://www.youtube.com/${id}`
   return `https://www.youtube.com/channel/${id}`
 }
 

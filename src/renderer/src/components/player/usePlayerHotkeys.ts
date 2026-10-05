@@ -93,7 +93,7 @@ export function usePlayerHotkeys({
           break
         case 'ArrowLeft':
           event.preventDefault()
-          if (event.ctrlKey && chapters.length > 0) {
+          if ((event.ctrlKey || event.metaKey) && chapters.length > 0) {
             onPreviousChapter()
           } else {
             onSeekBy(-5)
@@ -101,7 +101,7 @@ export function usePlayerHotkeys({
           break
         case 'ArrowRight':
           event.preventDefault()
-          if (event.ctrlKey && chapters.length > 0) {
+          if ((event.ctrlKey || event.metaKey) && chapters.length > 0) {
             onNextChapter()
           } else {
             onSeekBy(5)

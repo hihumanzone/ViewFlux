@@ -2,18 +2,32 @@ import { useEffect, useRef, useState } from 'react'
 import { VideoCard } from '../components/VideoCard'
 import { EmptyState, Loader } from '../components/EmptyState'
 import { Icon } from '../components/Icons'
+import { ListRow } from '../components/ListRow'
+import { ChannelLine } from '../components/ChannelLine'
+import { VideoOptions } from '../components/VideoOptions'
+import { ViewModeToggle } from '../components/ViewModeToggle'
+import { useViewMode } from '../lib/useViewMode'
+import { formatCount, formatVideoPublished } from '../lib/format'
 import { navigate } from '../lib/router'
 import { useRemotePlaylist } from '../lib/useRemotePlaylist'
 import { useCopyLink, playlistUrl } from '../lib/copyLink'
 import { toPlaylistVideo } from '../lib/map'
+import { enrichVideoWithHistory } from '../lib/enrich'
 import { useApp } from '../state/AppContext'
 
 /** A public YouTube playlist opened straight from search, without saving it. */
 export function RemotePlaylistPage({ playlistId }: { playlistId: string }): React.JSX.Element {
   const { playlist, items, loading, loadingMore, error, loadMore } = useRemotePlaylist(playlistId)
-  const { saveYoutubePlaylist, isYoutubePlaylistSaved, removeYoutubePlaylist, refreshPlaylists, toast } =
-    useApp()
+  const {
+    saveYoutubePlaylist,
+    isYoutubePlaylistSaved,
+    removeYoutubePlaylist,
+    refreshPlaylists,
+    toast,
+    history
+  } = useApp()
   const copyLink = useCopyLink()
+  const [viewMode, setViewMode] = useViewMode('remote-playlist')
   const [saving, setSaving] = useState(false)
   const [copying, setCopying] = useState(false)
 
@@ -70,7 +84,7 @@ export function RemotePlaylistPage({ playlistId }: { playlistId: string }): Reac
     try {
       const local = await window.api.createPlaylist(`${playlist.title} (copy)`)
       for (const video of items) {
-        await window.api.addToPlaylist(local.id, toPlaylistVideo(video))
+        await window.api.addToPlaylist(local.id, toPlaylistVideo(enrichVideoWithHistory(video, history)))
       }
       await refreshPlaylists()
       toast(`Saved “${playlist.title}” as a local copy`)
@@ -156,19 +170,62 @@ export function RemotePlaylistPage({ playlistId }: { playlistId: string }): Reac
               <Icon name="download" size={18} />
               Save as local copy
             </button>
+            <ViewModeToggle value={viewMode} onChange={setViewMode} className="ytpl-header__view-mode" />
           </div>
         </div>
       </header>
 
       {items.length === 0 ? (
         <EmptyState icon="playlist" title="This playlist is empty" />
-      ) : (
+      ) : viewMode === 'grid' ? (
         <>
           <div key={playlist.id} className="video-grid animate-fade-up">
-            {items.map((video, index) => (
-              <VideoCard key={`${video.videoId}-${index}`} video={video} />
-            ))}
+            {items.map((video, index) => {
+              const enrichedVideo = enrichVideoWithHistory(video, history)
+              return (
+                <VideoCard
+                  key={`${video.videoId}-${index}`}
+                  video={enrichedVideo}
+                  to={`#/watch/${video.videoId}?list=yt:${playlist.id}`}
+                />
+              )
+            })}
           </div>
+          <div ref={sentinelRef} />
+          {loadingMore && <Loader label="Loading more…" />}
+        </>
+      ) : (
+        <>
+          <ul key={playlist.id} className="list animate-fade-up">
+            {items.map((video, index) => {
+              const enrichedVideo = enrichVideoWithHistory(video, history)
+              return (
+                <ListRow
+                  key={`${video.videoId}-${index}`}
+                  to={`#/watch/${video.videoId}?list=yt:${playlist.id}`}
+                  videoId={video.videoId}
+                  thumbnail={enrichedVideo.thumbnail}
+                  title={enrichedVideo.title}
+                  duration={enrichedVideo.duration}
+                  isPremiere={enrichedVideo.isPremiere}
+                  isLive={enrichedVideo.isLive}
+                  actions={<VideoOptions video={enrichedVideo} label="Video options" />}
+                >
+                  <ChannelLine
+                    name={enrichedVideo.author}
+                    channelId={enrichedVideo.authorId}
+                    avatar={enrichedVideo.authorAvatar}
+                  />
+                  <div className="list-row__stats">
+                    {[
+                      enrichedVideo.viewCount != null ? `${formatCount(enrichedVideo.viewCount)} views` : null,
+                      formatVideoPublished(enrichedVideo)
+                    ].filter(Boolean).join(' · ')}
+                  </div>
+                </ListRow>
+              )
+            })}
+          </ul>
           <div ref={sentinelRef} />
           {loadingMore && <Loader label="Loading more…" />}
         </>

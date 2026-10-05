@@ -13,6 +13,10 @@ export interface ListRowProps {
   /** Rendered under the title — channel line, stats, resume pill. */
   children?: ReactNode
   duration?: number | null
+  /** Live broadcast badge. */
+  isLive?: boolean
+  /** Upcoming or past premiere badge. */
+  isPremiere?: boolean
   /**
    * Nudges the duration badge clear of a progress bar drawn along the bottom
    * edge of the thumbnail.
@@ -41,6 +45,8 @@ export const ListRow = memo(function ListRow({
   videoId,
   children,
   duration = null,
+  isLive,
+  isPremiere,
   hasProgress,
   thumbnailOverlay,
   actions
@@ -94,12 +100,24 @@ export const ListRow = memo(function ListRow({
     navigate(to)
   }
 
+  const isEndedPremiere =
+    Boolean(isPremiere) && !isLive && duration != null && duration > 0
+
   return (
     <li className="list-row" onClick={onRowClick}>
       <div className="list-row__thumb-wrap">
         <img className="list-row__thumb" src={thumbnail} alt="" loading="lazy" />
+        {isEndedPremiere && (
+          <div className="video-card__top-badge">
+            <span className="badge badge--premiere">Premiere</span>
+          </div>
+        )}
         {effectiveOverlay}
-        {hasDuration && (
+        {isLive ? (
+          <span className="badge badge--live">LIVE</span>
+        ) : isPremiere && !isEndedPremiere ? (
+          <span className="badge badge--premiere">PREMIERE</span>
+        ) : hasDuration ? (
           <span
             className={
               effectiveHasProgress
@@ -109,7 +127,7 @@ export const ListRow = memo(function ListRow({
           >
             {formatDuration(duration)}
           </span>
-        )}
+        ) : null}
       </div>
       <div className="list-row__body">
         <a className="list-row__title" {...routeLinkProps(to)}>

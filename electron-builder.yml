@@ -46,5 +46,45 @@ nsis:
   installerIcon: build/icon.ico
   uninstallerIcon: build/icon.ico
 
+mac:
+  executableName: ViewFlux
+  category: public.app-category.video
+  icon: build/icon.png
+  target:
+    - target: dmg
+      arch:
+        - x64
+        - arm64
+    - target: zip
+      arch:
+        - x64
+        - arm64
+  artifactName: ViewFlux-mac-${version}-${arch}.${ext}
+  hardenedRuntime: true
+  gatekeeperAssess: false
+
+dmg:
+  backgroundColor: '#0f0d13'
+  contents:
+    - x: 130
+      y: 220
+    - x: 410
+      y: 220
+      type: link
+      path: /Applications
+
+linux:
+  executableName: viewflux
+  category: AudioVideo
+  icon: build/icon.png
+  target:
+    - target: AppImage
+      arch:
+        - x64
+    - target: deb
+      arch:
+        - x64
+  artifactName: ViewFlux-Linux-${version}-${arch}.${ext}
+
 # No native modules are used, so skip the electron-rebuild pass entirely.
 npmRebuild: false

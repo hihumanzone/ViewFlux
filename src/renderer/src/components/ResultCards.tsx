@@ -13,7 +13,13 @@ import { activationProps } from '../lib/keyboard'
 import type { ChannelSummary, PlaylistSummary } from '../../../shared/types'
 
 /** Compact channel card used in search results. */
-export const ChannelCard = memo(function ChannelCard({ channel }: { channel: ChannelSummary }): React.JSX.Element {
+export const ChannelCard = memo(function ChannelCard({
+  channel,
+  viewMode = 'grid'
+}: {
+  channel: ChannelSummary
+  viewMode?: 'grid' | 'list'
+}): React.JSX.Element {
   const { isChannelSaved } = useApp()
   const avatar = useChannelAvatar(channel.id, channel.avatar)
   const { broken: avatarBroken, onError: onAvatarError } = useBrokenImage(avatar)
@@ -24,9 +30,34 @@ export const ChannelCard = memo(function ChannelCard({ channel }: { channel: Cha
   // The dialog doubles as the editor once the channel is bookmarked, so the
   // menu label has to track the same state the channel page does.
   const isSaved = isChannelSaved(channel.id)
+  const isList = viewMode === 'list'
+
+  const actions = (
+    <div className="channel-card__actions">
+      <button
+        type="button"
+        className="btn btn--tonal btn--sm channel-card__open"
+        onClick={(event) => {
+          event.stopPropagation()
+          open()
+        }}
+      >
+        View channel
+      </button>
+      <OverflowButton
+        label={`${channel.name} options`}
+        className="channel-card__menu"
+        onToggle={(trigger) => setMenuAnchor((anchor) => (anchor ? null : trigger))}
+      />
+    </div>
+  )
 
   return (
-    <article className="channel-card" onClick={open} {...activationProps(open)}>
+    <article
+      className={`channel-card${isList ? ' channel-card--list' : ' channel-card--grid'}`}
+      onClick={open}
+      {...activationProps(open)}
+    >
       <div className="channel-card__avatar-wrap">
         {avatar && !avatarBroken ? (
           <img
@@ -56,27 +87,9 @@ export const ChannelCard = memo(function ChannelCard({ channel }: { channel: Cha
         {channel.description && (
           <p className="channel-card__description">{channel.description}</p>
         )}
-        <div className="channel-card__actions">
-          <button
-            type="button"
-            className="btn btn--tonal btn--sm channel-card__open"
-            onClick={(event) => {
-              event.stopPropagation()
-              open()
-            }}
-          >
-            View channel
-          </button>
-          {/* The overflow trigger sits immediately beside the primary action —
-              the same spot the channel page uses — instead of floating in the
-              card's top-right corner. */}
-          <OverflowButton
-            label={`${channel.name} options`}
-            className="channel-card__menu"
-            onToggle={(trigger) => setMenuAnchor((anchor) => (anchor ? null : trigger))}
-          />
-        </div>
+        {!isList && actions}
       </div>
+      {isList && actions}
       <Menu
         anchor={menuAnchor}
         open={menuAnchor != null}
@@ -159,10 +172,12 @@ export const PlaylistCard = memo(function PlaylistCard({
           <Icon name={playlist.isAlbum ? 'album' : 'playlist'} size={14} />
           {playlist.isAlbum ? 'Album' : 'Playlist'}
         </span>
-        <div className="pl-card__overlay">
-          <Icon name={playlist.isAlbum ? 'album' : 'playlist'} size={18} />
-          <span>{countLabel}</span>
-        </div>
+        {countLabel && (
+          <span className="pl-card__count-badge">
+            <Icon name={playlist.isAlbum ? 'album' : 'playlist'} size={13} />
+            <span>{countLabel}</span>
+          </span>
+        )}
       </div>
       <div className="pl-card__body">
         <div className="pl-card__title-row">
@@ -189,6 +204,12 @@ export const PlaylistCard = memo(function PlaylistCard({
               <span className="pl-card__meta-sep" aria-hidden="true">•</span>
               <span className="pl-card__year">{playlist.year}</span>
             </>
+          )}
+          {countLabel && (
+            <span className="pl-card__meta-count">
+              <span className="pl-card__meta-sep" aria-hidden="true">•</span>
+              <span>{countLabel}</span>
+            </span>
           )}
         </div>
       </div>

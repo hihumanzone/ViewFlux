@@ -23,6 +23,9 @@ export interface VideoSummary {
   viewCount: number | null
   published: string | null
   isLive: boolean
+  isPremiere?: boolean
+  isStreamed?: boolean
+  publishTimestamp?: number | null
 }
 
 export interface ChannelSummary {
@@ -107,9 +110,13 @@ export interface VideoDetails {
   viewCount: number | null
   likeCount: number | null
   publishDate: string | null
+  relativeDate?: string | null
+  publishTimestamp?: number | null
   description: string
   thumbnails: Thumb[]
   isLive: boolean
+  isPremiere?: boolean
+  isStreamed?: boolean
   playable: boolean
   reason: string | null
   /** Local manifest URL served by the media proxy. Null when unplayable. */
@@ -155,6 +162,12 @@ export interface HistoryEntry {
   authorId?: string | null
   /** Channel avatar when known, so History rows can show the same chip as playlists. */
   authorAvatar?: string | null
+  viewCount?: number | null
+  published?: string | null
+  publishTimestamp?: number | null
+  isPremiere?: boolean
+  isStreamed?: boolean
+  isLive?: boolean
 }
 
 export interface PlaylistVideo {
@@ -172,6 +185,10 @@ export interface PlaylistVideo {
   viewCount?: number | null
   /** Relative publish text ('5d ago') when known. */
   published?: string | null
+  publishTimestamp?: number | null
+  isPremiere?: boolean
+  isStreamed?: boolean
+  isLive?: boolean
 }
 
 /**
@@ -234,6 +251,7 @@ export interface SavedChannel {
   savedAt: number
   folderId?: string | null
   labels: string[]
+  isFavorite?: boolean
 }
 
 export interface ChannelVideosPage {
@@ -312,6 +330,8 @@ export interface Settings {
   maxWatchHistory: number
   /** Maximum number of search history entries stored. */
   maxSearchHistory: number
+  defaultViewMode: 'grid' | 'list'
+  viewModes?: Record<string, 'grid' | 'list'>
 }
 
 export interface AppData {
@@ -399,7 +419,9 @@ export const DEFAULT_SETTINGS: Settings = {
   saveSearchHistory: true,
   saveWatchHistory: true,
   maxWatchHistory: 500,
-  maxSearchHistory: 50
+  maxSearchHistory: 50,
+  defaultViewMode: 'grid',
+  viewModes: {}
 }
 
 export interface AppApi {
@@ -434,6 +456,7 @@ export interface AppApi {
   getSavedChannels(): Promise<SavedChannel[]>
   saveChannel(channel: SavedChannel): Promise<SavedChannel>
   updateSavedChannel(channelId: string, patch: Partial<SavedChannel>): Promise<SavedChannel | undefined>
+  toggleFavoriteChannel(channelId: string): Promise<SavedChannel | undefined>
   removeSavedChannel(channelId: string): Promise<void>
 
   getChannelFolders(): Promise<ChannelFolder[]>
@@ -498,6 +521,8 @@ export interface AppApi {
   installUpdate(): Promise<void>
   getUpdaterStatus(): Promise<UpdaterStatus>
   onUpdaterStatus(callback: (status: UpdaterStatus) => void): () => void
+
+  platform: 'win32' | 'darwin' | 'linux' | string
 }
 
 export interface DataImportResult {

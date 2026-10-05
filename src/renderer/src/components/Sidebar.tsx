@@ -50,10 +50,75 @@ export function Sidebar(): React.JSX.Element {
   useEffect(() => {
     document.documentElement.dataset.sidebar = collapsed ? 'collapsed' : 'expanded'
     writeStored(STORE_KEY, collapsed ? 'collapsed' : 'expanded')
+    if (collapsed) {
+      document.documentElement.style.removeProperty('--sidebar-w')
+    } else {
+      const savedW = readStoredWithLegacy('viewflux.sidebar-w', 'libretube.sidebar-w')
+      if (savedW) {
+        document.documentElement.style.setProperty('--sidebar-w', savedW)
+      }
+    }
+  }, [collapsed])
+
+  const handleResizePointerDown = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
+    if (e.button !== 0) return
+    e.preventDefault()
+
+    document.documentElement.dataset.resizing = 'true'
+    let rafId = 0
+    let latestCollapsed = collapsed
+    let latestWidth = 240
+
+    const handlePointerMove = (moveEv: PointerEvent): void => {
+      const currentWidth = moveEv.clientX
+      if (currentWidth < 140) {
+        latestCollapsed = true
+      } else {
+        latestCollapsed = false
+        latestWidth = Math.max(160, Math.min(380, currentWidth))
+      }
+
+      if (!rafId) {
+        rafId = requestAnimationFrame(() => {
+          rafId = 0
+          if (latestCollapsed) {
+            document.documentElement.dataset.sidebar = 'collapsed'
+            document.documentElement.style.removeProperty('--sidebar-w')
+          } else {
+            document.documentElement.dataset.sidebar = 'expanded'
+            document.documentElement.style.setProperty('--sidebar-w', `${latestWidth}px`)
+          }
+        })
+      }
+    }
+
+    const handlePointerUp = (): void => {
+      if (rafId) cancelAnimationFrame(rafId)
+      delete document.documentElement.dataset.resizing
+
+      window.removeEventListener('pointermove', handlePointerMove)
+      window.removeEventListener('pointerup', handlePointerUp)
+      window.removeEventListener('pointercancel', handlePointerUp)
+
+      setCollapsed(latestCollapsed)
+      writeStored(STORE_KEY, latestCollapsed ? 'collapsed' : 'expanded')
+      if (!latestCollapsed) {
+        writeStored('viewflux.sidebar-w', `${latestWidth}px`)
+      }
+    }
+
+    window.addEventListener('pointermove', handlePointerMove)
+    window.addEventListener('pointerup', handlePointerUp)
+    window.addEventListener('pointercancel', handlePointerUp)
   }, [collapsed])
 
   return (
     <nav className="sidebar" aria-label="Primary">
+      <div
+        className="sidebar__resizer"
+        onPointerDown={handleResizePointerDown}
+        title="Drag to resize sidebar (drag below 140px to collapse)"
+      />
       <div className="sidebar__brand">
         <span className="sidebar__logo-wrap">
           <span className="sidebar__logo" aria-hidden="true">

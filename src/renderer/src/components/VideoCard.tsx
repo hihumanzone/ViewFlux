@@ -1,7 +1,7 @@
 import { memo } from 'react'
 import { VideoOptions } from './VideoOptions'
 import { navigate } from '../lib/router'
-import { formatCount, formatDuration } from '../lib/format'
+import { formatCount, formatDuration, formatVideoPublished } from '../lib/format'
 import { useChannelAvatar } from '../lib/useChannelAvatar'
 import { useBrokenImage } from '../lib/useBrokenImage'
 import { activationProps } from '../lib/keyboard'
@@ -10,22 +10,28 @@ import type { VideoSummary } from '../../../shared/types'
 
 export const VideoCard = memo(function VideoCard({
   video,
-  progress
+  progress,
+  to
 }: {
   video: VideoSummary
   /** 0-1 playback progress for history cards. If omitted, looked up from watch history. */
   progress?: number
+  /** Destination route or URL. If omitted, defaults to `#/watch/${video.videoId}` */
+  to?: string
 }): React.JSX.Element {
   const { getHistoryProgress } = useApp()
   // Music results carry the channel id but no picture, so resolve it lazily.
   const avatar = useChannelAvatar(video.authorId ?? null, video.authorAvatar)
   const { broken: avatarBroken, onError: onAvatarError } = useBrokenImage(avatar)
-  const open = (): void => navigate(`#/watch/${video.videoId}`)
+  const open = (): void => navigate(to ?? `#/watch/${video.videoId}`)
 
   const effectiveProgress =
     progress != null && progress > 0
       ? progress
       : getHistoryProgress(video.videoId, video.duration)
+
+  const isEndedPremiere =
+    Boolean(video.isPremiere) && !video.isLive && video.duration != null && video.duration > 0
 
   return (
     <article
@@ -39,6 +45,11 @@ export const VideoCard = memo(function VideoCard({
     >
       <div className="video-card__thumb-wrap">
         <img className="video-card__thumb" src={video.thumbnail} alt="" loading="lazy" />
+        {isEndedPremiere && (
+          <div className="video-card__top-badge">
+            <span className="badge badge--premiere">Premiere</span>
+          </div>
+        )}
         <div
           className={
             effectiveProgress > 0
@@ -48,6 +59,10 @@ export const VideoCard = memo(function VideoCard({
         >
           {video.isLive ? (
             <span className="badge badge--live">Live</span>
+          ) : isEndedPremiere ? (
+            <span className="badge">{formatDuration(video.duration!)}</span>
+          ) : video.isPremiere ? (
+            <span className="badge badge--premiere">Premiere</span>
           ) : (
             video.duration != null &&
             video.duration > 0 && <span className="badge">{formatDuration(video.duration)}</span>
@@ -100,7 +115,7 @@ export const VideoCard = memo(function VideoCard({
               </button>
             )}
             {video.viewCount != null && <span>{formatCount(video.viewCount)} views</span>}
-            {video.published && <span>{video.published}</span>}
+            {formatVideoPublished(video) && <span>{formatVideoPublished(video)}</span>}
           </div>
         </div>
       </div>

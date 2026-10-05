@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, shell, session } from 'electron'
+import { app, BrowserWindow, ipcMain, shell, session, Menu } from 'electron'
 import { existsSync } from 'node:fs'
 import { join } from 'node:path'
 import { Store } from './store'
@@ -35,7 +35,36 @@ function devIcon(): string | undefined {
   return existsSync(icon) ? icon : undefined
 }
 
+function setupAppMenu(): void {
+  if (process.platform === 'darwin') {
+    const template: Electron.MenuItemConstructorOptions[] = [
+      { role: 'appMenu' },
+      { role: 'fileMenu' },
+      { role: 'editMenu' },
+      { role: 'viewMenu' },
+      { role: 'windowMenu' },
+      {
+        role: 'help',
+        submenu: [
+          {
+            label: 'ViewFlux on GitHub',
+            click: async () => {
+              await shell.openExternal('https://github.com/hihumanzone/ViewFlux')
+            }
+          }
+        ]
+      }
+    ]
+    Menu.setApplicationMenu(Menu.buildFromTemplate(template))
+  } else {
+    Menu.setApplicationMenu(null)
+  }
+}
+
 function createWindow(): void {
+  const isWindows = process.platform === 'win32'
+  const isMac = process.platform === 'darwin'
+
   mainWindow = new BrowserWindow({
     title: 'ViewFlux',
     width: 1360,
@@ -44,14 +73,25 @@ function createWindow(): void {
     minHeight: 600,
     show: false,
     backgroundColor: '#0f0d13',
-    autoHideMenuBar: true,
+    autoHideMenuBar: !isMac,
     icon: devIcon(),
-    titleBarStyle: 'hidden',
-    titleBarOverlay: {
-      color: '#0f0d13',
-      symbolColor: '#e6e1e5',
-      height: 40
-    },
+    ...(isWindows
+      ? {
+          titleBarStyle: 'hidden' as const,
+          titleBarOverlay: {
+            color: '#0f0d13',
+            symbolColor: '#e6e1e5',
+            height: 40
+          }
+        }
+      : isMac
+        ? {
+            titleBarStyle: 'hidden' as const,
+            trafficLightPosition: { x: 16, y: 12 }
+          }
+        : {
+            frame: true
+          }),
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
       sandbox: true,
@@ -183,6 +223,9 @@ function registerIpc(): void {
     (_e, channelId: string, patch: Partial<SavedChannel>) =>
       store.updateSavedChannel(channelId, patch)
   )
+  ipcMain.handle('channels:saved:toggle-favorite', (_e, channelId: string) =>
+    store.toggleFavoriteChannel(channelId)
+  )
   ipcMain.handle('channels:saved:remove', (_e, channelId: string) =>
     store.removeSavedChannel(channelId)
   )
@@ -269,9 +312,12 @@ function setupWebRequest(): void {
 // "now playing" card, its media-key handling and any toast notifications under
 // a single app identity instead of lumping them into electron.app.Electron.
 // Must run before the app becomes ready, so it sits at module scope.
-app.setAppUserModelId('com.viewflux.desktop')
+if (process.platform === 'win32') {
+  app.setAppUserModelId('com.viewflux.desktop')
+}
 
 app.whenReady().then(async () => {
+  setupAppMenu()
   setupWebRequest()
   await store.ready()
   const base = await proxy.start()

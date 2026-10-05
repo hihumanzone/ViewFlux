@@ -7,6 +7,10 @@ import './styles.css'
 const container = document.getElementById('root')
 if (!container) throw new Error('Root container #root not found')
 
+if (window.api?.platform) {
+  document.documentElement.dataset.platform = window.api.platform
+}
+
 // No StrictMode: it double-invokes effects, which would create and destroy the
 // Shaka Player instance twice on every mount.
 createRoot(container).render(

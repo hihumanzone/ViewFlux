@@ -1,7 +1,7 @@
 {
   "name": "viewflux-desktop",
-  "version": "0.9.0",
-  "description": "A fast, native Windows YouTube client focused on searching and watching videos.",
+  "version": "1.0.0",
+  "description": "A fast, native YouTube client for Windows, Linux, and macOS focused on searching and watching videos.",
   "main": "./out/main/index.js",
   "author": "ViewFlux Desktop Contributors",
   "license": "GPL-3.0-or-later",
@@ -16,6 +16,10 @@
     "typecheck": "npm run typecheck:node && npm run typecheck:web",
     "icon": "node scripts/gen-icon.mjs",
     "dist": "electron-vite build && electron-builder --win",
+    "dist:win": "electron-vite build && electron-builder --win",
+    "dist:mac": "electron-vite build && electron-builder --mac",
+    "dist:linux": "electron-vite build && electron-builder --linux",
+    "dist:all": "electron-vite build && electron-builder -mwl",
     "dist:dir": "electron-vite build && electron-builder --win --dir"
   },
   "dependencies": {

@@ -57,6 +57,7 @@ interface AppContextValue {
   saveChannel: (channel: SavedChannel) => Promise<void>
   updateSavedChannel: (channelId: string, patch: Partial<SavedChannel>) => Promise<void>
   removeSavedChannel: (channelId: string) => Promise<void>
+  toggleFavoriteChannel: (channelId: string) => Promise<SavedChannel | undefined>
   createChannelFolder: (name: string) => Promise<ChannelFolder>
   renameChannelFolder: (id: string, name: string) => Promise<void>
   deleteChannelFolder: (id: string) => Promise<void>
@@ -201,6 +202,12 @@ export function AppProvider({ children }: { children: ReactNode }): React.JSX.El
   const removeSavedChannel = useCallback(async (channelId: string) => {
     await window.api.removeSavedChannel(channelId)
     setSavedChannels(await window.api.getSavedChannels())
+  }, [])
+
+  const toggleFavoriteChannel = useCallback(async (channelId: string) => {
+    const updated = await window.api.toggleFavoriteChannel(channelId)
+    setSavedChannels(await window.api.getSavedChannels())
+    return updated
   }, [])
 
   const createChannelFolder = useCallback(async (name: string): Promise<ChannelFolder> => {
@@ -531,6 +538,7 @@ export function AppProvider({ children }: { children: ReactNode }): React.JSX.El
       saveChannel,
       updateSavedChannel,
       removeSavedChannel,
+      toggleFavoriteChannel,
       createChannelFolder,
       renameChannelFolder,
       deleteChannelFolder,
@@ -573,6 +581,7 @@ export function AppProvider({ children }: { children: ReactNode }): React.JSX.El
       saveChannel,
       updateSavedChannel,
       removeSavedChannel,
+      toggleFavoriteChannel,
       createChannelFolder,
       renameChannelFolder,
       deleteChannelFolder,

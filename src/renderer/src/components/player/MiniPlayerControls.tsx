@@ -25,6 +25,7 @@ export interface MiniPlayerControlsProps {
   onExpand?: () => void
   onClose?: () => void
   onHeaderPointerDown?: (event: React.PointerEvent<HTMLDivElement>) => void
+  onResizePointerDown?: (event: React.PointerEvent<HTMLDivElement>) => void
 }
 
 export const MiniPlayerControls = memo(function MiniPlayerControls({
@@ -47,7 +48,8 @@ export const MiniPlayerControls = memo(function MiniPlayerControls({
   onScrubEnd,
   onExpand,
   onClose,
-  onHeaderPointerDown
+  onHeaderPointerDown,
+  onResizePointerDown
 }: MiniPlayerControlsProps): React.JSX.Element {
   const progressRatio = duration > 0 ? Math.min(1, Math.max(0, currentTime / duration)) : 0
 
@@ -59,6 +61,16 @@ export const MiniPlayerControls = memo(function MiniPlayerControls({
         e.stopPropagation()
       }}
     >
+      {/* Corner resize handle */}
+      {onResizePointerDown && (
+        <div
+          className="miniplayer__resize-handle"
+          onPointerDown={onResizePointerDown}
+          title="Drag to resize miniplayer"
+          aria-label="Resize miniplayer"
+        />
+      )}
+
       {/* Top Header Row with Title, Author and Action Buttons */}
       <div
         className="miniplayer__header"
