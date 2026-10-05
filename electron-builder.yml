@@ -89,5 +89,3 @@ linux:
 
 # No native modules are used, so skip the electron-rebuild pass entirely.
 npmRebuild: false
-publish: never
-
