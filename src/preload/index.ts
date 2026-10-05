@@ -116,6 +116,20 @@ const api: AppApi = {
     }
   },
 
+  windowMinimize: () => ipcRenderer.invoke('window:minimize'),
+  windowToggleMaximize: () => ipcRenderer.invoke('window:toggle-maximize'),
+  windowClose: () => ipcRenderer.invoke('window:close'),
+  isWindowMaximized: () => ipcRenderer.invoke('window:is-maximized'),
+  onWindowMaximizedChange: (callback: (maximized: boolean) => void) => {
+    const listener = (_e: Electron.IpcRendererEvent, val: boolean): void => {
+      callback(val)
+    }
+    ipcRenderer.on('window:maximized-change', listener)
+    return () => {
+      ipcRenderer.removeListener('window:maximized-change', listener)
+    }
+  },
+
   platform: process.platform
 }
 

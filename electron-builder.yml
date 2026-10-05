@@ -16,6 +16,8 @@ directories:
 # resolves from node_modules automatically.
 files:
   - out/**
+  - build/icon.png
+  - build/icon.ico
   - package.json
   - '!**/*.map'
   - '!**/{.eslintrc,.eslintrc.*,.prettierrc,.prettierrc.*,.editorconfig,tsconfig*.json}'

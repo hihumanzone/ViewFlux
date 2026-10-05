@@ -26,13 +26,23 @@ const proxy = new MediaProxy({
 let mainWindow: BrowserWindow | null = null
 
 /**
- * Electron only sets the executable icon in packaged builds; point the window
- * at our generated PNG during `npm run dev` so the taskbar shows the logo.
+ * Resolves the application icon across development and packaged builds.
+ * On Linux, passing this icon to BrowserWindow sets the _NET_WM_ICON property
+ * on the X11 window as a direct fallback for environments or taskbars that do
+ * not associate through the .desktop file.
  */
-function devIcon(): string | undefined {
-  if (app.isPackaged) return undefined
-  const icon = join(__dirname, '../../build/icon.png')
-  return existsSync(icon) ? icon : undefined
+function getAppIcon(): string | undefined {
+  const candidates = [
+    join(__dirname, '../../build/icon.png'),
+    join(__dirname, '../../../build/icon.png'),
+    join(process.resourcesPath, 'build/icon.png'),
+    join(process.resourcesPath, 'icon.png'),
+    join(app.getAppPath(), 'build/icon.png')
+  ]
+  for (const p of candidates) {
+    if (existsSync(p)) return p
+  }
+  return undefined
 }
 
 function setupAppMenu(): void {
@@ -62,7 +72,6 @@ function setupAppMenu(): void {
 }
 
 function createWindow(): void {
-  const isWindows = process.platform === 'win32'
   const isMac = process.platform === 'darwin'
 
   mainWindow = new BrowserWindow({
@@ -72,32 +81,36 @@ function createWindow(): void {
     minWidth: 960,
     minHeight: 600,
     show: false,
-    backgroundColor: '#0f0d13',
+    backgroundColor: '#0a0c10',
     autoHideMenuBar: !isMac,
-    icon: devIcon(),
-    ...(isWindows
+    icon: getAppIcon(),
+    ...(isMac
       ? {
           titleBarStyle: 'hidden' as const,
-          titleBarOverlay: {
-            color: '#0f0d13',
-            symbolColor: '#e6e1e5',
-            height: 40
-          }
+          trafficLightPosition: { x: 16, y: 12 }
         }
-      : isMac
-        ? {
-            titleBarStyle: 'hidden' as const,
-            trafficLightPosition: { x: 16, y: 12 }
+      : {
+          titleBarStyle: 'hidden' as const,
+          titleBarOverlay: {
+            color: '#101318',
+            symbolColor: '#f1f3f7',
+            height: 44
           }
-        : {
-            frame: true
-          }),
+        }),
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
       sandbox: true,
       contextIsolation: true,
       nodeIntegration: false
     }
+  })
+
+  mainWindow.on('maximize', () => {
+    mainWindow?.webContents.send('window:maximized-change', true)
+  })
+
+  mainWindow.on('unmaximize', () => {
+    mainWindow?.webContents.send('window:maximized-change', false)
   })
 
   mainWindow.on('ready-to-show', () => mainWindow?.show())
@@ -142,6 +155,26 @@ function createWindow(): void {
 }
 
 function registerIpc(): void {
+  ipcMain.handle('window:minimize', () => {
+    mainWindow?.minimize()
+  })
+  ipcMain.handle('window:toggle-maximize', () => {
+    if (!mainWindow) return false
+    if (mainWindow.isMaximized()) {
+      mainWindow.unmaximize()
+      return false
+    } else {
+      mainWindow.maximize()
+      return true
+    }
+  })
+  ipcMain.handle('window:close', () => {
+    mainWindow?.close()
+  })
+  ipcMain.handle('window:is-maximized', () => {
+    return mainWindow?.isMaximized() ?? false
+  })
+
   ipcMain.handle('search', (_e, query: string, filter: SearchFilter) =>
     youtube.search(query, filter)
   )
@@ -308,12 +341,21 @@ function setupWebRequest(): void {
   })
 }
 
+// Configure application identity at module scope before ready event
+app.setName('ViewFlux')
+
 // A stable AppUserModelID lets Windows group our `SystemMediaTransportControls`
 // "now playing" card, its media-key handling and any toast notifications under
 // a single app identity instead of lumping them into electron.app.Electron.
-// Must run before the app becomes ready, so it sits at module scope.
 if (process.platform === 'win32') {
-  app.setAppUserModelId('com.viewflux.desktop')
+  app.setAppUserModelId('app.viewflux.desktop')
+}
+
+// On Linux, setting desktop name aligns the running window's WM_CLASS (X11) and
+// app_id (Wayland) with the installed `viewflux.desktop` file, allowing the taskbar,
+// dock, and alt-tab switcher to correctly display the app logo and title.
+if (process.platform === 'linux' && typeof app.setDesktopName === 'function') {
+  app.setDesktopName('viewflux.desktop')
 }
 
 app.whenReady().then(async () => {

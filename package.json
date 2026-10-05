@@ -1,6 +1,8 @@
 {
   "name": "viewflux-desktop",
-  "version": "1.0.0",
+  "productName": "ViewFlux",
+  "desktopName": "viewflux",
+  "version": "1.0.1",
   "description": "A fast, native YouTube client for Windows, Linux, and macOS focused on searching and watching videos.",
   "main": "./out/main/index.js",
   "author": {

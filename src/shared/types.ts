@@ -522,6 +522,12 @@ export interface AppApi {
   getUpdaterStatus(): Promise<UpdaterStatus>
   onUpdaterStatus(callback: (status: UpdaterStatus) => void): () => void
 
+  windowMinimize?: () => Promise<void>
+  windowToggleMaximize?: () => Promise<boolean>
+  windowClose?: () => Promise<void>
+  isWindowMaximized?: () => Promise<boolean>
+  onWindowMaximizedChange?: (callback: (maximized: boolean) => void) => () => void
+
   platform: 'win32' | 'darwin' | 'linux' | string
 }
 
