@@ -11,6 +11,9 @@ dist-*.log
 # Throwaway visual-verification harness (see docs/preview-harness.md)
 .tmp-ui-preview/
 
+# Local-only release notes, never published
+RELEASE_GUIDE.md
+
 # OS / editor cruft
 .DS_Store
 Thumbs.db
