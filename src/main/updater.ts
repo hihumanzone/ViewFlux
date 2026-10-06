@@ -101,7 +101,7 @@ function isNewerVersion(latest: string, current: string): boolean {
   return false
 }
 
-export function initAutoUpdater(): void {
+export function initAutoUpdater(): () => void {
   // Configure electron-updater
   autoUpdater.autoDownload = true
   autoUpdater.autoInstallOnAppQuit = true
@@ -172,7 +172,7 @@ export function initAutoUpdater(): void {
   ipcMain.handle('updater:get-status', () => status)
 
   // Initial check after app starts
-  setTimeout(() => {
+  const initialTimer = setTimeout(() => {
     if (app.isPackaged) {
       void autoUpdater.checkForUpdates().catch(() => {
         void checkGitHubApi()
@@ -182,10 +182,18 @@ export function initAutoUpdater(): void {
     }
   }, 6000)
 
-  // Check periodically every 4 hours
-  setInterval(() => {
+  // Check periodically every 4 hours. The timer is returned so graceful
+  // shutdown can clear it — otherwise the dangling interval keeps the main
+  // event loop alive after the window closes and the next launch finds a
+  // stale Singleton lock with no window to focus.
+  const timer = setInterval(() => {
     if (app.isPackaged) {
       void autoUpdater.checkForUpdates().catch(() => {})
     }
   }, 4 * 60 * 60 * 1000)
+
+  return () => {
+    clearTimeout(initialTimer)
+    clearInterval(timer)
+  }
 }

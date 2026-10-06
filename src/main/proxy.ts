@@ -195,8 +195,26 @@ export class MediaProxy {
 
   async stop(): Promise<void> {
     if (!this.server) return
-    await new Promise<void>((resolve) => this.server!.close(() => resolve()))
+    const server = this.server
     this.server = null
+    // closeAllConnections drops keep-alive media streams immediately. Plain
+    // close() waits for them and never resolves after video playback, which
+    // leaves the main process (and its Singleton lock) alive after the window
+    // closes — the next launch then exits silently with no window.
+    try {
+      if (typeof server.closeAllConnections === 'function') server.closeAllConnections()
+    } catch {
+      // Older Node typings may miss this; fall through to close().
+    }
+    await new Promise<void>((resolve) => {
+      const done = (): void => resolve()
+      const timer = setTimeout(done, 1500)
+      timer.unref?.()
+      server.close(() => {
+        clearTimeout(timer)
+        done()
+      })
+    })
   }
 
   private setCors(res: ServerResponse): void {

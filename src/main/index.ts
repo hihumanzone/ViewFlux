@@ -24,6 +24,8 @@ const proxy = new MediaProxy({
 })
 
 let mainWindow: BrowserWindow | null = null
+let cleanupUpdater: (() => void) | null = null
+let isQuitting = false
 
 /**
  * Resolves the application icon across development and packaged builds.
@@ -114,6 +116,19 @@ function createWindow(): void {
   })
 
   mainWindow.on('ready-to-show', () => mainWindow?.show())
+
+  // If ready-to-show never fires (e.g. renderer fails first paint after a
+  // bad cache), the window would stay hidden forever and the app looks like
+  // "it doesn't open". Force-show on successful load as a fallback.
+  mainWindow.webContents.on('did-finish-load', () => {
+    if (mainWindow && !mainWindow.isDestroyed() && !mainWindow.isVisible()) {
+      mainWindow.show()
+    }
+  })
+
+  mainWindow.on('closed', () => {
+    mainWindow = null
+  })
 
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
     if (url.startsWith('http://') || url.startsWith('https://')) {
@@ -344,6 +359,39 @@ function setupWebRequest(): void {
 // Configure application identity at module scope before ready event
 app.setName('ViewFlux')
 
+// Single-instance lock MUST be acquired before `ready` — otherwise two
+// launches can both pass `whenReady`, both bind the media proxy / userData,
+// and the second one silently exits on Chromium's internal Singleton lock
+// with no window. The loser quits immediately; the winner restores/focuses
+// its window in the `second-instance` handler below.
+const gotSingleInstanceLock = app.requestSingleInstanceLock()
+if (!gotSingleInstanceLock) {
+  app.quit()
+}
+
+function focusOrCreateWindow(): void {
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    if (mainWindow.isMinimized()) mainWindow.restore()
+    mainWindow.focus()
+    mainWindow.show()
+  } else if (BrowserWindow.getAllWindows().length === 0) {
+    createWindow()
+  } else {
+    for (const win of BrowserWindow.getAllWindows()) {
+      if (!win.isDestroyed()) {
+        if (win.isMinimized()) win.restore()
+        win.focus()
+        win.show()
+        break
+      }
+    }
+  }
+}
+
+app.on('second-instance', () => {
+  focusOrCreateWindow()
+})
+
 // A stable AppUserModelID lets Windows group our `SystemMediaTransportControls`
 // "now playing" card, its media-key handling and any toast notifications under
 // a single app identity instead of lumping them into electron.app.Electron.
@@ -365,7 +413,7 @@ app.whenReady().then(async () => {
   const base = await proxy.start()
   youtube.setProxyBase(base)
   registerIpc()
-  initAutoUpdater()
+  cleanupUpdater = initAutoUpdater()
   createWindow()
 
   app.on('activate', () => {
@@ -377,7 +425,28 @@ app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') app.quit()
 })
 
-app.on('before-quit', () => {
-  void store.flush()
-  void proxy.stop()
+app.on('before-quit', (event) => {
+  if (isQuitting) return
+  // Async cleanup (store flush + proxy stop + updater timers) must finish
+  // before exit, but Electron gives `before-quit` no async hook. Block the
+  // default quit, clean up with a timeout guard, then exit explicitly via
+  // app.exit() (not process.exit(), which skips Electron child teardown and
+  // leaves zombie GPU/zygote processes holding the Singleton lock on Linux).
+  event.preventDefault()
+  isQuitting = true
+  void (async () => {
+    try {
+      cleanupUpdater?.()
+      cleanupUpdater = null
+      await Promise.race([
+        Promise.allSettled([store.flush(), proxy.stop()]),
+        new Promise<void>((resolve) => {
+          const t = setTimeout(resolve, 2500)
+          t.unref?.()
+        })
+      ])
+    } finally {
+      app.exit(0)
+    }
+  })()
 })
