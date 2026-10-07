@@ -1,43 +1,52 @@
 /* ============================================================
    ViewFlux Desktop — Material 3 Expressive Design Tokens
+   Official Material 3 Expressive Specification Alignment
    ============================================================ */
 
 :root {
   /* Surfaces — 5-Step Expressive Surface Container System */
-  --bg: #0a0c10;
-  --surface: #101318;
-  --surface-dim: #0a0c10;
-  --surface-bright: #2d3442;
-  --surface-1: #161920;
-  --surface-2: #1c212a;
-  --surface-3: #232935;
-  --surface-4: #2b3240;
-  --surface-container-lowest: #07090c;
-  --surface-container-low: #0d1015;
-  --surface-container: #14171f;
-  --surface-container-high: #1c2029;
-  --surface-container-highest: #242a36;
-  --surface-variant: #28303e;
+  --bg: #090b10;
+  --surface: #0f1217;
+  --surface-dim: #090b10;
+  --surface-bright: #2d3444;
+  --surface-1: #141821;
+  --surface-2: #1a202c;
+  --surface-3: #222938;
+  --surface-4: #2b3345;
+  --surface-container-lowest: #06080c;
+  --surface-container-low: #0c0f15;
+  --surface-container: #131720;
+  --surface-container-high: #1b212d;
+  --surface-container-highest: #232a39;
+  --surface-variant: #283142;
 
   /* On-Surface Typography & Contrast (WCAG AAA/AA Compliant) */
-  --on-surface: #f1f3f7;
-  --on-surface-variant: #bcc5d4;
-  --on-surface-muted: #828e9f;
-  --outline: #5c687b;
-  --outline-variant: #272e3a;
+  --on-surface: #f2f4f8;
+  --on-surface-variant: #c0cad8;
+  --on-surface-muted: #8591a3;
+  --outline: #5c687e;
+  --outline-variant: #262e3d;
+  --surface-tint: var(--primary);
+  --inverse-surface: #e2e6ee;
+  --inverse-on-surface: #1b202a;
+  --inverse-primary: #684fa3;
 
   /* Primary Accent: Signature Expressive Lilac / Lavender */
   --primary: #d0bcff;
   --on-primary: #381e72;
   --primary-container: #4f378b;
   --on-primary-container: #eaddff;
-  --secondary-container: #262c39;
-  --on-secondary-container: #d9e2ef;
+  --primary-fixed: #eaddff;
+  --primary-fixed-dim: #d0bcff;
+  --on-primary-fixed: #24005b;
+  --on-primary-fixed-variant: #4f378b;
   --primary-glow: rgb(208 188 255 / 0.32);
 
   /* Secondary & Tertiary Accent Roles (Material 3 Expressive) */
   --secondary: #cbc2db;
   --on-secondary: #332d41;
+  --secondary-container: #282d3b;
+  --on-secondary-container: #dce4f2;
   --tertiary: #ffa39e;
   --on-tertiary: #5e1617;
   --tertiary-container: #7d2a2a;
@@ -55,15 +64,23 @@
   --on-success-container: #c4f7b8;
   --warning: #f8cf74;
   --on-warning: #412d00;
+  --warning-container: #5a4000;
+  --on-warning-container: #ffdf9e;
+
+  /* Interactive State Layers (Material 3 Specification) */
+  --state-hover-opacity: 0.08;
+  --state-focus-opacity: 0.12;
+  --state-pressed-opacity: 0.12;
+  --state-dragged-opacity: 0.16;
 
   /* Corner Radii — Material 3 Expressive Geometry Scale */
   --r-none: 0px;
   --r-xs: 8px;
-  --r-sm: 14px;
-  --r-md: 20px;
-  --r-lg: 26px;
-  --r-xl: 32px;
-  --r-2xl: 44px;
+  --r-sm: 12px;
+  --r-md: 18px;
+  --r-lg: 24px;
+  --r-xl: 28px;
+  --r-2xl: 36px;
   --r-full: 9999px;
 
   /* Luminous Tonal Elevation & Ambient Glow */
@@ -80,16 +97,21 @@
   --ease-emphasized: cubic-bezier(0.2, 0, 0, 1);
   --ease-emphasized-decel: cubic-bezier(0.05, 0.7, 0.1, 1);
   --ease-emphasized-accel: cubic-bezier(0.3, 0, 0.8, 0.15);
+  --ease-standard: cubic-bezier(0.2, 0, 0, 1);
+  --ease-standard-decel: cubic-bezier(0, 0, 0.2, 1);
+  --ease-standard-accel: cubic-bezier(0.4, 0, 1, 1);
   --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
   --ease-in-out: cubic-bezier(0.4, 0, 0.2, 1);
 
-  --t-fast: 150ms;
-  --t-med: 250ms;
-  --t-slow: 380ms;
+  --t-instant: 100ms;
+  --t-fast: 160ms;
+  --t-med: 260ms;
+  --t-slow: 400ms;
+  --t-extra-slow: 600ms;
 
   /* Layout Dimensions */
   --titlebar-h: 44px;
-  --sidebar-w: 232px;
+  --sidebar-w: 236px;
   --sidebar-collapsed-w: 72px;
   --content-pad: 32px;
   --content-pad-top: 24px;
@@ -104,60 +126,87 @@
   --on-primary: #5e1617;
   --primary-container: #7d2a2a;
   --on-primary-container: #ffd8d5;
+  --primary-fixed: #ffd8d5;
+  --primary-fixed-dim: #ffa39e;
+  --on-primary-fixed: #410004;
   --secondary-container: #5c3534;
   --on-secondary-container: #f5dcda;
   --primary-glow: rgb(255 163 158 / 0.32);
 }
+
 :root[data-accent='blue'] {
   --primary: #a8c8ff;
   --on-primary: #0a3057;
   --primary-container: #274b7a;
   --on-primary-container: #d4e3ff;
+  --primary-fixed: #d4e3ff;
+  --primary-fixed-dim: #a8c8ff;
+  --on-primary-fixed: #001c3b;
   --secondary-container: #3a4a61;
   --on-secondary-container: #d7e3fb;
   --primary-glow: rgb(168 200 255 / 0.28);
 }
+
 :root[data-accent='teal'] {
   --primary: #7ad0d0;
   --on-primary: #003737;
   --primary-container: #1f4e4e;
   --on-primary-container: #b8f1f0;
+  --primary-fixed: #b8f1f0;
+  --primary-fixed-dim: #7ad0d0;
+  --on-primary-fixed: #002020;
   --secondary-container: #334b4b;
   --on-secondary-container: #b5ccd0;
   --primary-glow: rgb(122 208 208 / 0.28);
 }
+
 :root[data-accent='green'] {
   --primary: #9fd77a;
   --on-primary: #1d3a08;
   --primary-container: #3c6120;
   --on-primary-container: #c4eda6;
+  --primary-fixed: #c4eda6;
+  --primary-fixed-dim: #9fd77a;
+  --on-primary-fixed: #0c2000;
   --secondary-container: #3d532e;
   --on-secondary-container: #cfe8b8;
   --primary-glow: rgb(159 215 122 / 0.28);
 }
+
 :root[data-accent='amber'] {
   --primary: #f5c26b;
   --on-primary: #3f2d00;
   --primary-container: #5b4300;
   --on-primary-container: #ffdf9e;
+  --primary-fixed: #ffdf9e;
+  --primary-fixed-dim: #f5c26b;
+  --on-primary-fixed: #261900;
   --secondary-container: #52440f;
   --on-secondary-container: #f7e19b;
   --primary-glow: rgb(245 194 107 / 0.28);
 }
+
 :root[data-accent='pink'] {
   --primary: #ffb1c8;
   --on-primary: #5f1130;
   --primary-container: #7a2d4a;
   --on-primary-container: #ffd9e4;
+  --primary-fixed: #ffd9e4;
+  --primary-fixed-dim: #ffb1c8;
+  --on-primary-fixed: #3e001d;
   --secondary-container: #5c4249;
   --on-secondary-container: #f3dbe2;
   --primary-glow: rgb(255 177 200 / 0.28);
 }
+
 :root[data-accent='red'] {
   --primary: #ffb4ab;
   --on-primary: #5f1615;
   --primary-container: #8c1d18;
   --on-primary-container: #f9bcae;
+  --primary-fixed: #f9bcae;
+  --primary-fixed-dim: #ffb4ab;
+  --on-primary-fixed: #410003;
   --secondary-container: #5a3634;
   --on-secondary-container: #f8dbd8;
   --primary-glow: rgb(255 180 171 / 0.28);

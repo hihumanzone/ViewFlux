@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { VideoCard } from '../components/VideoCard'
+import { MasonryGrid } from '../components/MasonryGrid'
 import { EmptyState, Loader } from '../components/EmptyState'
 import { Icon } from '../components/Icons'
 import { ListRow } from '../components/ListRow'
@@ -24,7 +25,7 @@ export function RemotePlaylistPage({ playlistId }: { playlistId: string }): Reac
     removeYoutubePlaylist,
     refreshPlaylists,
     toast,
-    history
+    historyMap
   } = useApp()
   const copyLink = useCopyLink()
   const [viewMode, setViewMode] = useViewMode('remote-playlist')
@@ -84,7 +85,7 @@ export function RemotePlaylistPage({ playlistId }: { playlistId: string }): Reac
     try {
       const local = await window.api.createPlaylist(`${playlist.title} (copy)`)
       for (const video of items) {
-        await window.api.addToPlaylist(local.id, toPlaylistVideo(enrichVideoWithHistory(video, history)))
+        await window.api.addToPlaylist(local.id, toPlaylistVideo(enrichVideoWithHistory(video, historyMap)))
       }
       await refreshPlaylists()
       toast(`Saved “${playlist.title}” as a local copy`)
@@ -115,7 +116,6 @@ export function RemotePlaylistPage({ playlistId }: { playlistId: string }): Reac
   }
 
   const metaParts = [
-    playlist.author,
     playlist.countText,
     playlist.views,
     playlist.lastUpdated
@@ -133,7 +133,16 @@ export function RemotePlaylistPage({ playlistId }: { playlistId: string }): Reac
         )}
         <div className="ytpl-header__body">
           <h1 className="ytpl-header__title">{playlist.title}</h1>
-          <p className="ytpl-header__meta">{metaParts.join(' · ')}</p>
+          {playlist.author && (
+            <div className="ytpl-header__author">
+              <ChannelLine
+                name={playlist.author}
+                channelId={playlist.authorId ?? null}
+                avatar={playlist.authorAvatar ?? null}
+              />
+            </div>
+          )}
+          {metaParts.length > 0 && <p className="ytpl-header__meta">{metaParts.join(' · ')}</p>}
           {playlist.description && <p className="ytpl-header__desc">{playlist.description}</p>}
           <div className="ytpl-header__actions">
             <button className="btn btn--filled" disabled={items.length === 0} onClick={playAll}>
@@ -179,9 +188,9 @@ export function RemotePlaylistPage({ playlistId }: { playlistId: string }): Reac
         <EmptyState icon="playlist" title="This playlist is empty" />
       ) : viewMode === 'grid' ? (
         <>
-          <div key={playlist.id} className="video-grid animate-fade-up">
+          <MasonryGrid key={playlist.id} className="animate-fade-up">
             {items.map((video, index) => {
-              const enrichedVideo = enrichVideoWithHistory(video, history)
+              const enrichedVideo = enrichVideoWithHistory(video, historyMap)
               return (
                 <VideoCard
                   key={`${video.videoId}-${index}`}
@@ -190,7 +199,7 @@ export function RemotePlaylistPage({ playlistId }: { playlistId: string }): Reac
                 />
               )
             })}
-          </div>
+          </MasonryGrid>
           <div ref={sentinelRef} />
           {loadingMore && <Loader label="Loading more…" />}
         </>
@@ -198,7 +207,7 @@ export function RemotePlaylistPage({ playlistId }: { playlistId: string }): Reac
         <>
           <ul key={playlist.id} className="list animate-fade-up">
             {items.map((video, index) => {
-              const enrichedVideo = enrichVideoWithHistory(video, history)
+              const enrichedVideo = enrichVideoWithHistory(video, historyMap)
               return (
                 <ListRow
                   key={`${video.videoId}-${index}`}
@@ -215,6 +224,7 @@ export function RemotePlaylistPage({ playlistId }: { playlistId: string }): Reac
                     name={enrichedVideo.author}
                     channelId={enrichedVideo.authorId}
                     avatar={enrichedVideo.authorAvatar}
+                    artists={enrichedVideo.artists}
                   />
                   <div className="list-row__stats">
                     {[

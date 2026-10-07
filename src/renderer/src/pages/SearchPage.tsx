@@ -6,21 +6,23 @@ import { Icon } from '../components/Icons'
 import { ListRow } from '../components/ListRow'
 import { ChannelLine } from '../components/ChannelLine'
 import { VideoOptions } from '../components/VideoOptions'
+import { MasonryGrid } from '../components/MasonryGrid'
 import { ViewModeToggle } from '../components/ViewModeToggle'
 import { useViewMode } from '../lib/useViewMode'
 import { navigate, searchRoute } from '../lib/router'
 import { resolveYouTubeUrl } from '../lib/youtubeUrl'
 import { useApp } from '../state/AppContext'
-import { formatCount, formatRelative, formatVideoPublished } from '../lib/format'
+import { formatCount, formatRelative, formatVideoPublished, safeText } from '../lib/format'
 import { scrollPageToTop } from '../lib/scroll'
 import { enrichVideoWithHistory } from '../lib/enrich'
 import type { SearchFilter, SearchItem, VideoSummary } from '../../../shared/types'
 
-const FILTERS: { id: SearchFilter; label: string; icon: 'search' | 'play' | 'person' | 'playlist' | 'music_note' }[] = [
+const FILTERS: { id: SearchFilter; label: string; icon: 'search' | 'play' | 'person' | 'playlist' | 'album' | 'music_note' }[] = [
   { id: 'all', label: 'All', icon: 'search' },
   { id: 'videos', label: 'Videos', icon: 'play' },
   { id: 'channels', label: 'Channels', icon: 'person' },
   { id: 'playlists', label: 'Playlists', icon: 'playlist' },
+  { id: 'albums', label: 'Albums', icon: 'album' },
   { id: 'music', label: 'Music', icon: 'music_note' }
 ]
 
@@ -41,7 +43,7 @@ export function SearchPage({
     isYoutubePlaylistSaved,
     saveYoutubePlaylistSummary,
     removeYoutubePlaylist,
-    history
+    historyMap
   } = useApp()
   const [viewMode, setViewMode] = useViewMode('search')
   const [input, setInput] = useState(query)
@@ -57,11 +59,24 @@ export function SearchPage({
   const sentinelRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
   const requestRef = useRef(0)
+  const suggRequestRef = useRef(0)
   const suggTimer = useRef<number | null>(null)
+
+  const cancelSuggestions = useCallback(() => {
+    if (suggTimer.current) {
+      window.clearTimeout(suggTimer.current)
+      suggTimer.current = null
+    }
+    suggRequestRef.current++
+    setShowSuggestions(false)
+    setSuggestions([])
+    setActiveSuggestion(-1)
+  }, [])
 
   useEffect(() => {
     setInput(query)
-  }, [query])
+    cancelSuggestions()
+  }, [query, cancelSuggestions])
 
   // The app dispatches this when the user presses `/` anywhere outside a text
   // field, so search is always one keystroke away from any screen.
@@ -76,12 +91,15 @@ export function SearchPage({
 
   // Run the search (and remember it in search history).
   useEffect(() => {
+    cancelSuggestions()
     const q = query.trim()
     const id = ++requestRef.current
     if (!q) {
       setResults([])
       setContinuation(null)
       setError(null)
+      setLoading(false)
+      setLoadingMore(false)
       return
     }
     const directRoute = resolveYouTubeUrl(q)
@@ -93,6 +111,7 @@ export function SearchPage({
     setLoading(true)
     setError(null)
     setResults([])
+    setContinuation(null)
     scrollPageToTop('auto')
     void window.api
       .search(q, filter)
@@ -107,13 +126,15 @@ export function SearchPage({
       .finally(() => {
         if (requestRef.current === id) setLoading(false)
       })
-  }, [query, filter, settings.saveSearchHistory, recordSearch])
+  }, [query, filter, settings.saveSearchHistory, recordSearch, cancelSuggestions])
 
   const loadMore = useCallback(async () => {
     if (!continuation || loadingMore) return
+    const id = requestRef.current
     setLoadingMore(true)
     try {
       const page = await window.api.searchMore(continuation)
+      if (requestRef.current !== id) return
       setResults((prev) => {
         const keyOf = (item: SearchItem): string =>
           item.type === 'video' ? `video:${item.videoId}` : `${item.type}:${item.id}`
@@ -122,9 +143,9 @@ export function SearchPage({
       })
       setContinuation(page.continuation)
     } catch {
-      setContinuation(null)
+      if (requestRef.current === id) setContinuation(null)
     } finally {
-      setLoadingMore(false)
+      if (requestRef.current === id) setLoadingMore(false)
     }
   }, [continuation, loadingMore])
 
@@ -144,7 +165,12 @@ export function SearchPage({
   const onInputChange = (value: string): void => {
     setInput(value)
     setActiveSuggestion(-1)
-    if (suggTimer.current) window.clearTimeout(suggTimer.current)
+    if (suggTimer.current) {
+      window.clearTimeout(suggTimer.current)
+      suggTimer.current = null
+    }
+    const reqId = ++suggRequestRef.current
+
     if (!value.trim()) {
       setSuggestions([])
       setShowSuggestions(false)
@@ -152,14 +178,15 @@ export function SearchPage({
     }
     const directRoute = resolveYouTubeUrl(value)
     if (directRoute) {
-      setSuggestions([])
-      setShowSuggestions(false)
+      cancelSuggestions()
       setInput('')
       navigate(directRoute)
       return
     }
     suggTimer.current = window.setTimeout(() => {
       void window.api.suggestions(value.trim()).then((items) => {
+        if (suggRequestRef.current !== reqId) return
+        if (document.activeElement !== inputRef.current) return
         setSuggestions(items)
         setShowSuggestions(items.length > 0)
       })
@@ -172,9 +199,7 @@ export function SearchPage({
       const directRoute = resolveYouTubeUrl(text)
       if (directRoute) {
         event.preventDefault()
-        if (suggTimer.current) window.clearTimeout(suggTimer.current)
-        setShowSuggestions(false)
-        setActiveSuggestion(-1)
+        cancelSuggestions()
         setInput('')
         navigate(directRoute)
       }
@@ -187,9 +212,7 @@ export function SearchPage({
       const directRoute = resolveYouTubeUrl(text)
       if (directRoute) {
         event.preventDefault()
-        if (suggTimer.current) window.clearTimeout(suggTimer.current)
-        setShowSuggestions(false)
-        setActiveSuggestion(-1)
+        cancelSuggestions()
         setInput('')
         navigate(directRoute)
       }
@@ -209,17 +232,24 @@ export function SearchPage({
 
   const submit = (value?: string): void => {
     const q = (value ?? input).trim()
-    setShowSuggestions(false)
-    setActiveSuggestion(-1)
+    cancelSuggestions()
     if (!q) return
     const directRoute = resolveYouTubeUrl(q)
     if (directRoute) {
-      if (suggTimer.current) window.clearTimeout(suggTimer.current)
       setInput('')
       navigate(directRoute)
       return
     }
     navigate(searchRoute(q, filter))
+  }
+
+  const fillSearch = (queryText: string): void => {
+    cancelSuggestions()
+    setInput(queryText)
+    if (inputRef.current) {
+      inputRef.current.focus()
+      inputRef.current.setSelectionRange(queryText.length, queryText.length)
+    }
   }
 
   const goFilter = (next: SearchFilter): void => {
@@ -238,14 +268,14 @@ export function SearchPage({
       event.preventDefault()
       submit(activeSuggestion >= 0 ? suggestions[activeSuggestion] : undefined)
     } else if (event.key === 'Escape') {
-      setShowSuggestions(false)
+      cancelSuggestions()
     }
   }
 
   const renderItem = (item: SearchItem, index: number): React.JSX.Element => {
     if (item.type === 'video') {
       const rawVideo = item as VideoSummary & { type: 'video' }
-      const video = enrichVideoWithHistory(rawVideo, history)
+      const video = enrichVideoWithHistory(rawVideo, historyMap)
       return (
         <VideoCard
           key={`v-${video.videoId}-${index}`}
@@ -272,7 +302,7 @@ export function SearchPage({
   const renderListItem = (item: SearchItem, index: number): React.JSX.Element => {
     if (item.type === 'video') {
       const rawVideo = item as VideoSummary & { type: 'video' }
-      const video = enrichVideoWithHistory(rawVideo, history)
+      const video = enrichVideoWithHistory(rawVideo, historyMap)
       return (
         <ListRow
           key={`v-${video.videoId}-${index}`}
@@ -283,17 +313,19 @@ export function SearchPage({
           duration={video.duration}
           isLive={video.isLive}
           isPremiere={video.isPremiere}
+          thumbSquare={video.isMusicTrack}
           actions={<VideoOptions video={video} label="Video options" />}
         >
           <ChannelLine
             name={video.author}
             channelId={video.authorId}
-            avatar={video.authorAvatar}
+            avatar={video.isMusicTrack ? null : (video.authorAvatar ?? null)}
           />
           <div className="list-row__stats">
             {[
+              video.album ? safeText(video.album) : null,
               video.viewCount != null ? `${formatCount(video.viewCount)} views` : null,
-              formatVideoPublished(video)
+              !video.isMusicTrack ? formatVideoPublished(video) : null
             ].filter(Boolean).join(' · ')}
           </div>
         </ListRow>
@@ -342,7 +374,7 @@ export function SearchPage({
             <input
               ref={inputRef}
               className="search-bar__input"
-              placeholder="Search videos, channels, playlists, music…"
+              placeholder="Search videos, channels, playlists, or paste a YouTube link…"
               value={input}
               autoFocus
               role="combobox"
@@ -438,7 +470,7 @@ export function SearchPage({
       )}
 
       {!loading && !query.trim() && !error && (
-        <>
+        <div className="search-empty-content animate-fade-up">
           {settings.saveSearchHistory && searchHistory.length > 0 ? (
             <div className="recent">
               <div className="recent__head">
@@ -462,7 +494,18 @@ export function SearchPage({
                     </button>
                     <span className="recent__at">{formatRelative(entry.searchedAt)}</span>
                     <button
+                      type="button"
+                      className="icon-btn icon-btn--sm recent__fill"
+                      title="Fill into search bar"
+                      aria-label={`Fill “${entry.query}” into search bar`}
+                      onClick={() => fillSearch(entry.query)}
+                    >
+                      <Icon name="northWest" size={16} />
+                    </button>
+                    <button
+                      type="button"
                       className="icon-btn icon-btn--sm recent__remove"
+                      title="Remove from history"
                       aria-label={`Remove “${entry.query}” from search history`}
                       onClick={() => void removeSearch(entry.query)}
                     >
@@ -487,7 +530,7 @@ export function SearchPage({
               }
             />
           )}
-        </>
+        </div>
       )}
 
       {!loading && query.trim() && results.length === 0 && !error && (
@@ -498,12 +541,12 @@ export function SearchPage({
         />
       )}
 
-      {results.length > 0 && (
+      {Boolean(query.trim()) && results.length > 0 && (
         <div key={`${query}|${filter}`} className="search-results-wrap animate-fade-up">
           {viewMode === 'grid' ? (
-            <div className="video-grid">
+            <MasonryGrid>
               {results.map((item, index) => renderItem(item, index))}
-            </div>
+            </MasonryGrid>
           ) : (
             <ul className="list animate-fade-up">
               {results.map((item, index) => renderListItem(item, index))}

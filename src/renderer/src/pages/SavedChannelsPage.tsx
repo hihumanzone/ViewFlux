@@ -3,6 +3,7 @@ import { Icon } from '../components/Icons'
 import { InlineSearch } from '../components/InlineSearch'
 import { SelectField, type SelectOption } from '../components/SelectField'
 import { VideoCard } from '../components/VideoCard'
+import { MasonryGrid } from '../components/MasonryGrid'
 import { BookmarkChannelDialog } from '../components/BookmarkChannelDialog'
 import { RandomChannelDialog } from '../components/RandomChannelDialog'
 import { EmptyState } from '../components/EmptyState'
@@ -42,7 +43,7 @@ export function SavedChannelsPage({ initialTab }: { initialTab?: string | null }
     deleteChannelFolder,
     confirm,
     toast,
-    history
+    historyMap
   } = useApp()
 
   const [feedViewMode, setFeedViewMode] = useViewMode('channels-feed')
@@ -460,7 +461,7 @@ export function SavedChannelsPage({ initialTab }: { initialTab?: string | null }
               {feedViewMode === 'list' ? (
                 <ul className="list animate-fade-up">
                   {sortedFeedVideos.map((video) => {
-                    const enrichedVideo = enrichVideoWithHistory(video, history)
+                    const enrichedVideo = enrichVideoWithHistory(video, historyMap)
                     return (
                       <ListRow
                         key={video.videoId}
@@ -489,12 +490,12 @@ export function SavedChannelsPage({ initialTab }: { initialTab?: string | null }
                   })}
                 </ul>
               ) : (
-                <div className="video-grid">
+                <MasonryGrid>
                   {sortedFeedVideos.map((video) => {
-                    const enrichedVideo = enrichVideoWithHistory(video, history)
+                    const enrichedVideo = enrichVideoWithHistory(video, historyMap)
                     return <VideoCard key={video.videoId} video={enrichedVideo} />
                   })}
-                </div>
+                </MasonryGrid>
               )}
             </div>
           )}

@@ -10,7 +10,7 @@ import type { HistoryEntry, PlaylistVideo, VideoSummary } from '../../../shared/
  */
 export function enrichVideoWithHistory(
   video: VideoSummary | PlaylistVideo,
-  history: readonly HistoryEntry[] | undefined | null
+  history: readonly HistoryEntry[] | ReadonlyMap<string, HistoryEntry> | undefined | null
 ): VideoSummary {
   const base: VideoSummary = {
     videoId: video.videoId,
@@ -28,8 +28,13 @@ export function enrichVideoWithHistory(
     isLive: Boolean(video.isLive)
   }
 
-  if (!history || history.length === 0) return base
-  const hist = history.find((h) => h.videoId === video.videoId)
+  if (!history) return base
+  const hist =
+    history instanceof Map
+      ? history.get(video.videoId)
+      : Array.isArray(history)
+        ? history.find((h) => h.videoId === video.videoId)
+        : undefined
   if (!hist) return base
 
   const histIsPrem = Boolean(hist.isPremiere || /premiere/i.test(hist.published ?? ''))

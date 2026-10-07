@@ -1,5 +1,5 @@
 import { memo, useMemo, type ReactNode } from 'react'
-import { formatDuration } from '../lib/format'
+import { formatDuration, safeText } from '../lib/format'
 import { navigate, routeLinkProps } from '../lib/router'
 import { useApp } from '../state/AppContext'
 
@@ -24,6 +24,8 @@ export interface ListRowProps {
   hasProgress?: boolean
   /** Drawn over the thumbnail above the duration badge, e.g. a watch-progress bar. */
   thumbnailOverlay?: ReactNode
+  /** Whether to render a 1:1 square thumbnail (used for music tracks / albums). */
+  thumbSquare?: boolean
   /** Trailing controls: overflow menus, reorder and remove buttons. */
   actions?: ReactNode
 }
@@ -49,6 +51,7 @@ export const ListRow = memo(function ListRow({
   isPremiere,
   hasProgress,
   thumbnailOverlay,
+  thumbSquare,
   actions
 }: ListRowProps): React.JSX.Element {
   const { getHistoryEntry } = useApp()
@@ -104,7 +107,10 @@ export const ListRow = memo(function ListRow({
     Boolean(isPremiere) && !isLive && duration != null && duration > 0
 
   return (
-    <li className="list-row" onClick={onRowClick}>
+    <li
+      className={`list-row${thumbSquare ? ' list-row--square-thumb' : ''}`}
+      onClick={onRowClick}
+    >
       <div className="list-row__thumb-wrap">
         <img className="list-row__thumb" src={thumbnail} alt="" loading="lazy" />
         {isEndedPremiere && (
@@ -131,7 +137,7 @@ export const ListRow = memo(function ListRow({
       </div>
       <div className="list-row__body">
         <a className="list-row__title" {...routeLinkProps(to)}>
-          {title}
+          {safeText(title)}
         </a>
         {children}
       </div>

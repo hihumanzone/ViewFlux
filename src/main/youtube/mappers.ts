@@ -1,4 +1,5 @@
 import type {
+  ArtistRef,
   ChannelSummary,
   PlaylistSummary,
   SearchItem,
@@ -315,43 +316,38 @@ export function toLockupVideo(
 }
 
 export function toChannelSummary(node: unknown): ChannelSummary | null {
-  const c = node as {
-    type?: string
-    id?: string
-    author?: {
-      name?: string
-      id?: string
-      thumbnails?: ThumbLike[]
-      best_thumbnail?: { url?: string }
-      avatar_thumbnail_url?: string
-      badges?: unknown[]
-    }
-    description?: TextLike
-    subscriber_count?: TextLike
-    subscribers?: TextLike
-    video_count?: TextLike
-  }
-  const id = c?.id ?? c?.author?.id
+  const c = node as any
+  const id = c?.id ?? c?.author?.id ?? c?.endpoint?.payload?.browseId
   if (!id) return null
   const { handle, subscribers, videoCount } = classifyChannelTexts([
-    text(c.subscriber_count),
-    text(c.subscribers),
-    text(c.video_count)
+    c.subscriber_count,
+    c.subscribers,
+    c.video_count,
+    c.subtitle,
+    c.short_byline,
+    c.long_byline
   ])
   const avatar =
     pickThumbnail(c.author?.thumbnails, 240) ||
+    pickThumbnail(c.thumbnails, 240) ||
     absUrl(c.author?.best_thumbnail?.url) ||
     absUrl(c.author?.avatar_thumbnail_url) ||
     null
+  const name =
+    text(c.author?.name) ||
+    text(c.title) ||
+    text(c.name) ||
+    (typeof c.author === 'string' ? c.author : '') ||
+    'Channel'
   return {
     id,
-    name: c.author?.name ?? '',
+    name,
     avatar,
-    handle,
-    subscribers,
-    videoCount,
-    description: text(c.description) || null,
-    isMusic: hasMusicBadge(c.author?.badges)
+    handle: handle ? String(handle) : null,
+    subscribers: subscribers ? String(subscribers) : null,
+    videoCount: videoCount ? String(videoCount) : null,
+    description: text(c.description) || text(c.description_snippet) || null,
+    isMusic: hasMusicBadge(c.author?.badges ?? c.badges)
   }
 }
 
@@ -360,7 +356,11 @@ export function toChannelSummary(node: unknown): ChannelSummary | null {
  * from a channel's "Releases" tab, where every entry is an album even if
  * YouTube hands out a plain playlist id.
  */
-export function toPlaylistSummary(node: unknown, isRelease = false): PlaylistSummary | null {
+export function toPlaylistSummary(
+  node: unknown,
+  isRelease = false,
+  ctx?: { author?: string | null; authorId?: string | null; authorAvatar?: string | null }
+): PlaylistSummary | null {
   if (isLockup(node)) {
     if (!node.content_id) return null
     const isAlbum = isRelease || node.content_type === 'ALBUM'
@@ -378,17 +378,18 @@ export function toPlaylistSummary(node: unknown, isRelease = false): PlaylistSum
     const { artist: author, year } = isAlbum
       ? splitReleaseByline(byline)
       : { artist: byline, year: null }
-    const { authorId, authorAvatar } = lockupAuthor(node)
+    const { authorId: lockupId, authorAvatar: lockupAvatar } = lockupAuthor(node)
     return {
       id: node.content_id,
       title: text(node.metadata?.title),
-      author,
-      authorId,
-      authorAvatar,
+      author: author || ctx?.author || null,
+      authorId: lockupId ?? ctx?.authorId ?? null,
+      authorAvatar: lockupAvatar ?? ctx?.authorAvatar ?? null,
       count: parseCompactCount(countText),
       countText: trackCountText(countText, isAlbum),
       thumbnail: thumbs ? pickThumbnail(thumbs, 480) : null,
       isAlbum,
+      thumbAspect: isAlbum ? 'square' : 'wide',
       year
     }
   }
@@ -420,66 +421,453 @@ export function toPlaylistSummary(node: unknown, isRelease = false): PlaylistSum
   return {
     id: pid,
     title: text(p.title),
-    author,
+    author: author || ctx?.author || null,
     authorId:
-      p.author?.channel_id ?? p.author?.id ?? p.author?.endpoint?.payload?.browseId ?? null,
+      p.author?.channel_id ?? p.author?.id ?? p.author?.endpoint?.payload?.browseId ?? ctx?.authorId ?? null,
     authorAvatar:
-      pickThumbnail(p.author?.thumbnails, 240) || absUrl(p.author?.avatar_thumbnail_url) || null,
+      pickThumbnail(p.author?.thumbnails, 240) || absUrl(p.author?.avatar_thumbnail_url) || ctx?.authorAvatar || null,
     count: parseCompactCount(countText),
     countText: trackCountText(countText, isAlbum),
     thumbnail:
       pickThumbnail(p.thumbnail_renderer?.thumbnail, 480) || pickThumbnail(p.thumbnails, 480) || null,
     isAlbum,
+    thumbAspect: isAlbum ? 'square' : 'wide',
     year
   }
 }
 
-/** YouTube Music search result item. */
-export function toMusicSummary(node: unknown): VideoSummary | null {
-  const m = node as {
-    id?: string
-    title?: string
-    author?: {
-      name?: string
-      id?: string
-      channel_id?: string
-      thumbnail?: { thumbnails?: ThumbLike[] }
-      endpoint?: { payload?: { browseId?: string } }
-    }
-    authors?: {
-      name?: string
-      channel_id?: string
-      id?: string
-      thumbnail?: { thumbnails?: ThumbLike[] }
-      endpoint?: { payload?: { browseId?: string } }
-    }[]
-    duration?: { seconds?: number; text?: string }
-    views?: string
-    thumbnails?: ThumbLike[]
+/** Identifies dynamic radio stations (RDAT, RDAM, RDEM, or radio playlists) that fail static playback. */
+export function isRadioItem(
+  id?: string | null,
+  title?: string | null,
+  subtitle?: string | null,
+  itemType?: string | null
+): boolean {
+  if (itemType === 'radio') return true
+  const cleanId = (id || '').replace(/^VL/, '')
+  if (
+    cleanId.startsWith('RDAT') ||
+    cleanId.startsWith('RDAM') ||
+    cleanId.startsWith('RDEM') ||
+    (cleanId.startsWith('RD') && !cleanId.startsWith('RDCLAK'))
+  ) {
+    return true
   }
+  const cleanTitle = (title || '').trim().toLowerCase()
+  const cleanSubtitle = (subtitle || '').trim().toLowerCase()
+  if (cleanTitle.startsWith('radio •') || cleanTitle.startsWith('radio -') || cleanTitle === 'radio') return true
+  if (/^radio\s*[•\-:]/i.test(cleanTitle)) return true
+  if (cleanSubtitle.startsWith('radio •') || cleanSubtitle.startsWith('radio -') || cleanSubtitle === 'radio') return true
+  return false
+}
+
+/** Detects natural thumbnail aspect ratio from dimensions or track type. */
+export function detectThumbAspect(thumbs: unknown, isMusicTrack = false): 'square' | 'wide' {
+  if (Array.isArray(thumbs) && thumbs.length > 0) {
+    const first = thumbs[0] as ThumbLike | undefined
+    if (first?.width && first?.height) {
+      const ratio = first.width / first.height
+      if (ratio <= 1.2) return 'square'
+      return 'wide'
+    }
+  }
+  return isMusicTrack ? 'square' : 'wide'
+}
+
+/** Parses YouTube Music secondary flex column / subtitle runs into author, authorId, track count, year, and artists. */
+export function parseMusicSecondaryRuns(runs: any[] | undefined): {
+  author: string | null
+  authorId: string | null
+  countText: string | null
+  year: string | null
+  artists: ArtistRef[]
+} {
+  const result: {
+    author: string | null
+    authorId: string | null
+    countText: string | null
+    year: string | null
+    artists: ArtistRef[]
+  } = {
+    author: null,
+    authorId: null,
+    countText: null,
+    year: null,
+    artists: []
+  }
+
+  if (!Array.isArray(runs) || runs.length === 0) return result
+
+  const segments: any[][] = []
+  let currentSegment: any[] = []
+  for (const run of runs) {
+    const t = text(run?.text ?? run)
+    if (t.trim() === '•') {
+      if (currentSegment.length > 0) segments.push(currentSegment)
+      currentSegment = []
+    } else {
+      currentSegment.push(run)
+    }
+  }
+  if (currentSegment.length > 0) segments.push(currentSegment)
+
+  for (let i = 0; i < segments.length; i++) {
+    const seg = segments[i]
+    const segText = seg.map((r) => text(r?.text ?? r)).join('').trim()
+    if (!segText) continue
+
+    if (/\b\d+\s*(?:songs?|tracks?|videos?|episodes?)\b/i.test(segText)) {
+      result.countText = segText
+    } else if (/^[12]\d{3}$/.test(segText)) {
+      result.year = segText
+    } else if (
+      !/^(playlist|album|single|ep|podcast|episode|song|video|radio)$/i.test(segText) &&
+      !result.author
+    ) {
+      result.author = segText
+      for (const r of seg) {
+        const name = text(r?.text ?? r).replace(/^[\s,&•]+|[\s,&•]+$/g, '').trim()
+        const id =
+          r?.endpoint?.payload?.browseId ??
+          r?.endpoint?.browseEndpoint?.browseId ??
+          r?.navigationEndpoint?.browseEndpoint?.browseId ??
+          r?.navigationEndpoint?.payload?.browseId ??
+          r?.browseId ??
+          null
+        if (name && !/^[&,]$/.test(name) && name.toLowerCase() !== 'and more' && name.toLowerCase() !== 'more') {
+          result.artists.push({ name, id })
+          if (id && !result.authorId) {
+            result.authorId = id
+          }
+        }
+      }
+    }
+  }
+
+  return result
+}
+
+export function toMusicSummary(node: unknown): VideoSummary | null {
+  const m = node as any
   if (!m?.id) return null
+
+  const artists: ArtistRef[] = []
+  if (Array.isArray(m.artists)) {
+    for (const a of m.artists) {
+      const name = text(a.name) || text(a)
+      const aId = a.channel_id ?? a.id ?? a.endpoint?.payload?.browseId ?? null
+      if (name) artists.push({ name, id: aId })
+    }
+  } else if (Array.isArray(m.authors)) {
+    for (const a of m.authors) {
+      const name = text(a.name) || text(a)
+      const aId = a.channel_id ?? a.id ?? a.endpoint?.payload?.browseId ?? null
+      if (name) artists.push({ name, id: aId })
+    }
+  }
+
+  const artistList = artists.map((a) => a.name).filter(Boolean)
+  const authorName =
+    artistList.length > 0
+      ? artistList.join(', ')
+      : text(m.authors?.[0]?.name) || text(m.author?.name) || text(m.author) || ''
+
+  const rawPrimary = m.artists?.[0] ?? m.authors?.[0] ?? m.author
   const authorId =
-    m.authors?.[0]?.channel_id ??
-    m.authors?.[0]?.id ??
-    m.authors?.[0]?.endpoint?.payload?.browseId ??
-    m.author?.channel_id ??
-    m.author?.id ??
-    m.author?.endpoint?.payload?.browseId ??
+    artists[0]?.id ??
+    rawPrimary?.id ??
+    rawPrimary?.channel_id ??
+    rawPrimary?.endpoint?.payload?.browseId ??
     null
+
   const authorThumbs =
-    m.authors?.[0]?.thumbnail?.thumbnails ?? m.author?.thumbnail?.thumbnails ?? undefined
+    rawPrimary?.thumbnail?.thumbnails ?? m.author?.thumbnails ?? undefined
+
+  const rawThumbs =
+    m.thumbnails ??
+    (Array.isArray((m.thumbnail as any)?.contents)
+      ? (m.thumbnail as any).contents
+      : Array.isArray(m.thumbnail)
+        ? m.thumbnail
+        : undefined)
+
+  const title = text(m.title) || ''
+  if (isRadioItem(m.id, title, authorName, m.item_type)) return null
+
+  const isSquareSong =
+    m.item_type === 'song' ||
+    !m.duration ||
+    Boolean(rawThumbs?.[0]?.width && rawThumbs?.[0]?.height && Math.abs(rawThumbs[0].width - rawThumbs[0].height) <= 4)
+  const thumbAspect = detectThumbAspect(rawThumbs, isSquareSong)
+
   return {
     videoId: m.id,
-    title: m.title ?? '',
-    author: m.authors?.[0]?.name ?? m.author?.name ?? '',
+    title,
+    author: authorName,
     authorId,
     authorAvatar: pickThumbnail(authorThumbs, 240) || null,
     duration: m.duration?.seconds ?? parseDurationText(m.duration?.text),
-    thumbnail: pickThumbnail(m.thumbnails, 480),
+    thumbnail: pickThumbnail(rawThumbs, 480) || '',
     viewCount: parseCompactCount(m.views),
     published: null,
-    isLive: false
+    isLive: false,
+    album: m.album?.name ? text(m.album.name) : text(m.album) || null,
+    albumId: m.album?.id ?? m.album?.endpoint?.payload?.browseId ?? null,
+    isMusicTrack: true,
+    artists: artists.length > 0 ? artists : undefined,
+    thumbAspect
   }
+}
+
+/** YouTube Music search result item (albums). */
+export function toMusicAlbumSummary(node: unknown): PlaylistSummary | null {
+  const m = node as any
+  const id = (m?.id ?? m?.endpoint?.payload?.browseId ?? '').replace(/^VL/, '')
+  if (!id) return null
+  const title = text(m.title) || text(m.name) || 'Album'
+  const rawThumbs =
+    m.thumbnails ??
+    (Array.isArray(m.thumbnail?.contents)
+      ? m.thumbnail.contents
+      : Array.isArray(m.thumbnail)
+        ? m.thumbnail
+        : undefined)
+
+  const sec = parseMusicSecondaryRuns(m.flex_columns?.[1]?.title?.runs ?? m.subtitle?.runs)
+
+  const primaryAuthor = m.author ?? m.artists?.[0]
+  const author =
+    (primaryAuthor ? text(primaryAuthor.name) || text(primaryAuthor) : null) ||
+    sec.author ||
+    null
+
+  const authorId =
+    primaryAuthor?.channel_id ??
+    primaryAuthor?.id ??
+    primaryAuthor?.endpoint?.payload?.browseId ??
+    sec.authorId ??
+    null
+
+  const artists: ArtistRef[] = []
+  if (Array.isArray(m.artists) && m.artists.length > 0) {
+    for (const a of m.artists) {
+      const name = text(a.name) || text(a)
+      const aId = a.channel_id ?? a.id ?? a.endpoint?.payload?.browseId ?? null
+      if (name) artists.push({ name, id: aId })
+    }
+  } else if (sec.artists.length > 0) {
+    artists.push(...sec.artists)
+  } else if (author) {
+    artists.push({ name: author, id: authorId })
+  }
+
+  const rawCount = sec.countText || (m.item_count ? text(m.item_count) : null)
+  const countText = rawCount && !/^(album|ep|single|release|playlist)$/i.test(rawCount.trim()) ? rawCount : null
+
+  if (isRadioItem(id, title, author, m.item_type)) return null
+
+  return {
+    id,
+    title,
+    author,
+    authorId,
+    authorAvatar: null,
+    count: null,
+    countText,
+    thumbnail: pickThumbnail(rawThumbs, 480) || null,
+    isAlbum: true,
+    year: m.year ? text(m.year) : sec.year,
+    artists: artists.length > 0 ? artists : undefined,
+    thumbAspect: 'square'
+  }
+}
+
+/** Maps any standard YouTube Music result (cards, songs, albums, artists, playlists) to a SearchItem. */
+export function toMusicSearchItem(node: unknown): SearchItem | null {
+  if (!node || typeof node !== 'object') return null
+  const item = node as any
+
+  // 1. MusicCardShelf (top hero card)
+  if (item.type === 'MusicCardShelf') {
+    const browseId: string | undefined =
+      item.on_tap?.payload?.browseId ??
+      item.buttons?.find((b: any) => b.endpoint?.payload?.browseId)?.endpoint?.payload?.browseId
+    const videoId: string | undefined =
+      item.on_tap?.payload?.videoId ??
+      item.buttons?.find((b: any) => b.endpoint?.payload?.videoId)?.endpoint?.payload?.videoId
+    const playlistId: string | undefined =
+      item.on_tap?.payload?.playlistId ??
+      item.buttons?.find((b: any) => b.endpoint?.payload?.playlistId)?.endpoint?.payload?.playlistId
+    const cardTitle = text(item.title) || ''
+    const subtitle = text(item.subtitle) || ''
+    const thumbs = item.thumbnail?.contents ?? item.thumbnail
+
+    // Radio check
+    if (isRadioItem(browseId || playlistId, cardTitle, subtitle, item.item_type || (playlistId?.startsWith('RD') ? 'radio' : undefined))) return null
+
+    const sec = parseMusicSecondaryRuns(item.subtitle?.runs)
+
+    if (browseId && (browseId.startsWith('MPREb_') || /album/i.test(subtitle))) {
+      const parts = subtitle.split('•').map((s: string) => s.trim())
+      const author = sec.author || (parts.length > 1 ? parts[1] : null)
+      const year = sec.year || (parts.length > 2 ? parts[2] : null)
+      return {
+        type: 'playlist',
+        id: browseId,
+        title: cardTitle || 'Album',
+        author,
+        authorId: sec.authorId ?? null,
+        authorAvatar: null,
+        count: null,
+        countText: null,
+        thumbnail: pickThumbnail(thumbs, 480) || null,
+        isAlbum: true,
+        year,
+        artists: sec.artists.length > 0 ? sec.artists : author ? [{ name: author, id: sec.authorId ?? null }] : undefined,
+        thumbAspect: 'square'
+      }
+    }
+
+    if (browseId && browseId.startsWith('UC')) {
+      return {
+        type: 'channel',
+        id: browseId,
+        name: cardTitle,
+        handle: null,
+        subscribers: subtitle || null,
+        videoCount: null,
+        description: null,
+        avatar: pickThumbnail(thumbs, 240) || null,
+        isMusic: true
+      }
+    }
+
+    if (videoId) {
+      return {
+        type: 'video',
+        videoId,
+        title: cardTitle,
+        author: sec.author || subtitle.split('•')[0]?.trim() || '',
+        authorId: sec.authorId || browseId || null,
+        authorAvatar: null,
+        duration: null,
+        thumbnail: pickThumbnail(thumbs, 480) || '',
+        viewCount: null,
+        published: null,
+        isLive: false,
+        isMusicTrack: true,
+        artists: sec.artists.length > 0 ? sec.artists : undefined,
+        thumbAspect: detectThumbAspect(thumbs, true)
+      }
+    }
+
+    if (browseId) {
+      const parts = subtitle.split('•').map((s: string) => s.trim())
+      const author = sec.author || (parts.length > 0 ? parts[0] : null)
+      const countPart = sec.countText || (parts.find((p) => /\b\d+\s*(?:songs?|tracks?|videos?)\b/i.test(p)) ?? null)
+      return {
+        type: 'playlist',
+        id: browseId.replace(/^VL/, ''),
+        title: cardTitle,
+        author,
+        authorId: sec.authorId ?? null,
+        authorAvatar: null,
+        count: null,
+        countText: countPart,
+        thumbnail: pickThumbnail(thumbs, 480) || null,
+        isAlbum: false,
+        artists: sec.artists.length > 0 ? sec.artists : author ? [{ name: author, id: sec.authorId ?? null }] : undefined,
+        thumbAspect: detectThumbAspect(thumbs)
+      }
+    }
+    return null
+  }
+
+  // 2. MusicResponsiveListItem
+  const itemType: string = item.item_type ?? ''
+  const itemTitle = text(item.title) || text(item.name) || ''
+  const rawId = item.id || item.endpoint?.payload?.browseId || ''
+  const itemPlaylistId = item.overlay?.content?.endpoint?.payload?.playlistId ?? item.endpoint?.payload?.playlistId
+  if (isRadioItem(rawId || itemPlaylistId, itemTitle, text(item.subtitle), itemType || (itemPlaylistId?.startsWith('RD') ? 'radio' : undefined))) {
+    return null
+  }
+
+  if (itemType === 'album') {
+    const summary = toMusicAlbumSummary(item)
+    return summary ? { type: 'playlist', ...summary } : null
+  }
+
+  if (itemType === 'playlist') {
+    const id: string = (item.id || item.endpoint?.payload?.browseId || '').replace(/^VL/, '')
+    if (!id) return null
+    if (isRadioItem(id, itemTitle, null, itemType)) return null
+
+    const sec = parseMusicSecondaryRuns(item.flex_columns?.[1]?.title?.runs ?? item.subtitle?.runs)
+    const authorName =
+      text(item.author?.name) ||
+      text(item.author) ||
+      text(item.artists?.[0]?.name) ||
+      text(item.authors?.[0]?.name) ||
+      sec.author ||
+      null
+    const authorId =
+      item.author?.id ??
+      item.author?.channel_id ??
+      item.artists?.[0]?.id ??
+      item.authors?.[0]?.id ??
+      sec.authorId ??
+      null
+
+    const thumbs = item.thumbnail?.contents ?? item.thumbnails ?? item.thumbnail
+    const countText =
+      sec.countText ||
+      text(item.item_count) ||
+      (text(item.subtitle) && /\b\d+\s*songs\b/i.test(text(item.subtitle)) ? text(item.subtitle) : null)
+
+    return {
+      type: 'playlist',
+      id,
+      title: itemTitle || 'Playlist',
+      author: authorName,
+      authorId,
+      authorAvatar: null,
+      count: null,
+      countText,
+      thumbnail: pickThumbnail(thumbs, 480) || null,
+      isAlbum: false,
+      artists: sec.artists.length > 0 ? sec.artists : authorName ? [{ name: authorName, id: authorId }] : undefined,
+      thumbAspect: detectThumbAspect(thumbs)
+    }
+  }
+
+  if (itemType === 'artist') {
+    const id: string = item.id || item.endpoint?.payload?.browseId || ''
+    if (!id) return null
+    const thumbs = item.thumbnail?.contents ?? item.thumbnails ?? item.thumbnail
+    return {
+      type: 'channel',
+      id,
+      name: text(item.name) || itemTitle || '',
+      handle: null,
+      subscribers: text(item.subscribers) || text(item.subtitle) || null,
+      videoCount: null,
+      description: null,
+      avatar: pickThumbnail(thumbs, 240) || null,
+      isMusic: true
+    }
+  }
+
+  if (
+    itemType === 'song' ||
+    itemType === 'video' ||
+    itemType === 'non_music_track' ||
+    (item.id && !item.id.startsWith('UC') && !item.id.startsWith('MPREb_') && !item.id.startsWith('VL'))
+  ) {
+    const summary = toMusicSummary(item)
+    return summary ? { type: 'video', ...summary } : null
+  }
+
+  return null
 }
 
 export function dedupe(items: SearchItem[]): SearchItem[] {
@@ -523,9 +911,13 @@ export function feedVideos(
   return items
 }
 
-export function feedPlaylists(feed: PlaylistFeed | null | undefined, isRelease = false): PlaylistSummary[] {
+export function feedPlaylists(
+  feed: PlaylistFeed | null | undefined,
+  isRelease = false,
+  ctx?: { author?: string | null; authorId?: string | null; authorAvatar?: string | null }
+): PlaylistSummary[] {
   const nodes = feed?.playlists ?? feed?.results ?? []
   return nodes
-    .map((n) => toPlaylistSummary(n, isRelease))
+    .map((n) => toPlaylistSummary(n, isRelease, ctx))
     .filter((p): p is PlaylistSummary => p !== null)
 }

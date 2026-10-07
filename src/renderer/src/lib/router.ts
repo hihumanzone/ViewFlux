@@ -12,7 +12,7 @@ export type Route =
   | { name: 'channel'; channelId: string; tab: string | null }
   | { name: 'ytpl'; playlistId: string }
 
-const FILTERS: SearchFilter[] = ['all', 'videos', 'channels', 'playlists', 'music']
+const FILTERS: SearchFilter[] = ['all', 'videos', 'channels', 'playlists', 'albums', 'music']
 
 function parseFilter(value: string | null): SearchFilter {
   return FILTERS.includes(value as SearchFilter) ? (value as SearchFilter) : 'all'

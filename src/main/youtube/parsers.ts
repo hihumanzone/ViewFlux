@@ -12,17 +12,26 @@ import type {
 // Text / number helpers
 // ---------------------------------------------------------------------------
 
-export function text(value: TextLike | string | null | undefined): string {
+export function text(value: unknown): string {
   if (value == null) return ''
   if (typeof value === 'string') return value
-  if (value.text) return value.text
-  if (Array.isArray(value.runs)) return value.runs.map((r) => r.text ?? '').join('')
-  if (typeof value.toString === 'function') {
-    const out = value.toString()
-    if (out && out !== '[object Object]') return out
+  if (typeof value === 'number') return String(value)
+  if (typeof value === 'object') {
+    const v = value as any
+    if (typeof v.text === 'string') return v.text
+    if (v.text && typeof v.text === 'object') return text(v.text)
+    if (Array.isArray(v.runs)) {
+      return v.runs.map((r: any) => (typeof r === 'object' ? r?.text ?? '' : String(r))).join('')
+    }
+    if (typeof v.simpleText === 'string') return v.simpleText
+    if (typeof v.toString === 'function') {
+      const out = v.toString()
+      if (typeof out === 'string' && out && out !== '[object Object]') return out
+    }
   }
   return ''
 }
+
 
 export function parseCount(value: TextLike | string | null | undefined): number | null {
   const raw = text(value)
@@ -181,7 +190,7 @@ export function lockupAuthor(node: LockupViewNode): { authorId: string | null; a
 }
 
 /** Classifies loose channel-related texts into handle / subscribers / video count. */
-export function classifyChannelTexts(candidates: (string | null | undefined)[]): {
+export function classifyChannelTexts(candidates: unknown[]): {
   handle: string | null
   subscribers: string | null
   videoCount: string | null

@@ -4,6 +4,7 @@ import { SliderField } from '../SliderField'
 import { SubtitleStyleControls } from '../SubtitleStyleControls'
 import { Switch } from '../Switch'
 import { PLAYBACK_SPEEDS as SPEEDS } from '../../../../shared/media'
+import { formatTime } from '../../lib/format'
 import { sameLanguage, type AudioTrack, type MenuKind, type SubtitleStyle, type TextTrack } from './types'
 
 export interface PlayerMenusProps {
@@ -41,6 +42,9 @@ export interface PlayerMenusProps {
   onSelectAudioTier: (tier: string | null) => void
   onOpenMenu?: (kind: MenuKind) => void
   onTogglePip?: () => void
+  sleepTimerMinutes?: number | null
+  sleepTimerRemainingSec?: number | null
+  onSetSleepTimer?: (minutes: number | null) => void
 }
 
 export const PlayerMenus = memo(function PlayerMenus({
@@ -73,9 +77,18 @@ export const PlayerMenus = memo(function PlayerMenus({
   onSelectAudio,
   onSelectAudioTier,
   onOpenMenu,
-  onTogglePip
+  onTogglePip,
+  sleepTimerMinutes,
+  sleepTimerRemainingSec,
+  onSetSleepTimer
 }: PlayerMenusProps): React.JSX.Element {
   const safeRate = Number.isFinite(rate) && rate >= 0.25 ? rate : 1
+  const sleepTimerSliderValue =
+    sleepTimerRemainingSec != null && sleepTimerMinutes != null && sleepTimerMinutes > 0
+      ? Math.max(1, Math.ceil(sleepTimerRemainingSec / 60))
+      : sleepTimerMinutes != null && sleepTimerMinutes > 0
+        ? sleepTimerMinutes
+        : 30
 
   return (
     <>
@@ -119,6 +132,67 @@ export const PlayerMenus = memo(function PlayerMenus({
             label="Playback speed"
             onChange={onChangeRate}
           />
+        </div>
+
+        {/* Sleep Timer */}
+        <div className="sheet__row sheet__row--stack">
+          <div className="sheet__row-head" style={{ alignItems: 'center' }}>
+            <div>
+              <span className="sheet__label">Sleep timer</span>
+              <div
+                className="sheet__value"
+                style={{
+                  fontSize: '12px',
+                  fontWeight: 600,
+                  marginTop: '1px',
+                  color: sleepTimerMinutes == null ? 'var(--on-surface-variant)' : 'var(--primary)',
+                  opacity: sleepTimerMinutes == null ? 0.75 : 1
+                }}
+              >
+                {sleepTimerMinutes == null
+                  ? 'Off'
+                  : sleepTimerMinutes === -1
+                    ? `End of video${sleepTimerRemainingSec != null ? ` (${formatTime(sleepTimerRemainingSec)} remaining)` : ''}`
+                    : sleepTimerRemainingSec != null
+                      ? `${formatTime(sleepTimerRemainingSec)} remaining`
+                      : `${sleepTimerMinutes}m`}
+              </div>
+            </div>
+            <Switch
+              on={sleepTimerMinutes != null}
+              label="Sleep timer"
+              onClick={() => {
+                if (sleepTimerMinutes != null) {
+                  onSetSleepTimer?.(null)
+                } else {
+                  onSetSleepTimer?.(30)
+                }
+              }}
+            />
+          </div>
+          <div style={{ marginTop: '4px', marginBottom: '4px' }}>
+            <SliderField
+              value={sleepTimerSliderValue}
+              min={1}
+              max={120}
+              step={1}
+              precision={0}
+              suffix="m"
+              label="Timer duration"
+              onChange={(m) => onSetSleepTimer?.(m)}
+            />
+          </div>
+          <div className="speed-chips sleep-chips">
+            {[15, 30, 45, 60, -1].map((m) => (
+              <button
+                key={m}
+                className={`speed-chips__chip${sleepTimerMinutes === m ? ' speed-chips__chip--active' : ''}`}
+                onClick={() => onSetSleepTimer?.(m)}
+              >
+                {m === -1 ? 'End' : `${m}m`}
+              </button>
+            ))}
+          </div>
         </div>
 
         <div className="sheet__row sheet__row--toggle">

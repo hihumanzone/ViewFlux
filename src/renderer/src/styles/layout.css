@@ -24,6 +24,7 @@
   overflow-x: hidden;
   padding: var(--content-pad-top) var(--content-pad) 24px;
   scroll-behavior: smooth;
+  scrollbar-gutter: stable;
 }
 
 /* ---- Title bar ---- */

@@ -158,34 +158,64 @@ export class ChannelService {
       }
     }
 
+    const rawTitle = text(meta.title) || text(headerContent.page_title) || text(headerContent.title)
+    const isTopicChannel = Boolean(
+      meta.music_artist_name ||
+      / - Topic$/i.test(rawTitle || '')
+    )
     const isMusic =
       hasMusicTitleBadge(headerContent.title) ||
       hasMusicTitleBadge(headerContent.page_title) ||
       hasMusicBadge(header.author?.badges) ||
-      Boolean(meta.music_artist_name)
+      Boolean(meta.music_artist_name) ||
+      isTopicChannel
 
     try {
       const names: string[] = channel.tabs ?? []
       if (names.includes('Videos') || safeHas('has_videos')) tabs.push('videos')
+      if (names.includes('Playlists') || safeHas('has_playlists')) tabs.push('playlists')
       if (
         names.includes('Releases') ||
         safeHas('has_releases') ||
-        (isMusic && this.albumsShelfToken(channel))
+        isTopicChannel
       ) {
         tabs.push('releases')
       }
-      if (names.includes('Playlists') || safeHas('has_playlists')) tabs.push('playlists')
+      if (names.includes('Live') || names.includes('Streams') || safeHas('has_live_streams')) {
+        tabs.push('live')
+      }
       if (safeHas('has_about')) tabs.push('about')
     } catch {
       /* fall back to defaults below */
     }
-    if (tabs.length === 0) tabs.push('videos', 'playlists', 'about')
+    if (tabs.length === 0) {
+      if (isTopicChannel) {
+        tabs.push('releases', 'about')
+      } else {
+        tabs.push('videos', 'playlists', 'about')
+      }
+    }
+
+    const displayName =
+      (meta.music_artist_name as string) ||
+      (rawTitle ? rawTitle.replace(/\s*-\s*Topic$/i, '').trim() : '') ||
+      rawTitle
+
+    const headerAvatar =
+      headerContent.image?.avatar?.image ??
+      headerContent.image?.avatar?.sources ??
+      headerContent.avatar?.image ??
+      header.avatar
+    const avatar =
+      (meta.avatar ? pickThumbnail(meta.avatar, 240) : null) ||
+      (Array.isArray(headerAvatar) ? pickThumbnail(headerAvatar, 240) : null) ||
+      null
 
     const canonicalId = (meta.external_id as string) || (channel.id as string) || id
     return {
       id: canonicalId,
-      name: text(meta.title) || text(headerContent.page_title) || text(headerContent.title),
-      avatar: meta.avatar ? pickThumbnail(meta.avatar, 240) : null,
+      name: displayName,
+      avatar,
       banner: this.bannerUrl(headerContent.banner),
       handle,
       subscribers,
@@ -222,6 +252,16 @@ export class ChannelService {
         const picked = pickThumbnail(meta.avatar, 240)
         if (picked) return picked
       }
+      const headerContent = channel.header?.content ?? {}
+      const headerAvatar =
+        headerContent.image?.avatar?.image ??
+        headerContent.image?.avatar?.sources ??
+        headerContent.avatar?.image ??
+        channel.header?.avatar
+      if (Array.isArray(headerAvatar)) {
+        const picked = pickThumbnail(headerAvatar, 240)
+        if (picked) return picked
+      }
     } catch {
       /* channel is gone or private */
     }
@@ -247,7 +287,13 @@ export class ChannelService {
       authorId: id as string | null,
       authorAvatar: pickThumbnail(channel.metadata?.avatar, 240) || null
     }
-    let feed = (await channel.getVideos()) as Continuable
+    let feed: Continuable
+    try {
+      feed = (await channel.getVideos()) as Continuable
+    } catch (err) {
+      console.warn(`[youtube] channel ${id} does not have a videos tab:`, err)
+      return { items: [], continuation: null }
+    }
 
     if (sort === 'popular') {
       try {
@@ -286,6 +332,46 @@ export class ChannelService {
       items: feedVideos(next, ctx),
       continuation: next.has_continuation
         ? this.tokens.set({ kind: 'channel:videos', feed: next, ctx })
+        : null
+    }
+  }
+
+  async getChannelLiveStreams(id: string): Promise<ChannelVideosPage> {
+    const channel = await this.getChannel(id)
+    const ctx = {
+      author: text(channel.metadata?.title) || null,
+      authorId: id as string | null,
+      authorAvatar: pickThumbnail(channel.metadata?.avatar, 240) || null
+    }
+    let feed: Continuable
+    try {
+      feed = (await channel.getLiveStreams()) as Continuable
+    } catch (err) {
+      console.warn(`[youtube] channel ${id} does not have a live streams tab:`, err)
+      return { items: [], continuation: null }
+    }
+    const items = feedVideos(feed, ctx)
+    return {
+      items,
+      continuation: feed.has_continuation
+        ? this.tokens.set({ kind: 'channel:live', feed, ctx })
+        : null
+    }
+  }
+
+  async channelLiveStreamsMore(token: string): Promise<ChannelVideosPage> {
+    const entry = this.tokens.get(token)
+    if (!entry) return { items: [], continuation: null }
+    const next = (await entry.feed.getContinuation()) as Continuable
+    this.tokens.delete(token)
+    const ctx =
+      entry.ctx as
+        | { author?: string; authorId?: string | null; authorAvatar?: string | null }
+        | undefined
+    return {
+      items: feedVideos(next, ctx),
+      continuation: next.has_continuation
+        ? this.tokens.set({ kind: 'channel:live', feed: next, ctx })
         : null
     }
   }
@@ -407,11 +493,22 @@ export class ChannelService {
 
   async getChannelPlaylists(id: string): Promise<{ items: PlaylistSummary[]; continuation: string | null }> {
     const channel = await this.getChannel(id)
-    const feed = (await channel.getPlaylists()) as PlaylistFeed
+    const ctx = {
+      author: text(channel.metadata?.title) || null,
+      authorId: id as string | null,
+      authorAvatar: pickThumbnail(channel.metadata?.avatar, 240) || null
+    }
+    let feed: PlaylistFeed
+    try {
+      feed = (await channel.getPlaylists()) as PlaylistFeed
+    } catch (err) {
+      console.warn(`[youtube] channel ${id} does not have a playlists tab:`, err)
+      return { items: [], continuation: null }
+    }
     return {
-      items: feedPlaylists(feed),
+      items: feedPlaylists(feed, false, ctx),
       continuation: feed.has_continuation
-        ? this.tokens.set({ kind: 'channel:playlists', feed })
+        ? this.tokens.set({ kind: 'channel:playlists', feed, ctx })
         : null
     }
   }
@@ -421,10 +518,13 @@ export class ChannelService {
     if (!entry) return { items: [], continuation: null }
     const next = (await entry.feed.getContinuation()) as PlaylistFeed
     this.tokens.delete(token)
+    const ctx = entry.ctx as
+      | { author?: string | null; authorId?: string | null; authorAvatar?: string | null }
+      | undefined
     return {
-      items: feedPlaylists(next),
+      items: feedPlaylists(next, false, ctx),
       continuation: next.has_continuation
-        ? this.tokens.set({ kind: 'channel:playlists', feed: next })
+        ? this.tokens.set({ kind: 'channel:playlists', feed: next, ctx })
         : null
     }
   }
@@ -483,9 +583,13 @@ export class ChannelService {
     return this.feedFrom(response)
   }
 
-  private albumsShelfToken(channel: unknown): string | null {
+  private async albumsShelfToken(channel: unknown): Promise<string | null> {
     type Run = { endpoint?: { name?: string; payload?: unknown } }
-    type Shelf = { title?: { toString?: () => string; runs?: Run[] } }
+    type Shelf = {
+      type?: string
+      title?: { toString?: () => string; text?: string; runs?: Run[] }
+      endpoint?: { payload?: any }
+    }
     type Panel = {
       engagementPanel?: {
         engagementPanelSectionListRenderer?: {
@@ -497,34 +601,73 @@ export class ChannelService {
         }
       }
     }
+
+    const extractToken = (payload: Panel | undefined): string | null => {
+      const sectionList = payload?.engagementPanel?.engagementPanelSectionListRenderer?.content?.sectionListRenderer
+      return (
+        sectionList?.contents?.[0]?.itemSectionRenderer?.contents?.[0]?.continuationItemRenderer as
+          | { continuationEndpoint?: { continuationCommand?: { token?: string } } }
+          | undefined
+      )?.continuationEndpoint?.continuationCommand?.token ?? null
+    }
+
+    // 1. Direct shelves on channel object if present
     const shelves: Shelf[] = (channel as { shelves?: Shelf[] })?.shelves ?? []
     for (const shelf of shelves) {
-      const title = shelf.title?.toString?.() ?? ''
+      const title = shelf.title?.text ?? shelf.title?.toString?.() ?? ''
       if (!ALBUMS_SHELF_TITLE.test(title)) continue
       for (const run of shelf.title?.runs ?? []) {
         if (run.endpoint?.name !== 'showEngagementPanelEndpoint') continue
-        const sectionList = (run.endpoint.payload as Panel | undefined)?.engagementPanel
-          ?.engagementPanelSectionListRenderer?.content?.sectionListRenderer
-        const token = (
-          sectionList?.contents?.[0]?.itemSectionRenderer?.contents?.[0]
-            ?.continuationItemRenderer as
-            | { continuationEndpoint?: { continuationCommand?: { token?: string } } }
-            | undefined
-        )?.continuationEndpoint?.continuationCommand?.token
+        const token = extractToken(run.endpoint.payload as Panel | undefined)
+        if (token) return token
+      }
+      if (shelf.endpoint?.payload) {
+        const token = extractToken(shelf.endpoint.payload as Panel | undefined)
         if (token) return token
       }
     }
+
+    // 2. Query home tab shelves for topic channels
+    try {
+      const ch = channel as { getHome?: () => Promise<any> }
+      if (typeof ch?.getHome === 'function') {
+        const home = await ch.getHome()
+        const sections = home?.current_tab?.content?.contents ?? []
+        for (const section of sections) {
+          const innerShelves = (section?.contents ?? []) as Shelf[]
+          for (const s of innerShelves) {
+            const title = s.title?.text ?? s.title?.toString?.() ?? ''
+            if (s.type === 'Shelf' && ALBUMS_SHELF_TITLE.test(title)) {
+              if (s.endpoint?.payload) {
+                const token = extractToken(s.endpoint.payload as Panel | undefined)
+                if (token) return token
+              }
+            }
+          }
+        }
+      }
+    } catch {
+      /* topic channel has no home tab or no albums shelf */
+    }
+
     return null
   }
 
   async getChannelReleases(id: string): Promise<{ items: PlaylistSummary[]; continuation: string | null }> {
     const channel = await this.getChannel(id)
+    const rawTitle = text(channel.metadata?.music_artist_name || channel.metadata?.title)
+    const cleanAuthor = rawTitle ? rawTitle.replace(/\s*-\s*Topic$/i, '').trim() : null
+    const ctx = {
+      author: cleanAuthor,
+      authorId: id as string | null,
+      authorAvatar: pickThumbnail(channel.metadata?.avatar, 240) || null
+    }
     let feed: PlaylistFeed | null = null
     try {
       feed = (await channel.getReleases()) as PlaylistFeed
     } catch {
       try {
-        const token = this.albumsShelfToken(channel)
+        const token = await this.albumsShelfToken(channel)
         if (token) feed = await this.continuationFeed(token)
       } catch {
         /* no discography */
@@ -532,9 +675,9 @@ export class ChannelService {
     }
     if (!feed) return { items: [], continuation: null }
     return {
-      items: feedPlaylists(feed, true),
+      items: feedPlaylists(feed, true, ctx),
       continuation: feed.has_continuation
-        ? this.tokens.set({ kind: 'channel:releases', feed })
+        ? this.tokens.set({ kind: 'channel:releases', feed, ctx })
         : null
     }
   }
@@ -544,10 +687,13 @@ export class ChannelService {
     if (!entry) return { items: [], continuation: null }
     const next = (await entry.feed.getContinuation()) as PlaylistFeed
     this.tokens.delete(token)
+    const ctx = entry.ctx as
+      | { author?: string | null; authorId?: string | null; authorAvatar?: string | null }
+      | undefined
     return {
-      items: feedPlaylists(next, true),
+      items: feedPlaylists(next, true, ctx),
       continuation: next.has_continuation
-        ? this.tokens.set({ kind: 'channel:releases', feed: next })
+        ? this.tokens.set({ kind: 'channel:releases', feed: next, ctx })
         : null
     }
   }

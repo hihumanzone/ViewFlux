@@ -10,6 +10,13 @@ import {
 import { Icon } from './Icons'
 import { Spinner } from './EmptyState'
 import { useMediaSession } from '../lib/mediaSession'
+import {
+  useSleepTimer,
+  setSleepTimer,
+  registerActivePlayer,
+  updateEndOfVideoRemaining,
+  onEndOfVideoReached
+} from '../lib/sleepTimer'
 import { PlayerOsd } from './player/PlayerOsd'
 import { SeekBar } from './player/SeekBar'
 import { PlayerControls } from './player/PlayerControls'
@@ -35,9 +42,9 @@ const EMPTY_CHAPTERS: Chapter[] = []
 const EMPTY_SEGMENTS: SponsorSegment[] = []
 
 /** Breathing room between the top of the control overlay and the captions. */
-const SUBTITLE_CLEARANCE = 12
+const SUBTITLE_CLEARANCE = 14
 /** Resting gap between the bottom of the stage and the captions when controls hide. */
-const SUBTITLE_RESTING_GAP = 12
+const SUBTITLE_RESTING_GAP = 16
 
 export const Player = forwardRef<PlayerHandle, PlayerProps>(function Player(
   props,
@@ -78,7 +85,12 @@ export const Player = forwardRef<PlayerHandle, PlayerProps>(function Player(
 
   const videoRef = useRef<HTMLVideoElement>(null)
   const containerRef = useRef<HTMLDivElement>(null)
-  const overlayRef = useRef<HTMLDivElement>(null)
+  const [overlayEl, setOverlayEl] = useState<HTMLDivElement | null>(null)
+  const overlayRef = useRef<HTMLDivElement | null>(null)
+  const setOverlayRef = useCallback((el: HTMLDivElement | null) => {
+    overlayRef.current = el
+    setOverlayEl(el)
+  }, [])
   const skipRef = useRef<Map<string, 'skipped' | 'unskipped'>>(new Map())
   const hideTimerRef = useRef<number | null>(null)
   const clickTimerRef = useRef<number | null>(null)
@@ -104,7 +116,7 @@ export const Player = forwardRef<PlayerHandle, PlayerProps>(function Player(
   const [posterVisible, setPosterVisible] = useState(true)
   /** Measured heights of the stage and the control overlay, see the effect below. */
   const [{ controls: controlsHeight, stage: stageHeight }, setStageMetrics] = useState({
-    controls: 0,
+    controls: 108,
     stage: 0
   })
   const [osd, setOsd] = useState<OsdState | null>(null)
@@ -122,6 +134,32 @@ export const Player = forwardRef<PlayerHandle, PlayerProps>(function Player(
     setOsd({ id, text, icon })
     osdTimerRef.current = window.setTimeout(() => setOsd(null), 850)
   }, [])
+
+  // Sleep Timer state & handlers
+  const { minutes: sleepTimerMinutes, remainingSec: sleepTimerRemainingSec } = useSleepTimer()
+
+  useEffect(() => {
+    return registerActivePlayer(videoRef.current, showOsd)
+  }, [showOsd])
+
+  const handleSetSleepTimer = useCallback((minutes: number | null) => {
+    setSleepTimer(minutes, videoRef.current)
+  }, [])
+
+  // Update remaining seconds if set to end of video on timeupdate
+  useEffect(() => {
+    if (sleepTimerMinutes !== -1) return
+    const v = videoRef.current
+    if (!v) return
+    const updateEndRemaining = (): void => {
+      if (v.duration > 0) {
+        updateEndOfVideoRemaining(Math.max(0, Math.round(v.duration - v.currentTime)))
+      }
+    }
+    updateEndRemaining()
+    v.addEventListener('timeupdate', updateEndRemaining)
+    return () => v.removeEventListener('timeupdate', updateEndRemaining)
+  }, [sleepTimerMinutes])
 
   const maybeSkip = useCallback((time: number) => {
     if (!enabledRef.current || !autoSkipRef.current) return
@@ -221,6 +259,18 @@ export const Player = forwardRef<PlayerHandle, PlayerProps>(function Player(
     }
   }, [showOsd])
 
+  // Sleep timer: pause if set to end of video
+  useEffect(() => {
+    if (sleepTimerMinutes !== -1) return
+    const video = videoRef.current
+    if (!video) return
+    const onEnded = (): void => {
+      onEndOfVideoReached(video)
+    }
+    video.addEventListener('ended', onEnded)
+    return () => video.removeEventListener('ended', onEnded)
+  }, [sleepTimerMinutes])
+
   const menuRef = useRef<MenuKind | null>(menu)
   menuRef.current = menu
 
@@ -280,28 +330,48 @@ export const Player = forwardRef<PlayerHandle, PlayerProps>(function Player(
   // Subtitle positioning relative to controls
   useEffect(() => {
     const container = containerRef.current
-    const overlay = overlayRef.current
-    if (!container || !overlay) return
+    const overlay = overlayEl
+    if (!container) return
+
     const update = (): void => {
-      // The overlay's top padding is only the gradient fade, not content, so
-      // captions clear the seek bar and buttons instead of the whole box.
-      const style = getComputedStyle(overlay)
-      const padTop = Number.parseFloat(style.paddingTop) || 0
+      const containerRect = container.getBoundingClientRect()
+      const stageH = Math.round(containerRect.height)
+
+      let controlsH = 108
+      if (overlay) {
+        const overlayRect = overlay.getBoundingClientRect()
+        const seekEl = overlay.querySelector('.seek')
+        const seekRect = seekEl?.getBoundingClientRect()
+
+        // Distance from bottom of player to top of seek bar / controls overlay
+        if (seekRect && containerRect.bottom >= seekRect.top) {
+          controlsH = Math.max(overlayRect.height, Math.round(containerRect.bottom - seekRect.top))
+        } else if (overlayRect.height > 0) {
+          controlsH = Math.round(overlayRect.height)
+        }
+      }
+
       setStageMetrics({
-        controls: Math.max(0, Math.round(overlay.getBoundingClientRect().height - padTop)),
-        stage: Math.round(container.getBoundingClientRect().height)
+        controls: Math.max(96, controlsH),
+        stage: stageH
       })
     }
+
     update()
-    // The stage changes size on window resize and on fullscreen toggles, the
-    // overlay changes height when a menu opens or captions are enabled.
+
     const observer = new ResizeObserver(update)
     observer.observe(container)
-    observer.observe(overlay)
-    return () => observer.disconnect()
-    // The overlay only exists once the player is ready, so this has to re-run
-    // when the status flips or the observer would never attach.
-  }, [containerRef, overlayRef, shaka.status])
+    if (overlay) {
+      observer.observe(overlay)
+    }
+
+    window.addEventListener('resize', update)
+
+    return () => {
+      observer.disconnect()
+      window.removeEventListener('resize', update)
+    }
+  }, [containerRef, overlayEl])
 
   // Hide poster once video advances
   useEffect(() => {
@@ -713,7 +783,7 @@ export const Player = forwardRef<PlayerHandle, PlayerProps>(function Player(
 
           {/* Floating Controls Overlay */}
           <div
-            ref={overlayRef}
+            ref={setOverlayRef}
             className={`player__overlay${
               isControlsVisible ? '' : ' player__overlay--hidden'
             }`}
@@ -751,6 +821,7 @@ export const Player = forwardRef<PlayerHandle, PlayerProps>(function Player(
               textVisible={shaka.textVisible}
               audioTracks={shaka.audioTracks}
               skipSilence={liveStream ? false : skipSilence}
+              sleepTimerActive={sleepTimerMinutes !== null}
               fullscreen={fullscreen}
               activeMenu={menu}
               playlistNavigation={props.playlistNavigation}
@@ -797,6 +868,9 @@ export const Player = forwardRef<PlayerHandle, PlayerProps>(function Player(
               onSelectAudioTier={onSelectAudioTierMenu}
               onOpenMenu={(kind) => setMenu(kind)}
               onTogglePip={togglePip}
+              sleepTimerMinutes={sleepTimerMinutes}
+              sleepTimerRemainingSec={sleepTimerRemainingSec}
+              onSetSleepTimer={handleSetSleepTimer}
             />
           )}
         </>

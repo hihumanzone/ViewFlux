@@ -1,7 +1,9 @@
 import { memo } from 'react'
+import { Icon } from './Icons'
 import { VideoOptions } from './VideoOptions'
+import { ArtistLinks } from './ArtistLinks'
 import { navigate } from '../lib/router'
-import { formatCount, formatDuration, formatVideoPublished } from '../lib/format'
+import { formatCount, formatDuration, formatVideoPublished, safeText } from '../lib/format'
 import { useChannelAvatar } from '../lib/useChannelAvatar'
 import { useBrokenImage } from '../lib/useBrokenImage'
 import { activationProps } from '../lib/keyboard'
@@ -33,13 +35,17 @@ export const VideoCard = memo(function VideoCard({
   const isEndedPremiere =
     Boolean(video.isPremiere) && !video.isLive && video.duration != null && video.duration > 0
 
+  const isSquare =
+    video.thumbAspect === 'square' ||
+    (video.isMusicTrack && video.thumbAspect !== 'wide')
+
+  const title = safeText(video.title)
+  const author = safeText(video.author)
+  const album = safeText(video.album)
+
   return (
     <article
-      className="video-card"
-      // The whole tile is the click target, but a bare onClick on a non-
-      // interactive element is unreachable by keyboard. The role plus key
-      // handling makes the grid tab-navigable without nesting a button inside
-      // the author button below.
+      className={`video-card${video.isMusicTrack ? ' video-card--music' : ''}${isSquare ? ' video-card--thumb-square' : ''}`}
       onClick={open}
       {...activationProps(open)}
     >
@@ -80,42 +86,93 @@ export const VideoCard = memo(function VideoCard({
       <div className="video-card__body">
         <div className="video-card__text">
           <div className="video-card__title-row">
-            <h3 className="video-card__title">{video.title}</h3>
+            <h3 className="video-card__title">{title}</h3>
             <VideoOptions video={video} className="video-card__menu" />
           </div>
           <div className="video-card__meta">
-            {video.author && (
-              <button
-                type="button"
-                className="video-card__author"
-                onClick={(event) => {
-                  event.stopPropagation()
-                  if (video.authorId) {
-                    navigate(`#/channel/${video.authorId}`)
-                  } else if (video.author) {
-                    navigate(`#/search?q=${encodeURIComponent(video.author)}&f=channels`)
-                  }
-                }}
-              >
-                {avatar && !avatarBroken ? (
-                  <img
-                    className="video-card__author-avatar"
-                    src={avatar}
-                    alt=""
-                    loading="lazy"
-                    referrerPolicy="no-referrer"
-                    onError={onAvatarError}
-                  />
+            {author && (
+              <div className="video-card__author-row">
+                {video.artists && video.artists.length > 1 ? (
+                  <>
+                    <button
+                      type="button"
+                      className="video-card__author-avatar-btn"
+                      title={video.authorId ? `Open ${author}` : `Search for ${author}`}
+                      onClick={(event) => {
+                        event.stopPropagation()
+                        if (video.authorId) {
+                          navigate(`#/channel/${video.authorId}`)
+                        } else if (author) {
+                          navigate(`#/search?q=${encodeURIComponent(author)}&f=channels`)
+                        }
+                      }}
+                    >
+                      {avatar && !avatarBroken ? (
+                        <img
+                          className="video-card__author-avatar"
+                          src={avatar}
+                          alt=""
+                          loading="lazy"
+                          referrerPolicy="no-referrer"
+                          onError={onAvatarError}
+                        />
+                      ) : video.isMusicTrack ? (
+                        <span className="video-card__author-avatar video-card__author-avatar--fallback">
+                          <Icon name="music_note" size={13} />
+                        </span>
+                      ) : (
+                        <span className="video-card__author-avatar video-card__author-avatar--fallback">
+                          {author.slice(0, 1).toUpperCase()}
+                        </span>
+                      )}
+                    </button>
+                    <ArtistLinks
+                      artists={video.artists}
+                      author={author}
+                      authorId={video.authorId}
+                      className="video-card__author-name"
+                    />
+                  </>
                 ) : (
-                  <span className="video-card__author-avatar video-card__author-avatar--fallback">
-                    {video.author.slice(0, 1).toUpperCase()}
-                  </span>
+                  <button
+                    type="button"
+                    className="video-card__author-btn"
+                    title={video.authorId ? `Open ${author}` : `Search for ${author}`}
+                    onClick={(event) => {
+                      event.stopPropagation()
+                      if (video.authorId) {
+                        navigate(`#/channel/${video.authorId}`)
+                      } else if (author) {
+                        navigate(`#/search?q=${encodeURIComponent(author)}&f=channels`)
+                      }
+                    }}
+                  >
+                    {avatar && !avatarBroken ? (
+                      <img
+                        className="video-card__author-avatar"
+                        src={avatar}
+                        alt=""
+                        loading="lazy"
+                        referrerPolicy="no-referrer"
+                        onError={onAvatarError}
+                      />
+                    ) : video.isMusicTrack ? (
+                      <span className="video-card__author-avatar video-card__author-avatar--fallback">
+                        <Icon name="music_note" size={13} />
+                      </span>
+                    ) : (
+                      <span className="video-card__author-avatar video-card__author-avatar--fallback">
+                        {author.slice(0, 1).toUpperCase()}
+                      </span>
+                    )}
+                    <span className="video-card__author-name">{author}</span>
+                  </button>
                 )}
-                <span className="video-card__author-name">{video.author}</span>
-              </button>
+              </div>
             )}
+            {album && <span className="video-card__album">{album}</span>}
             {video.viewCount != null && <span>{formatCount(video.viewCount)} views</span>}
-            {formatVideoPublished(video) && <span>{formatVideoPublished(video)}</span>}
+            {!video.isMusicTrack && formatVideoPublished(video) && <span>{formatVideoPublished(video)}</span>}
           </div>
         </div>
       </div>

@@ -131,5 +131,26 @@ export function formatVideoPublished(video: {
   return null
 }
 
+/** Safely stringifies any string, number, or InnerTube Text object to prevent React child crash. */
+export function safeText(value: unknown): string {
+  if (value == null) return ''
+  if (typeof value === 'string') return value
+  if (typeof value === 'number') return String(value)
+  if (typeof value === 'object') {
+    const v = value as any
+    if (typeof v.text === 'string') return v.text
+    if (v.text && typeof v.text === 'object') return safeText(v.text)
+    if (Array.isArray(v.runs)) {
+      return v.runs.map((r: any) => (typeof r === 'object' ? r?.text ?? '' : String(r))).join('')
+    }
+    if (typeof v.simpleText === 'string') return v.simpleText
+    if (typeof v.toString === 'function') {
+      const s = v.toString()
+      if (typeof s === 'string' && s && s !== '[object Object]') return s
+    }
+  }
+  return ''
+}
+
 
 

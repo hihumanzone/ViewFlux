@@ -3,6 +3,7 @@ import { VideoCard } from '../components/VideoCard'
 import { ListRow } from '../components/ListRow'
 import { VideoOptions } from '../components/VideoOptions'
 import { PlaylistCard } from '../components/ResultCards'
+import { MasonryGrid } from '../components/MasonryGrid'
 import { BookmarkChannelDialog } from '../components/BookmarkChannelDialog'
 import { Icon, MusicBadge } from '../components/Icons'
 import { Menu, MenuItem } from '../components/Menu'
@@ -24,7 +25,8 @@ import type {
   VideoSummary
 } from '../../../shared/types'
 
-const KNOWN_TABS = ['videos', 'releases', 'playlists', 'about']
+const KNOWN_TABS = ['videos', 'playlists', 'releases', 'live', 'about']
+const FALLBACK_TABS = ['videos', 'playlists', 'about']
 
 const SORTS: { id: ChannelSort; label: string }[] = [
   { id: 'newest', label: 'Newest' },
@@ -53,7 +55,7 @@ export function ChannelPage({
   channelId: string
   initialTab: string | null
 }): React.JSX.Element {
-  const { savedChannels, toggleFavoriteChannel, history } = useApp()
+  const { savedChannels, toggleFavoriteChannel, historyMap } = useApp()
   const [bookmarkModalOpen, setBookmarkModalOpen] = useState(false)
   const [optionsAnchor, setOptionsAnchor] = useState<HTMLElement | null>(null)
   const copyLink = useCopyLink()
@@ -77,7 +79,8 @@ export function ChannelPage({
   const normalizedTabs = (info?.tabs ?? [])
     .map((t) => t.toLowerCase())
     .filter((t) => KNOWN_TABS.includes(t))
-  const tabs = normalizedTabs.length > 0 ? normalizedTabs : KNOWN_TABS
+    .sort((a, b) => KNOWN_TABS.indexOf(a) - KNOWN_TABS.indexOf(b))
+  const tabs = normalizedTabs.length > 0 ? normalizedTabs : FALLBACK_TABS
   // The tab lives in the URL (`?tab=`) so it survives a reload, can be linked
   // to, and Back/Alt+Left steps out of it like any other navigation. The route
   // is the source of truth; this only mirrors it for synchronous reads.
@@ -85,6 +88,15 @@ export function ChannelPage({
   useEffect(() => {
     setTab(initialTab ?? 'videos')
   }, [initialTab])
+
+  useEffect(() => {
+    if (info && !initialTab) {
+      if (tabs.length > 0 && !tabs.includes(tab)) {
+        setTab(tabs[0])
+      }
+    }
+  }, [info, initialTab, tabs, tab])
+
   const selectTab = useCallback(
     (next: string) => {
       setTab(next)
@@ -107,6 +119,11 @@ export function ChannelPage({
     continuation: null,
     loading: false
   })
+  const [liveStreams, setLiveStreams] = useState<VideosState>({
+    items: [],
+    continuation: null,
+    loading: false
+  })
   // Paginated, so it keeps its own continuation rather than going through
   // useAsync — the hook models "fetch once per input", this is "fetch then
   // append".
@@ -115,9 +132,12 @@ export function ChannelPage({
 
   const sentinelRef = useRef<HTMLDivElement>(null)
   const videoReqRef = useRef(0)
+  const liveReqRef = useRef(0)
 
   // ---- Videos (per sort) -------------------------------------------------------
   useEffect(() => {
+    if (tab !== 'videos') return
+    if (info && !tabs.includes('videos')) return
     const id = ++videoReqRef.current
     setVideos((prev) => ({ ...prev, loading: true, items: [], continuation: null }))
     void window.api
@@ -134,7 +154,7 @@ export function ChannelPage({
         if (videoReqRef.current === id)
           setVideos({ items: [], continuation: null, loading: false })
       })
-  }, [channelId, sort])
+  }, [channelId, sort, tab])
 
   const loadMoreVideos = useCallback(async () => {
     if (!videos.continuation || videos.loading) return
@@ -150,6 +170,42 @@ export function ChannelPage({
       setVideos((prev) => ({ ...prev, continuation: null, loading: false }))
     }
   }, [videos.continuation, videos.loading])
+
+  // ---- Past live streams (lazy, cached) ----------------------------------------
+  useEffect(() => {
+    if (tab !== 'live' || liveStreams.items.length > 0 || liveStreams.loading) return
+    const id = ++liveReqRef.current
+    setLiveStreams((prev) => ({ ...prev, loading: true }))
+    void window.api
+      .getChannelLiveStreams(channelId)
+      .then((page: ChannelVideosPage) => {
+        if (liveReqRef.current !== id) return
+        setLiveStreams({
+          items: page.items,
+          continuation: page.continuation,
+          loading: false
+        })
+      })
+      .catch(() => {
+        if (liveReqRef.current === id)
+          setLiveStreams({ items: [], continuation: null, loading: false })
+      })
+  }, [tab, channelId, liveStreams.items.length, liveStreams.loading])
+
+  const loadMoreLiveStreams = useCallback(async () => {
+    if (!liveStreams.continuation || liveStreams.loading) return
+    setLiveStreams((prev) => ({ ...prev, loading: true }))
+    try {
+      const page = await window.api.channelLiveStreamsMore(liveStreams.continuation as string)
+      setLiveStreams((prev) => ({
+        items: [...prev.items, ...page.items],
+        continuation: page.continuation,
+        loading: false
+      }))
+    } catch {
+      setLiveStreams((prev) => ({ ...prev, continuation: null, loading: false }))
+    }
+  }, [liveStreams.continuation, liveStreams.loading])
 
   // ---- Playlists / releases (lazy, cached) --------------------------------------
   useEffect(() => {
@@ -210,13 +266,14 @@ export function ChannelPage({
       (entries) => {
         if (!entries[0]?.isIntersecting) return
         if (tab === 'videos') void loadMoreVideos()
+        else if (tab === 'live') void loadMoreLiveStreams()
         else if (tab === 'releases') void loadMoreReleases()
       },
       { rootMargin: '600px' }
     )
     observer.observe(el)
     return () => observer.disconnect()
-  }, [tab, loadMoreVideos, loadMoreReleases])
+  }, [tab, loadMoreVideos, loadMoreLiveStreams, loadMoreReleases])
 
   if (error) {
     // Transient network failures are common here, so offer a retry rather than
@@ -360,29 +417,32 @@ export function ChannelPage({
             className={`tab${tab === name ? ' tab--active' : ''}`}
             onClick={() => selectTab(name)}
           >
-            {name.charAt(0).toUpperCase() + name.slice(1)}
+            {name === 'live' ? 'Live' : name.charAt(0).toUpperCase() + name.slice(1)}
           </button>
         ))}
+
+        <div className="channel__tabs-spacer" />
+
         {tab === 'videos' && (
-          <>
-            <div className="channel__tabs-spacer" />
-            <button
-              className="chip channel__sort"
-              onClick={(event) => {
-                const element = event.currentTarget
-                setSortMenu((prev) => {
-                  setSortAnchor(prev ? null : element)
-                  return !prev
-                })
-              }}
-              aria-haspopup="menu"
-              aria-expanded={sortMenu}
-            >
-              <Icon name="sort" size={16} />
-              {SORTS.find((s) => s.id === sort)?.label}
-            </button>
-            <ViewModeToggle value={viewMode} onChange={setViewMode} />
-          </>
+          <button
+            className="chip channel__sort"
+            onClick={(event) => {
+              const element = event.currentTarget
+              setSortMenu((prev) => {
+                setSortAnchor(prev ? null : element)
+                return !prev
+              })
+            }}
+            aria-haspopup="menu"
+            aria-expanded={sortMenu}
+          >
+            <Icon name="sort" size={16} />
+            {SORTS.find((s) => s.id === sort)?.label}
+          </button>
+        )}
+
+        {tab !== 'about' && (
+          <ViewModeToggle value={viewMode} onChange={setViewMode} />
         )}
       </div>
 
@@ -400,9 +460,9 @@ export function ChannelPage({
           )}
           {videos.items.length > 0 && (
             viewMode === 'grid' ? (
-              <div key={`video-grid-${sort}`} className="video-grid animate-fade-up">
+              <MasonryGrid key={`video-grid-${sort}`} className="animate-fade-up">
                 {videos.items.map((video, index) => {
-                  const enrichedVideo = enrichVideoWithHistory(video, history)
+                  const enrichedVideo = enrichVideoWithHistory(video, historyMap)
                   return (
                     <VideoCard
                       key={`${video.videoId}-${index}`}
@@ -410,11 +470,11 @@ export function ChannelPage({
                     />
                   )
                 })}
-              </div>
+              </MasonryGrid>
             ) : (
               <ul key={`video-list-${sort}`} className="list animate-fade-up">
                 {videos.items.map((video, index) => {
-                  const enrichedVideo = enrichVideoWithHistory(video, history)
+                  const enrichedVideo = enrichVideoWithHistory(video, historyMap)
                   return (
                     <ListRow
                       key={`${video.videoId}-${index}`}
@@ -441,6 +501,64 @@ export function ChannelPage({
           )}
           <div ref={sentinelRef} />
           {videos.loading && videos.items.length > 0 && <Loader />}
+        </section>
+      )}
+
+      {/* ---- Live tab ---- */}
+      {tab === 'live' && (
+        <section key="channel-live" className="channel__section animate-fade-up">
+          {liveStreams.loading && liveStreams.items.length === 0 && <Loader />}
+          {!liveStreams.loading && liveStreams.items.length === 0 && (
+            <div className="empty">
+              <div className="empty__icon">
+                <Icon name="play_arrow" size={30} />
+              </div>
+              <div className="empty__title">No past live streams</div>
+            </div>
+          )}
+          {liveStreams.items.length > 0 && (
+            viewMode === 'grid' ? (
+              <MasonryGrid className="animate-fade-up">
+                {liveStreams.items.map((video, index) => {
+                  const enrichedVideo = enrichVideoWithHistory(video, historyMap)
+                  return (
+                    <VideoCard
+                      key={`${video.videoId}-${index}`}
+                      video={enrichedVideo}
+                    />
+                  )
+                })}
+              </MasonryGrid>
+            ) : (
+              <ul className="list animate-fade-up">
+                {liveStreams.items.map((video, index) => {
+                  const enrichedVideo = enrichVideoWithHistory(video, historyMap)
+                  return (
+                    <ListRow
+                      key={`${video.videoId}-${index}`}
+                      to={`#/watch/${video.videoId}`}
+                      videoId={video.videoId}
+                      thumbnail={enrichedVideo.thumbnail}
+                      title={enrichedVideo.title}
+                      duration={enrichedVideo.duration}
+                      isPremiere={enrichedVideo.isPremiere}
+                      isLive={enrichedVideo.isLive}
+                      actions={<VideoOptions video={enrichedVideo} label="Video options" />}
+                    >
+                      <div className="list-row__stats">
+                        {[
+                          enrichedVideo.viewCount != null ? `${formatCount(enrichedVideo.viewCount)} views` : null,
+                          formatVideoPublished(enrichedVideo)
+                        ].filter(Boolean).join(' · ')}
+                      </div>
+                    </ListRow>
+                  )
+                })}
+              </ul>
+            )
+          )}
+          <div ref={sentinelRef} />
+          {liveStreams.loading && liveStreams.items.length > 0 && <Loader />}
         </section>
       )}
 
@@ -482,11 +600,21 @@ export function ChannelPage({
             </div>
           )}
           {releases.items.length > 0 && (
-            <div className="video-grid animate-fade-up">
-              {releases.items.map((album, index) => (
-                <PlaylistCard key={`${album.id}-${index}`} playlist={album} />
-              ))}
-            </div>
+            viewMode === 'grid' ? (
+              <MasonryGrid className="animate-fade-up">
+                {releases.items.map((album, index) => (
+                  <PlaylistCard key={`${album.id}-${index}`} playlist={album} />
+                ))}
+              </MasonryGrid>
+            ) : (
+              <ul className="list animate-fade-up">
+                {releases.items.map((album, index) => (
+                  <li key={`${album.id}-${index}`} style={{ listStyle: 'none' }}>
+                    <PlaylistCard playlist={album} />
+                  </li>
+                ))}
+              </ul>
+            )
           )}
           <div ref={sentinelRef} />
           {releases.loading && releases.items.length > 0 && <Loader />}
@@ -506,11 +634,21 @@ export function ChannelPage({
             </div>
           )}
           {playlists.items.length > 0 && (
-            <div className="video-grid animate-fade-up">
-              {playlists.items.map((playlist, index) => (
-                <PlaylistCard key={`${playlist.id}-${index}`} playlist={playlist} />
-              ))}
-            </div>
+            viewMode === 'grid' ? (
+              <MasonryGrid className="animate-fade-up">
+                {playlists.items.map((playlist, index) => (
+                  <PlaylistCard key={`${playlist.id}-${index}`} playlist={playlist} />
+                ))}
+              </MasonryGrid>
+            ) : (
+              <ul className="list animate-fade-up">
+                {playlists.items.map((playlist, index) => (
+                  <li key={`${playlist.id}-${index}`} style={{ listStyle: 'none' }}>
+                    <PlaylistCard playlist={playlist} />
+                  </li>
+                ))}
+              </ul>
+            )
           )}
         </section>
       )}
@@ -552,7 +690,7 @@ export function ChannelPage({
                 )}
                 {about.joinedDate && (
                   <div className="about__stat">
-                    <Icon name="timer" size={18} />
+                    <Icon name="calendar" size={18} />
                     {about.joinedDate}
                   </div>
                 )}

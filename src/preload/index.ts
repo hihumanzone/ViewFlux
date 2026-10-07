@@ -26,6 +26,8 @@ const api: AppApi = {
   getChannelVideos: (id: string, sort: ChannelSort) =>
     ipcRenderer.invoke('channel:videos', id, sort),
   channelVideosMore: (token: string) => ipcRenderer.invoke('channel:videos-more', token),
+  getChannelLiveStreams: (id: string) => ipcRenderer.invoke('channel:live', id),
+  channelLiveStreamsMore: (token: string) => ipcRenderer.invoke('channel:live-more', token),
   getChannelPlaylists: (id: string) => ipcRenderer.invoke('channel:playlists', id),
   channelPlaylistsMore: (token: string) =>
     ipcRenderer.invoke('channel:playlists-more', token),

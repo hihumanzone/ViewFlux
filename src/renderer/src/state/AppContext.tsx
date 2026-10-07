@@ -40,6 +40,7 @@ interface AppContextValue {
   settings: Settings
   playlists: Playlist[]
   history: HistoryEntry[]
+  historyMap: ReadonlyMap<string, HistoryEntry>
   searchHistory: SearchHistoryEntry[]
   savedChannels: SavedChannel[]
   channelFolders: ChannelFolder[]
@@ -523,6 +524,7 @@ export function AppProvider({ children }: { children: ReactNode }): React.JSX.El
       settings,
       playlists,
       history,
+      historyMap,
       searchHistory,
       savedChannels,
       channelFolders,
@@ -566,6 +568,7 @@ export function AppProvider({ children }: { children: ReactNode }): React.JSX.El
       settings,
       playlists,
       history,
+      historyMap,
       searchHistory,
       savedChannels,
       channelFolders,

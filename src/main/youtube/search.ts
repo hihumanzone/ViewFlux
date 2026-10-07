@@ -1,6 +1,6 @@
-import type { SearchFilter, SearchItem, SearchPage, VideoSummary } from '../../shared/types'
+import type { PlaylistSummary, SearchFilter, SearchItem, SearchPage, VideoSummary } from '../../shared/types'
 import { getClient } from './client'
-import { dedupe, isLockup, toChannelSummary, toMusicSummary, toPlaylistSummary, toSummary, toLockupVideo } from './mappers'
+import { dedupe, isLockup, isRadioItem, toChannelSummary, toMusicAlbumSummary, toMusicSearchItem, toPlaylistSummary, toSummary, toLockupVideo } from './mappers'
 import type { TokenStore } from './tokens'
 import type { Continuable, ContinuationEntry } from './types'
 
@@ -13,15 +13,31 @@ export class SearchService {
     if (!q) return { items: [], continuation: null }
 
     if (filter === 'music') {
-      const feed = (await yt.music.search(q, { type: 'video' })) as unknown as Continuable
+      const feed = (await yt.music.search(q)) as unknown as Continuable
+      const nodes = this.allMusicItems(feed)
+      const items: SearchItem[] = []
+      for (const node of nodes) {
+        const item = toMusicSearchItem(node)
+        if (item) items.push(item)
+      }
+      return {
+        items: dedupe(items),
+        continuation: feed.has_continuation
+          ? this.tokens.set({ kind: 'search:music', feed })
+          : null
+      }
+    }
+
+    if (filter === 'albums') {
+      const feed = (await yt.music.search(q, { type: 'album' })) as unknown as Continuable
       const items = this.musicItems(feed)
-        .map((n) => toMusicSummary(n))
-        .filter((i): i is VideoSummary => i !== null)
-        .map((v): SearchItem => ({ type: 'video', ...v }))
+        .map((n) => toMusicAlbumSummary(n))
+        .filter((i): i is PlaylistSummary => i !== null)
+        .map((p): SearchItem => ({ type: 'playlist', ...p }))
       return {
         items,
         continuation: feed.has_continuation
-          ? this.tokens.set({ kind: 'search:music', feed })
+          ? this.tokens.set({ kind: 'search:albums', feed })
           : null
       }
     }
@@ -57,8 +73,15 @@ export class SearchService {
     const items: SearchItem[] = []
     if (kind === 'search:music') {
       for (const node of nodes) {
-        const v = toMusicSummary(node)
-        if (v) items.push({ type: 'video', ...v })
+        const item = toMusicSearchItem(node)
+        if (item) items.push(item)
+      }
+      return dedupe(items)
+    }
+    if (kind === 'search:albums') {
+      for (const node of nodes) {
+        const a = toMusicAlbumSummary(node)
+        if (a) items.push({ type: 'playlist', ...a })
       }
       return items
     }
@@ -72,7 +95,7 @@ export class SearchService {
         if (c) items.push({ type: 'channel', ...c })
       } else if (kind === 'search:playlists') {
         const p = toPlaylistSummary(node)
-        if (p) items.push({ type: 'playlist', ...p })
+        if (p && !isRadioItem(p.id, p.title, p.author)) items.push({ type: 'playlist', ...p })
       } else {
         // Mixed results: map by node type, skip shelves and promotions.
         if (type === 'Video' || type === 'GridVideo' || type === 'Movie') {
@@ -87,16 +110,35 @@ export class SearchService {
               ? toPlaylistSummary(node)
               : toLockupVideo(node)
           if (mapped) {
-            items.push(
-              'videoId' in mapped
-                ? { type: 'video', ...(mapped as VideoSummary) }
-                : { type: 'playlist', ...(mapped as any) }
-            )
+            if ('videoId' in mapped) {
+              items.push({ type: 'video', ...(mapped as VideoSummary) })
+            } else if (!isRadioItem(mapped.id, mapped.title, mapped.author)) {
+              items.push({ type: 'playlist', ...(mapped as any) })
+            }
           }
         }
       }
     }
     return dedupe(items)
+  }
+
+  /** Extracts all MusicCardShelf and MusicResponsiveListItem items from standard YT music search. */
+  private allMusicItems(feed: unknown): unknown[] {
+    const contents = (feed as { contents?: unknown[] })?.contents
+    if (!Array.isArray(contents)) return []
+    const out: unknown[] = []
+    for (const section of contents) {
+      if (!section || typeof section !== 'object') continue
+      const s = section as any
+      if (s.type === 'MusicCardShelf') {
+        out.push(s)
+      } else if (Array.isArray(s.contents)) {
+        for (const item of s.contents) {
+          out.push(item)
+        }
+      }
+    }
+    return out
   }
 
   /** Extracts MusicResponsiveListItem arrays from music search / continuations. */
@@ -120,7 +162,11 @@ export class SearchService {
     this.tokens.delete(token)
     return {
       items: this.searchItems(
-        entry.kind === 'search:music' ? this.musicItems(next) : (next as { results?: unknown[] }).results ?? [],
+        entry.kind === 'search:music'
+          ? this.allMusicItems(next)
+          : entry.kind === 'search:albums'
+            ? this.musicItems(next)
+            : (next as { results?: unknown[] }).results ?? [],
         entry.kind
       ),
       continuation: next.has_continuation

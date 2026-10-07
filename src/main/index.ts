@@ -213,6 +213,10 @@ function registerIpc(): void {
   ipcMain.handle('channel:videos-more', (_e, token: string) =>
     youtube.channelVideosMore(token)
   )
+  ipcMain.handle('channel:live', (_e, id: string) => youtube.getChannelLiveStreams(id))
+  ipcMain.handle('channel:live-more', (_e, token: string) =>
+    youtube.channelLiveStreamsMore(token)
+  )
   ipcMain.handle('channel:playlists', (_e, id: string) => youtube.getChannelPlaylists(id))
   ipcMain.handle('channel:playlists-more', (_e, token: string) =>
     youtube.channelPlaylistsMore(token)

@@ -8,6 +8,7 @@ import { SelectionCopyTooltip } from './components/SelectionCopyTooltip'
 import { goBack, goForward, navigate, parse, useRoute, type Route } from './lib/router'
 import { scrollPageToTop } from './lib/scroll'
 import { clearPlaylistSession } from './lib/playlistSession'
+import { clearSleepTimer } from './lib/sleepTimer'
 import { SearchPage } from './pages/SearchPage'
 import { WatchPage } from './pages/WatchPage'
 import { PlaylistsPage } from './pages/PlaylistsPage'
@@ -207,6 +208,7 @@ export function App(): React.JSX.Element {
             onClose={() => {
               setActiveWatch(null)
               clearPlaylistSession()
+              clearSleepTimer()
             }}
             onExpand={() =>
               navigate(

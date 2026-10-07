@@ -64,6 +64,14 @@ export class YoutubeService {
     return this.channelService.channelVideosMore(token)
   }
 
+  getChannelLiveStreams(id: string): Promise<ChannelVideosPage> {
+    return this.channelService.getChannelLiveStreams(id)
+  }
+
+  channelLiveStreamsMore(token: string): Promise<ChannelVideosPage> {
+    return this.channelService.channelLiveStreamsMore(token)
+  }
+
   getChannelPlaylists(id: string): Promise<{ items: PlaylistSummary[]; continuation: string | null }> {
     return this.channelService.getChannelPlaylists(id)
   }

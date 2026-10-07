@@ -624,6 +624,21 @@ select.input {
 }
 
 /* ---- Grids & video cards (Material 3 Expressive Media Cards) ---- */
+.masonry-grid {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--masonry-gap, 20px);
+  width: 100%;
+}
+
+.masonry-grid__column {
+  flex: 1 1 0;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--masonry-gap, 20px);
+}
+
 .video-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(310px, 1fr));
@@ -846,12 +861,48 @@ select.input {
   max-width: 100%;
 }
 
+.video-card__author-row {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 100%;
+  min-width: 0;
+}
+
+.video-card__author-btn,
+.video-card__author-avatar-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0;
+  margin: 0;
+  background: none;
+  border: none;
+  cursor: pointer;
+  max-width: 100%;
+  min-width: 0;
+  text-align: left;
+  font: inherit;
+  color: inherit;
+  flex: none;
+}
+
+.video-card__author-btn:hover .video-card__author-avatar,
+.video-card__author-avatar-btn:hover .video-card__author-avatar {
+  transform: scale(1.08);
+}
+
+.video-card__author-btn:hover .video-card__author-name {
+  color: var(--primary);
+}
+
 .video-card__author-avatar {
   width: 20px;
   height: 20px;
   border-radius: var(--r-full);
   object-fit: cover;
   flex: none;
+  transition: transform var(--t-fast) var(--ease-spring);
 }
 
 .video-card__author-avatar--fallback {
@@ -867,11 +918,80 @@ select.input {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  font-size: 12.5px;
+  color: var(--on-surface-variant);
+  font-weight: 500;
 }
 
-.video-card__author:hover .video-card__author-name {
+.video-card__author:hover .video-card__author-name,
+.video-card__author-row:hover .video-card__author-name {
   color: var(--primary);
-  text-decoration: underline;
+}
+
+/* ---- Artist links & clickable tokens ---- */
+.artist-links {
+  display: inline-flex;
+  align-items: center;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: inherit;
+  line-height: inherit;
+  color: inherit;
+}
+
+.artist-links__item {
+  display: inline-flex;
+  align-items: center;
+  white-space: nowrap;
+}
+
+.artist-link {
+  appearance: none;
+  background: none;
+  border: none;
+  padding: 0;
+  margin: 0;
+  font: inherit;
+  font-size: inherit;
+  color: inherit;
+  cursor: pointer;
+  text-decoration: none;
+  display: inline;
+  transition: color var(--t-fast) var(--ease-out);
+}
+
+.artist-link:hover {
+  color: var(--primary);
+  text-decoration: none !important;
+}
+
+.artist-link:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+  border-radius: 2px;
+}
+
+.artist-links__sep {
+  color: inherit;
+  opacity: 0.8;
+  white-space: pre;
+}
+
+.artist-links__more {
+  color: var(--on-surface-variant);
+  opacity: 0.75;
+  font-weight: normal;
+  white-space: pre;
+}
+
+.video-card--thumb-square .video-card__thumb-wrap {
+  aspect-ratio: 1 / 1;
+}
+
+.video-card--thumb-square .video-card__thumb {
+  object-fit: cover;
 }
 
 /* ---- Channel card (Material 3 Expressive Creator Card) ---- */
@@ -1025,7 +1145,8 @@ select.input {
   box-shadow: var(--shadow-1);
 }
 
-.pl-card--album .pl-card__thumb-wrap {
+.pl-card--album .pl-card__thumb-wrap,
+.pl-card--thumb-square .pl-card__thumb-wrap {
   aspect-ratio: 1;
 }
 
@@ -1072,6 +1193,10 @@ select.input {
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.05em;
+  max-width: calc(100% - 20px);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .playlist-card__kind--local {
@@ -1082,7 +1207,7 @@ select.input {
 
 .pl-card__count-badge {
   position: absolute;
-  top: 10px;
+  bottom: 10px;
   right: 10px;
   z-index: 2;
   display: inline-flex;
@@ -1099,6 +1224,10 @@ select.input {
   font-weight: 700;
   letter-spacing: 0.02em;
   box-shadow: 0 2px 8px rgb(0 0 0 / 0.35);
+  max-width: calc(100% - 20px);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .pl-card__meta-count {
@@ -1245,6 +1374,7 @@ select.input {
   justify-content: center;
   gap: 16px;
   padding: 48px;
+  animation: page-in var(--t-med) var(--ease-out) both;
 }
 
 /* ---- Material 3 Expressive Circular Progress Spinner ---- */

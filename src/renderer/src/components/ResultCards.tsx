@@ -12,6 +12,27 @@ import { useBrokenImage } from '../lib/useBrokenImage'
 import { activationProps } from '../lib/keyboard'
 import type { ChannelSummary, PlaylistSummary } from '../../../shared/types'
 
+/** Safely stringifies any string, number, or InnerTube Text object to prevent React child crash. */
+function safeString(value: unknown): string {
+  if (value == null) return ''
+  if (typeof value === 'string') return value
+  if (typeof value === 'number') return String(value)
+  if (typeof value === 'object') {
+    const v = value as any
+    if (typeof v.text === 'string') return v.text
+    if (v.text && typeof v.text === 'object') return safeString(v.text)
+    if (Array.isArray(v.runs)) {
+      return v.runs.map((r: any) => (typeof r === 'object' ? r?.text ?? '' : String(r))).join('')
+    }
+    if (typeof v.simpleText === 'string') return v.simpleText
+    if (typeof v.toString === 'function') {
+      const s = v.toString()
+      if (typeof s === 'string' && s && s !== '[object Object]') return s
+    }
+  }
+  return ''
+}
+
 /** Compact channel card used in search results. */
 export const ChannelCard = memo(function ChannelCard({
   channel,
@@ -27,6 +48,13 @@ export const ChannelCard = memo(function ChannelCard({
   const [bookmarkOpen, setBookmarkOpen] = useState(false)
   const copyLink = useCopyLink()
   const open = (): void => navigate(`#/channel/${channel.id}`)
+
+  const channelName = safeString(channel.name) || 'Channel'
+  const channelHandle = safeString(channel.handle)
+  const channelSubscribers = safeString(channel.subscribers)
+  const channelVideoCount = safeString(channel.videoCount)
+  const channelDescription = safeString(channel.description)
+
   // The dialog doubles as the editor once the channel is bookmarked, so the
   // menu label has to track the same state the channel page does.
   const isSaved = isChannelSaved(channel.id)
@@ -45,7 +73,7 @@ export const ChannelCard = memo(function ChannelCard({
         View channel
       </button>
       <OverflowButton
-        label={`${channel.name} options`}
+        label={`${channelName} options`}
         className="channel-card__menu"
         onToggle={(trigger) => setMenuAnchor((anchor) => (anchor ? null : trigger))}
       />
@@ -70,22 +98,22 @@ export const ChannelCard = memo(function ChannelCard({
           />
         ) : (
           <div className="channel-card__avatar channel-card__avatar--fallback">
-            {channel.name.slice(0, 1).toUpperCase()}
+            {channelName.slice(0, 1).toUpperCase()}
           </div>
         )}
       </div>
       <div className="channel-card__body">
         <h3 className="channel-card__name">
-          <span className="channel-card__name-text">{channel.name}</span>
+          <span className="channel-card__name-text">{channelName}</span>
           {channel.isMusic && <MusicBadge />}
         </h3>
         <div className="channel-card__meta">
-          {channel.handle && <span>{channel.handle}</span>}
-          {channel.subscribers && <span>{channel.subscribers}</span>}
-          {channel.videoCount && <span>{channel.videoCount}</span>}
+          {channelHandle && <span>{channelHandle}</span>}
+          {channelSubscribers && <span>{channelSubscribers}</span>}
+          {channelVideoCount && <span>{channelVideoCount}</span>}
         </div>
-        {channel.description && (
-          <p className="channel-card__description">{channel.description}</p>
+        {channelDescription && (
+          <p className="channel-card__description">{channelDescription}</p>
         )}
         {!isList && actions}
       </div>
@@ -116,8 +144,8 @@ export const ChannelCard = memo(function ChannelCard({
       {bookmarkOpen && (
         <BookmarkChannelDialog
           channelId={channel.id}
-          title={channel.name}
-          handle={channel.handle}
+          title={channelName}
+          handle={channelHandle || null}
           avatar={avatar}
           onClose={() => setBookmarkOpen(false)}
         />
@@ -148,15 +176,28 @@ export const PlaylistCard = memo(function PlaylistCard({
   const canRemove = Boolean(saved && onRemove)
   // A music release is still a YouTube playlist under the hood, so it reuses
   // this card and the existing playlist route — only its labels differ.
+  const title = safeString(playlist.title) || 'Playlist'
+  const author = safeString(playlist.author)
+  const year = safeString(playlist.year)
+  const rawCount = safeString(playlist.countText)
+  const isDuplicateAlbumCount =
+    playlist.isAlbum &&
+    (!rawCount ||
+      /^(album|ep|single|release|playlist)$/i.test(rawCount.trim()) ||
+      rawCount.trim().toLowerCase() === title.trim().toLowerCase())
   const countLabel =
-    playlist.countText ??
-    (playlist.count != null
-      ? `${playlist.count} ${playlist.isAlbum ? 'songs' : 'videos'}`
-      : '')
+    isDuplicateAlbumCount
+      ? ''
+      : (rawCount ||
+        (playlist.count != null
+          ? `${playlist.count} ${playlist.isAlbum ? 'songs' : 'videos'}`
+          : ''))
+
+  const isSquare = playlist.thumbAspect === 'square' || playlist.isAlbum
 
   return (
     <article
-      className={`pl-card${playlist.isAlbum ? ' pl-card--album' : ''}`}
+      className={`pl-card${playlist.isAlbum ? ' pl-card--album' : ''}${isSquare ? ' pl-card--thumb-square' : ''}`}
       onClick={open}
       {...activationProps(open)}
     >
@@ -181,28 +222,29 @@ export const PlaylistCard = memo(function PlaylistCard({
       </div>
       <div className="pl-card__body">
         <div className="pl-card__title-row">
-          <h3 className="pl-card__title">{playlist.title}</h3>
+          <h3 className="pl-card__title">{title}</h3>
           <OverflowButton
-            label={`${playlist.title} options`}
+            label={`${title} options`}
             className="pl-card__menu"
             onToggle={(trigger) => setMenuAnchor((anchor) => (anchor ? null : trigger))}
           />
         </div>
         <div className="pl-card__meta">
-          {playlist.author ? (
+          {author ? (
             <ChannelLine
               className="pl-card__author"
-              name={playlist.author}
+              name={author}
               channelId={playlist.authorId ?? null}
               avatar={playlist.authorAvatar ?? null}
+              artists={playlist.artists}
             />
           ) : (
             <span>{playlist.isAlbum ? 'Music release' : 'YouTube playlist'}</span>
           )}
-          {playlist.year && (
+          {year && (
             <>
               <span className="pl-card__meta-sep" aria-hidden="true">•</span>
-              <span className="pl-card__year">{playlist.year}</span>
+              <span className="pl-card__year">{year}</span>
             </>
           )}
           {countLabel && (

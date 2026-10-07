@@ -6,9 +6,11 @@ import { EmptyState } from '../components/EmptyState'
 import { ListRow } from '../components/ListRow'
 import { VideoCard } from '../components/VideoCard'
 import { VideoOptions } from '../components/VideoOptions'
+import { MasonryGrid } from '../components/MasonryGrid'
 import { ViewModeToggle } from '../components/ViewModeToggle'
 import { useViewMode } from '../lib/useViewMode'
 import { formatCount, formatDuration, formatRelative, formatVideoPublished } from '../lib/format'
+import { navigate } from '../lib/router'
 import { useApp } from '../state/AppContext'
 
 export function HistoryPage(): React.JSX.Element {
@@ -35,6 +37,12 @@ export function HistoryPage(): React.JSX.Element {
     await refreshHistory()
     toast('Watch history cleared')
   }
+
+  const mostRecentInProgress = useMemo(() => {
+    return history.find(
+      (h) => h.position > 10 && h.duration != null && h.position < h.duration - 15
+    )
+  }, [history])
 
   const filteredHistory = useMemo(() => {
     const q = searchQuery.trim().toLowerCase()
@@ -73,6 +81,29 @@ export function HistoryPage(): React.JSX.Element {
         )}
       </div>
 
+      {!searchQuery && mostRecentInProgress && (
+        <div
+          className="resume-banner"
+          onClick={() => navigate(`#/watch/${mostRecentInProgress.videoId}`)}
+          title={`Resume ${mostRecentInProgress.title}`}
+        >
+          <img className="resume-banner__thumb" src={mostRecentInProgress.thumbnail} alt="" />
+          <div className="resume-banner__body">
+            <span className="resume-banner__tag">
+              <Icon name="history" size={14} /> Resume watching
+            </span>
+            <span className="resume-banner__title">{mostRecentInProgress.title}</span>
+            <span className="resume-banner__meta">
+              {mostRecentInProgress.author} · {formatDuration(mostRecentInProgress.position)} of {formatDuration(mostRecentInProgress.duration)}
+            </span>
+          </div>
+          <button type="button" className="btn btn--filled btn--sm resume-banner__btn">
+            <Icon name="play" size={16} />
+            Resume
+          </button>
+        </div>
+      )}
+
       {!settings.saveWatchHistory && (
         <div className="notice">
           <Icon name="info" size={18} />
@@ -108,7 +139,7 @@ export function HistoryPage(): React.JSX.Element {
             </div>
           )}
           {viewMode === 'grid' ? (
-            <div key={searchQuery ? 'filtered-grid' : 'all-grid'} className="video-grid animate-fade-up">
+            <MasonryGrid key={searchQuery ? 'filtered-grid' : 'all-grid'} className="animate-fade-up">
               {filteredHistory.map((entry) => {
                 const hasDuration = entry.duration != null && entry.duration > 0
                 const pct = hasDuration && entry.position > 0 ? entry.position / entry.duration! : undefined
@@ -134,7 +165,7 @@ export function HistoryPage(): React.JSX.Element {
                   />
                 )
               })}
-            </div>
+            </MasonryGrid>
           ) : (
             <ul key={searchQuery ? 'filtered' : 'all'} className="list animate-fade-up">
               {filteredHistory.map((entry, index) => {

@@ -11,6 +11,11 @@ export interface Thumb {
   height: number
 }
 
+export interface ArtistRef {
+  name: string
+  id?: string | null
+}
+
 export interface VideoSummary {
   videoId: string
   title: string
@@ -26,6 +31,16 @@ export interface VideoSummary {
   isPremiere?: boolean
   isStreamed?: boolean
   publishTimestamp?: number | null
+  /** Album name when this video represents a music track. */
+  album?: string | null
+  /** Album browse id / playlist id when known. */
+  albumId?: string | null
+  /** True when the item represents an official music track rather than standard video. */
+  isMusicTrack?: boolean
+  /** Structured artist references with individual channel IDs for multi-artist tracks. */
+  artists?: ArtistRef[]
+  /** Natural aspect ratio of the thumbnail ('square' for 1:1, 'wide' for 16:9). */
+  thumbAspect?: 'square' | 'wide'
 }
 
 export interface ChannelSummary {
@@ -60,6 +75,10 @@ export interface PlaylistSummary {
   isAlbum?: boolean
   /** Release year, e.g. '2026'. */
   year?: string | null
+  /** Structured artist/creator references for music releases and playlists. */
+  artists?: ArtistRef[]
+  /** Natural aspect ratio of the thumbnail ('square' for 1:1, 'wide' for 16:9). */
+  thumbAspect?: 'square' | 'wide'
 }
 
 export type SearchItem =
@@ -67,7 +86,7 @@ export type SearchItem =
   | ({ type: 'channel' } & ChannelSummary)
   | ({ type: 'playlist' } & PlaylistSummary)
 
-export type SearchFilter = 'all' | 'videos' | 'channels' | 'playlists' | 'music'
+export type SearchFilter = 'all' | 'videos' | 'channels' | 'playlists' | 'music' | 'albums'
 
 export interface SearchPage {
   items: SearchItem[]
@@ -280,6 +299,8 @@ export interface RemotePlaylist {
   id: string
   title: string
   author: string | null
+  authorId?: string | null
+  authorAvatar?: string | null
   /** Total item count when known, else null. */
   count: number | null
   countText: string | null
@@ -444,6 +465,8 @@ export interface AppApi {
   getChannel(id: string): Promise<ChannelInfo>
   getChannelVideos(id: string, sort: ChannelSort): Promise<ChannelVideosPage>
   channelVideosMore(continuation: string): Promise<ChannelVideosPage>
+  getChannelLiveStreams(id: string): Promise<ChannelVideosPage>
+  channelLiveStreamsMore(continuation: string): Promise<ChannelVideosPage>
   getChannelPlaylists(id: string): Promise<{ items: PlaylistSummary[]; continuation: string | null }>
   channelPlaylistsMore(continuation: string): Promise<{ items: PlaylistSummary[]; continuation: string | null }>
   /** Music releases (albums) of a music channel. */

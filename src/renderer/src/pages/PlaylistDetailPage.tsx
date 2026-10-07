@@ -4,6 +4,7 @@ import { ChannelLine } from '../components/ChannelLine'
 import { EmptyState, Loader } from '../components/EmptyState'
 import { ListRow } from '../components/ListRow'
 import { VideoCard } from '../components/VideoCard'
+import { MasonryGrid } from '../components/MasonryGrid'
 import { ViewModeToggle } from '../components/ViewModeToggle'
 import { useViewMode } from '../lib/useViewMode'
 import { Menu, MenuItem } from '../components/Menu'
@@ -74,7 +75,7 @@ export function PlaylistDetailPage({ id }: { id: string }): React.JSX.Element {
 
 /** Bookmarks stored on this device: full reordering and removal. */
 function LocalPlaylist({ playlist }: { playlist: Playlist }): React.JSX.Element {
-  const { history, refreshPlaylists, confirm, toast } = useApp()
+  const { historyMap, refreshPlaylists, confirm, toast } = useApp()
   const [current, setCurrent] = useState(playlist)
   const [viewMode, setViewMode] = useViewMode('playlist-detail')
 
@@ -85,6 +86,31 @@ function LocalPlaylist({ playlist }: { playlist: Playlist }): React.JSX.Element 
   const playAll = (): void => {
     const first = current.videos[0]
     if (first) navigate(`#/watch/${first.videoId}?list=${current.id}`)
+  }
+
+  const shufflePlay = (): void => {
+    if (current.videos.length === 0) return
+    const randomIndex = Math.floor(Math.random() * current.videos.length)
+    const target = current.videos[randomIndex]
+    if (target) navigate(`#/watch/${target.videoId}?list=${current.id}`)
+  }
+
+  const exportPlaylist = (): void => {
+    try {
+      const data = JSON.stringify(current, null, 2)
+      const blob = new Blob([data], { type: 'application/json' })
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `${current.name.toLowerCase().replace(/[^a-z0-9]+/g, '-')}-playlist.json`
+      document.body.appendChild(a)
+      a.click()
+      document.body.removeChild(a)
+      URL.revokeObjectURL(url)
+      toast(`Exported “${current.name}”`)
+    } catch {
+      toast('Failed to export playlist')
+    }
   }
 
   const removeItem = async (videoId: string): Promise<void> => {
@@ -129,10 +155,28 @@ function LocalPlaylist({ playlist }: { playlist: Playlist }): React.JSX.Element 
             <Icon name="play_arrow" size={18} />
             Play all
           </button>
+          <button
+            className="btn btn--tonal"
+            disabled={current.videos.length === 0}
+            onClick={shufflePlay}
+            title="Shuffle playlist"
+          >
+            <Icon name="shuffle" size={18} />
+            Shuffle
+          </button>
           <ViewModeToggle value={viewMode} onChange={setViewMode} />
           <button
             className="icon-btn"
+            aria-label="Export playlist"
+            title="Export playlist"
+            onClick={exportPlaylist}
+          >
+            <Icon name="download" size={18} />
+          </button>
+          <button
+            className="icon-btn"
             aria-label="Delete playlist"
+            title="Delete playlist"
             onClick={() => void removePlaylist()}
           >
             <Icon name="delete" size={20} />
@@ -147,9 +191,9 @@ function LocalPlaylist({ playlist }: { playlist: Playlist }): React.JSX.Element 
           message="Use the save option on any video to add it here."
         />
       ) : viewMode === 'grid' ? (
-        <div key={current.id} className="video-grid animate-fade-up">
+        <MasonryGrid key={current.id} className="animate-fade-up">
           {current.videos.map((video) => {
-            const enrichedVideo = enrichVideoWithHistory(video, history)
+            const enrichedVideo = enrichVideoWithHistory(video, historyMap)
             return (
               <VideoCard
                 key={video.videoId}
@@ -158,11 +202,11 @@ function LocalPlaylist({ playlist }: { playlist: Playlist }): React.JSX.Element 
               />
             )
           })}
-        </div>
+        </MasonryGrid>
       ) : (
         <ul key={current.id} className="list animate-fade-up">
           {current.videos.map((video, index) => {
-            const enrichedVideo = enrichVideoWithHistory(video, history)
+            const enrichedVideo = enrichVideoWithHistory(video, historyMap)
             return (
               <ListRow
                 key={`${video.videoId}-${index}`}
@@ -226,7 +270,7 @@ function LocalPlaylist({ playlist }: { playlist: Playlist }): React.JSX.Element 
  * is stored locally (YouTube itself cannot be edited without signing in).
  */
 function SavedYouTubePlaylist({ playlist }: { playlist: Playlist }): React.JSX.Element {
-  const { refreshPlaylists, confirm, toast, touchYoutubePlaylist, history } = useApp()
+  const { refreshPlaylists, confirm, toast, touchYoutubePlaylist, historyMap } = useApp()
   const copyLink = useCopyLink()
   const [viewMode, setViewMode] = useViewMode('playlist-detail')
   const { playlist: remote, items, loading, loadingMore, error, loadMore, reload } =
@@ -253,6 +297,38 @@ function SavedYouTubePlaylist({ playlist }: { playlist: Playlist }): React.JSX.E
     if (first) navigate(`#/watch/${first.videoId}?list=yt:${playlist.youtubeId}`)
   }
 
+  const shufflePlay = (): void => {
+    if (items.length === 0) return
+    const randomIndex = Math.floor(Math.random() * items.length)
+    const target = items[randomIndex]
+    if (target) navigate(`#/watch/${target.videoId}?list=yt:${playlist.youtubeId}`)
+  }
+
+  const exportPlaylist = (): void => {
+    setMenuAnchor(null)
+    try {
+      const data = JSON.stringify({
+        id: playlist.youtubeId,
+        title: remote?.title ?? playlist.name,
+        author: remote?.author ?? playlist.author,
+        count: items.length,
+        videos: items
+      }, null, 2)
+      const blob = new Blob([data], { type: 'application/json' })
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `${(remote?.title ?? playlist.name).toLowerCase().replace(/[^a-z0-9]+/g, '-')}-playlist.json`
+      document.body.appendChild(a)
+      a.click()
+      document.body.removeChild(a)
+      URL.revokeObjectURL(url)
+      toast(`Exported “${remote?.title ?? playlist.name}”`)
+    } catch {
+      toast('Failed to export playlist')
+    }
+  }
+
   const sync = (): void => {
     setMenuAnchor(null)
     reload()
@@ -274,7 +350,7 @@ function SavedYouTubePlaylist({ playlist }: { playlist: Playlist }): React.JSX.E
     try {
       const created = await window.api.createPlaylist(`${playlist.name} (copy)`)
       for (const video of items) {
-        await window.api.addToPlaylist(created.id, toPlaylistVideo(enrichVideoWithHistory(video, history)))
+        await window.api.addToPlaylist(created.id, toPlaylistVideo(enrichVideoWithHistory(video, historyMap)))
       }
       await refreshPlaylists()
       toast(`Saved ${items.length} videos as “${created.name}”`)
@@ -314,6 +390,15 @@ function SavedYouTubePlaylist({ playlist }: { playlist: Playlist }): React.JSX.E
             <Icon name="play_arrow" size={18} />
             Play all
           </button>
+          <button
+            className="btn btn--tonal"
+            disabled={items.length === 0}
+            onClick={shufflePlay}
+            title="Shuffle playlist"
+          >
+            <Icon name="shuffle" size={18} />
+            Shuffle
+          </button>
           <ViewModeToggle value={viewMode} onChange={setViewMode} />
           <button className="icon-btn" aria-label="Playlist options" aria-haspopup="menu" onClick={(e) => setMenuAnchor(e.currentTarget)}>
             <Icon name="more" size={20} />
@@ -334,6 +419,11 @@ function SavedYouTubePlaylist({ playlist }: { playlist: Playlist }): React.JSX.E
           />
         )}
         <MenuItem icon="refresh" label="Sync now" onSelect={sync} />
+        <MenuItem
+          icon="download"
+          label="Export playlist (JSON)"
+          onSelect={exportPlaylist}
+        />
         <MenuItem
           icon="bookmark"
           label="Save a local copy"
@@ -360,9 +450,9 @@ function SavedYouTubePlaylist({ playlist }: { playlist: Playlist }): React.JSX.E
 
       {items.length > 0 && (
         viewMode === 'grid' ? (
-          <div key={`yt-synced-${playlist.id}`} className="video-grid animate-fade-up">
+          <MasonryGrid key={`yt-synced-${playlist.id}`} className="animate-fade-up">
             {items.map((video: VideoSummary) => {
-              const enrichedVideo = enrichVideoWithHistory(video, history)
+              const enrichedVideo = enrichVideoWithHistory(video, historyMap)
               return (
                 <VideoCard
                   key={video.videoId}
@@ -371,11 +461,11 @@ function SavedYouTubePlaylist({ playlist }: { playlist: Playlist }): React.JSX.E
                 />
               )
             })}
-          </div>
+          </MasonryGrid>
         ) : (
           <ul key={`yt-synced-${playlist.id}`} className="list animate-fade-up">
             {items.map((video: VideoSummary, index: number) => {
-              const enrichedVideo = enrichVideoWithHistory(video, history)
+              const enrichedVideo = enrichVideoWithHistory(video, historyMap)
               return (
                 <ListRow
                   key={`${video.videoId}-${index}`}
