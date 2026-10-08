@@ -2,7 +2,7 @@ import type { Innertube } from 'youtubei.js'
 
 export interface TextLike {
   text?: string
-  runs?: { text?: string }[]
+  runs?: { text?: string; endpoint?: { payload?: { browseId?: string } } }[]
   endpoint?: { payload?: { browseId?: string } }
   toString?: () => string
 }
@@ -30,6 +30,7 @@ export interface LockupViewNode {
       decoratedAvatarViewModel?: { avatar?: { image?: ThumbLike[]; sources?: ThumbLike[] } }
       renderer_context?: { command_context?: { on_tap?: { payload?: { browseId?: string } } } }
       avatar?: { endpoint?: { payload?: { browseId?: string } }; image?: ThumbLike[]; sources?: ThumbLike[] }
+      avatars?: { image?: ThumbLike[]; sources?: ThumbLike[] }[]
       endpoint?: { payload?: { browseId?: string } }
       on_tap_endpoint?: { payload?: { browseId?: string } }
     }

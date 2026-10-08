@@ -143,11 +143,7 @@ export class PlaylistService {
       absUrl(authorObj?.avatar_thumbnail_url) ||
       null
 
-    const items = feedVideos(playlist, {
-      author: playlistAuthor,
-      authorId: playlistAuthorId,
-      authorAvatar: playlistAuthorAvatar
-    })
+    const items = feedVideos(playlist)
 
     const effectiveAuthor = playlistAuthor || items[0]?.author || null
     const effectiveAuthorId = playlistAuthorId || items[0]?.authorId || null

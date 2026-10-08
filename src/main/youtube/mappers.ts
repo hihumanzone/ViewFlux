@@ -61,7 +61,10 @@ export function isLockup(node: unknown): node is LockupViewNode {
 }
 
 /** Classic `Video` / `GridVideo` search node. */
-export function toSummary(node: unknown): VideoSummary | null {
+export function toSummary(
+  node: unknown,
+  ctx?: { author?: string | null; authorId?: string | null; authorAvatar?: string | null }
+): VideoSummary | null {
   const v = node as {
     video_id?: string
     id?: string
@@ -89,6 +92,7 @@ export function toSummary(node: unknown): VideoSummary | null {
     v.author?.id ??
     v.author?.endpoint?.payload?.browseId ??
     v.author?.endpoint?.browseEndpoint?.browseId ??
+    ctx?.authorId ??
     null
 
   let viewCount =
@@ -167,10 +171,13 @@ export function toSummary(node: unknown): VideoSummary | null {
   return {
     videoId,
     title: text(v.title),
-    author: v.author?.name ?? '',
+    author: v.author?.name || ctx?.author || '',
     authorId,
     authorAvatar:
-      pickThumbnail(v.author?.thumbnails, 240) || absUrl(v.author?.best_thumbnail?.url) || null,
+      pickThumbnail(v.author?.thumbnails, 240) ||
+      absUrl(v.author?.best_thumbnail?.url) ||
+      ctx?.authorAvatar ||
+      null,
     duration: v.duration?.seconds ?? null,
     thumbnail: pickThumbnail(v.thumbnails),
     viewCount,
@@ -190,7 +197,7 @@ export function toLockupVideo(
   node: unknown,
   ctx?: { author?: string | null; authorId?: string | null; authorAvatar?: string | null }
 ): VideoSummary | null {
-  if (!isLockup(node)) return toSummary(node)
+  if (!isLockup(node)) return toSummary(node, ctx)
   if (!node.content_id || node.content_type !== 'VIDEO') return null
 
   const thumbs = node.content_image?.image
@@ -198,32 +205,29 @@ export function toLockupVideo(
   const durationBadge = badges.find((b) => b.includes(':'))
   const rows = lockupRows(node)
 
-  let authorAvatar: string | null = ctx?.authorAvatar ?? null
-  if (!authorAvatar) {
-    const metaImg = (node as any).metadata?.image
-    const avatarImages = (metaImg?.avatar?.image ??
-      metaImg?.avatar?.sources ??
-      metaImg?.decoratedAvatarViewModel?.avatar?.image ??
-      metaImg?.decoratedAvatarViewModel?.avatar?.sources) as ThumbLike[] | undefined
-    if (Array.isArray(avatarImages) && avatarImages.length > 0) {
-      authorAvatar = pickThumbnail(avatarImages, 240) || absUrl(avatarImages[0]?.url) || null
-    }
-  }
+  const metaImg = (node as any).metadata?.image
+  const avatarImages = (metaImg?.avatar?.image ??
+    metaImg?.avatar?.sources ??
+    metaImg?.decoratedAvatarViewModel?.avatar?.image ??
+    metaImg?.decoratedAvatarViewModel?.avatar?.sources ??
+    metaImg?.avatars?.[0]?.image) as ThumbLike[] | undefined
 
-  let authorId: string | null = ctx?.authorId ?? null
+  let authorAvatar: string | null =
+    (Array.isArray(avatarImages) && avatarImages.length > 0
+      ? pickThumbnail(avatarImages, 240) || absUrl(avatarImages[0]?.url) || null
+      : null) ??
+    ctx?.authorAvatar ??
+    null
+
+  let authorId: string | null =
+    metaImg?.renderer_context?.command_context?.on_tap?.payload?.browseId ??
+    metaImg?.avatar?.endpoint?.payload?.browseId ??
+    metaImg?.endpoint?.payload?.browseId ??
+    metaImg?.on_tap_endpoint?.payload?.browseId ??
+    null
+
+  const rawRows = (node as any).metadata?.metadata?.metadata_rows ?? []
   if (!authorId) {
-    const metaImg = (node as any).metadata?.image
-    const imgBrowseId =
-      metaImg?.renderer_context?.command_context?.on_tap?.payload?.browseId ??
-      metaImg?.avatar?.endpoint?.payload?.browseId ??
-      metaImg?.endpoint?.payload?.browseId ??
-      metaImg?.on_tap_endpoint?.payload?.browseId
-    if (typeof imgBrowseId === 'string' && imgBrowseId) {
-      authorId = imgBrowseId
-    }
-  }
-  if (!authorId) {
-    const rawRows = (node as any).metadata?.metadata?.metadata_rows ?? []
     for (const row of rawRows) {
       for (const part of row.metadata_parts ?? []) {
         const ep =
@@ -241,7 +245,41 @@ export function toLockupVideo(
     }
   }
 
-  let author: string | null = ctx?.author ?? null
+  if (!authorId) {
+    const listItems =
+      metaImg?.renderer_context?.command_context?.on_tap?.payload?.panelLoadingStrategy?.inlineContent
+        ?.dialogViewModel?.customContent?.listViewModel?.listItems
+    const firstBrowseId =
+      listItems?.[0]?.listItemViewModel?.title?.commandRuns?.[0]?.onTap?.innertubeCommand
+        ?.browseEndpoint?.browseId ??
+      listItems?.[0]?.renderer_context?.command_context?.on_tap?.payload?.browseId
+    if (typeof firstBrowseId === 'string' && firstBrowseId) {
+      authorId = firstBrowseId
+    }
+  }
+
+  if (!authorId) {
+    authorId = ctx?.authorId ?? null
+  }
+
+  let author: string | null = null
+  for (const row of rawRows) {
+    for (const part of row.metadata_parts ?? []) {
+      const ep =
+        part.endpoint?.payload?.browseId ??
+        part.endpoint?.browseEndpoint?.browseId ??
+        part.endpoint?.browseId ??
+        part.text?.endpoint?.payload?.browseId ??
+        part.text?.runs?.[0]?.endpoint?.payload?.browseId
+      const partText = text(part.text)
+      if (typeof ep === 'string' && ep.startsWith('UC') && partText) {
+        author = partText
+        break
+      }
+    }
+    if (author) break
+  }
+
   if (author == null) {
     const firstRow = rows[0] ?? []
     const candidate =
@@ -260,6 +298,10 @@ export function toLockupVideo(
         author = a11y.replace(/^go to channel\s+/i, '').replace(/^go to\s+/i, '').trim()
       }
     }
+  }
+
+  if (author == null) {
+    author = ctx?.author ?? null
   }
 
   let viewsText: string | null = null

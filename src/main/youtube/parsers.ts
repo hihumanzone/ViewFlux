@@ -155,7 +155,8 @@ export function lockupAuthor(node: LockupViewNode): { authorId: string | null; a
     metaImg?.avatar?.image ??
     metaImg?.avatar?.sources ??
     metaImg?.decoratedAvatarViewModel?.avatar?.image ??
-    metaImg?.decoratedAvatarViewModel?.avatar?.sources
+    metaImg?.decoratedAvatarViewModel?.avatar?.sources ??
+    metaImg?.avatars?.[0]?.image
   const authorAvatar =
     Array.isArray(avatarImages) && avatarImages.length > 0
       ? pickThumbnail(avatarImages, 240) || absUrl(avatarImages[0]?.url) || null
@@ -176,7 +177,8 @@ export function lockupAuthor(node: LockupViewNode): { authorId: string | null; a
           part.endpoint?.payload?.browseId ??
           part.endpoint?.browseEndpoint?.browseId ??
           part.endpoint?.browseId ??
-          part.text?.endpoint?.payload?.browseId
+          part.text?.endpoint?.payload?.browseId ??
+          part.text?.runs?.[0]?.endpoint?.payload?.browseId
         if (typeof ep === 'string' && ep) {
           authorId = ep
           break
