@@ -132,6 +132,22 @@ export function formatPlayerError(err: unknown): PlayerErrorInfo {
     (errObj as { message?: string })?.message ??
     (err instanceof Error ? err.message : typeof err === 'string' ? err : '')
 
+  if (rawMessage.includes('recovery attempts') || rawMessage.includes('exhausted')) {
+    return {
+      title: 'Playback failed',
+      message: rawMessage,
+      code: typeof code === 'number' ? code : 1001
+    }
+  }
+
+  if (rawMessage.startsWith('stall:') || rawMessage.includes('frozen at')) {
+    return {
+      title: 'Playback stalled',
+      message: 'Video stopped advancing during playback. Automatic recovery attempts were unsuccessful.',
+      code: typeof code === 'number' ? code : 1001
+    }
+  }
+
   if (code === 1001) {
     return {
       title: 'Stream connection error',

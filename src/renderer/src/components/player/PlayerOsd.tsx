@@ -2,11 +2,15 @@ import { memo, useEffect, useRef, useState } from 'react'
 import { Icon, type IconName } from '../Icons'
 import type { OsdState } from './types'
 
-export const PlayerOsd = memo(function PlayerOsd({
-  osd
-}: {
+export interface PlayerOsdProps {
   osd: OsdState | null
-}): React.JSX.Element | null {
+  isMini?: boolean
+}
+
+export const PlayerOsd = memo(function PlayerOsd({
+  osd,
+  isMini = false
+}: PlayerOsdProps): React.JSX.Element | null {
   const [activeOsd, setActiveOsd] = useState<OsdState | null>(osd)
   const [status, setStatus] = useState<'entering' | 'idle' | 'exiting' | 'hidden'>(() =>
     osd ? 'entering' : 'hidden'
@@ -71,14 +75,14 @@ export const PlayerOsd = memo(function PlayerOsd({
 
   return (
     <div
-      className={`player__osd ${animClass}`.trim()}
+      className={`player__osd${isMini ? ' player__osd--mini' : ''} ${animClass}`.trim()}
       role="status"
       aria-live="assertive"
       onAnimationEnd={handleAnimationEnd}
     >
       {activeOsd.icon && (
         <span className="player__osd-icon">
-          <Icon name={activeOsd.icon as IconName} size={22} />
+          <Icon name={activeOsd.icon as IconName} size={isMini ? 16 : 22} />
         </span>
       )}
       <span className="player__osd-text">{activeOsd.text}</span>

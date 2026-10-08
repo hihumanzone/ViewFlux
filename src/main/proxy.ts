@@ -328,10 +328,15 @@ export class MediaProxy {
     for (let attempt = 0; attempt < 3; attempt++) {
       if (clientClosed) return
       try {
+        const timeoutSignal = AbortSignal.timeout(15_000)
+        const attemptSignal = AbortSignal.any
+          ? AbortSignal.any([controller.signal, timeoutSignal])
+          : controller.signal
+
         let resp = await fetch(currentTarget, {
           headers,
           redirect: 'manual',
-          signal: controller.signal
+          signal: attemptSignal
         })
         lastStatus = resp.status
 
@@ -347,7 +352,7 @@ export class MediaProxy {
           resp = await fetch(currentTarget, {
             headers,
             redirect: 'manual',
-            signal: controller.signal
+            signal: attemptSignal
           })
           lastStatus = resp.status
         }
@@ -362,12 +367,7 @@ export class MediaProxy {
         upstream = resp
         break
       } catch (err) {
-        if (clientClosed) return
-        const isAbort =
-          controller.signal.aborted ||
-          (err instanceof DOMException && err.name === 'AbortError') ||
-          (err as { name?: string })?.name === 'AbortError'
-        if (isAbort) return
+        if (clientClosed || controller.signal.aborted) return
         if (attempt < 2) {
           await new Promise((resolve) => setTimeout(resolve, 300 * 2 ** attempt))
           continue

@@ -280,10 +280,15 @@ export function useShakaPlayer({
   playingRef.current = playing
   const recoveryCount = useRef(0)
   const lastRecoveryRef = useRef(0)
+  const lastRecoveryPosRef = useRef(0)
   const lastProgressRef = useRef({ t: 0, at: Date.now() })
   const liveRef = useRef(false)
   liveRef.current = live
   const recoverPlaybackRef = useRef<((reason: string) => Promise<void>) | null>(null)
+  const selectedHeightRef = useRef<number | null>(null)
+  selectedHeightRef.current = selectedHeight
+  const preferredQualityRef = useRef(preferredQuality)
+  preferredQualityRef.current = preferredQuality
   /**
    * The audio language we want playing: the viewer's explicit pick, or else the
    * original dub. Survives manifest reloads (which rebuild Shaka's adaptation
@@ -584,10 +589,10 @@ export function useShakaPlayer({
     if (!video) return
     if (video.paused || video.ended) {
       void video.play().catch(() => undefined)
-      onOsd?.('Play', 'play')
+      onOsd?.('Playing', 'play')
     } else {
       video.pause()
-      onOsd?.('Pause', 'pause')
+      onOsd?.('Paused', 'pause')
     }
   }, [onOsd, videoRef])
 
@@ -715,67 +720,107 @@ export function useShakaPlayer({
     let isRecovering = false
     let retryTimer: ReturnType<typeof setTimeout> | null = null
 
+    const failPermanently = (errOrReason: unknown): void => {
+      if (disposed) return
+      if (retryTimer) {
+        clearTimeout(retryTimer)
+        retryTimer = null
+      }
+      isRecovering = false
+      try {
+        video.pause()
+      } catch {
+        /* ignore */
+      }
+      setBusy(false)
+      setStatusText('')
+      const formatted = formatPlayerError(
+        errOrReason || { code: 1001, message: 'Playback failed after 3 recovery attempts' }
+      )
+      setErrorTitle(formatted.title || 'Playback failed')
+      setErrorMsg(
+        formatted.message ||
+          'Video stopped playing and could not be recovered after 3 attempts. Please check your connection or try retrying.'
+      )
+      setErrorCode(formatted.code ?? 1001)
+      setStatus('error')
+    }
+
     const recoverPlayback = async (reason: string): Promise<void> => {
       if (disposed) return
       if (isRecovering) {
         console.log('[player] recovery already in progress, skipping duplicate trigger:', reason)
         return
       }
-      const attempt = recoveryCount.current
-      if (attempt >= 3) {
-        // If the video is still actively playing in the background despite the error,
-        // do NOT block the screen with an error!
-        if (video.paused || video.ended || video.readyState < 2) {
-          setBusy(false)
-          setStatusText('')
-          const formatted = formatPlayerError({ code: 1001, message: reason })
-          setErrorTitle(formatted.title)
-          setErrorMsg(formatted.message || `Playback failed (${reason}). The stream is unreachable right now.`)
-          setErrorCode(formatted.code)
-          setStatus('error')
-        }
+
+      if (recoveryCount.current >= 3) {
+        failPermanently(reason)
         return
       }
 
       isRecovering = true
-      recoveryCount.current = attempt + 1
+      recoveryCount.current += 1
+      const attempt = recoveryCount.current
       lastRecoveryRef.current = Date.now()
       const resumeAt = video.currentTime
-      // A live stream has no fixed position to resume: `load()` without a
-      // start time puts us back on the live edge, which is the only sensible
-      // landing spot after the stream URLs have been regenerated.
+      lastRecoveryPosRef.current = resumeAt
+
       const startAt =
         !player.isLive() && Number.isFinite(resumeAt) && resumeAt > 0.5 ? resumeAt : undefined
       setBusy(true)
+
+      const statusMsg =
+        attempt === 1
+          ? 'Playback stalled — refreshing stream (attempt 1 of 3)…'
+          : attempt === 2
+            ? 'Playback stalled — fetching fresh stream URLs (attempt 2 of 3)…'
+            : 'Playback stalled — reinitializing stream (attempt 3 of 3)…'
+
+      setStatusText(statusMsg)
+      onOsd?.(`Recovering playback (${attempt}/3)…`, 'refresh')
+
       try {
-        if (attempt < 2) {
-          setStatusText(
-            attempt === 0
-              ? 'Connection lost — refreshing stream…'
-              : 'Still failing — trying fresh stream URLs…'
-          )
-          await window.api.refreshManifest(videoId)
-          if (disposed) return
-          const sep = manifestUrl.includes('?') ? '&' : '?'
-          const reloadStartAt = player.isLive() ? -2 : startAt
-          await player.load(`${manifestUrl}${sep}refresh=1`, reloadStartAt)
-        } else {
-          if (player.isLive()) {
-            throw new Error('live stream cannot use progressive fallback')
-          }
-          setStatusText('Stream keeps failing — trying direct playback…')
-          const direct = await window.api.getProgressiveUrl(videoId)
-          if (!direct) throw new Error('no progressive stream available')
-          if (disposed) return
-          await player.load(direct, startAt)
-        }
+        // Request fresh manifest with newly signed CDN URLs from main process
+        await window.api.refreshManifest(videoId)
         if (disposed) return
-        // `load()` rebuilds Shaka's adaptation set criteria from the player
-        // config, which drops any per-load track choice. Re-apply the language
-        // the viewer is on (or the original dub) before resuming playback,
-        // otherwise recovery silently switches to another language while the
-        // audio menu keeps showing the old one as selected.
+
+        const sep = manifestUrl.includes('?') ? '&' : '?'
+        const reloadStartAt = player.isLive() ? -2 : startAt
+        await player.load(`${manifestUrl}${sep}refresh=1&_t=${Date.now()}`, reloadStartAt)
+        if (disposed) return
+
         reapplyAudioAfterLoad()
+
+        // Reapply quality preferences
+        const targetHeight = selectedHeightRef.current
+        const prefQuality = preferredQualityRef.current
+        const freshTracks = player.getVariantTracks()
+        setVariantTracks(freshTracks)
+
+        if (targetHeight != null) {
+          const matching = pickVariant(freshTracks, (t) => t.height === targetHeight)
+          if (matching) {
+            player.configure({ abr: { enabled: false } } as unknown as shaka.extern.PlayerConfiguration)
+            player.selectVariantTrack(matching, true)
+          }
+        } else if (prefQuality === 'max') {
+          const best = pickVariant(
+            freshTracks.filter((t) => t.height != null),
+            undefined,
+            (a, b) => (b.height ?? 0) - (a.height ?? 0) || b.bandwidth - a.bandwidth
+          )
+          if (best) {
+            player.configure({ abr: { enabled: false } } as unknown as shaka.extern.PlayerConfiguration)
+            player.selectVariantTrack(best, true)
+          }
+        } else if (prefQuality !== 'auto' && Number(prefQuality) > 0) {
+          const matching = pickVariant(freshTracks, (t) => t.height === Number(prefQuality))
+          if (matching) {
+            player.configure({ abr: { enabled: false } } as unknown as shaka.extern.PlayerConfiguration)
+            player.selectVariantTrack(matching, true)
+          }
+        }
+
         try {
           if (player.isLive()) {
             const seekRange = player.seekRange()
@@ -790,6 +835,7 @@ export function useShakaPlayer({
         } catch {
           /* keep position */
         }
+
         lastProgressRef.current = { t: video.currentTime, at: Date.now() }
         setBusy(false)
         setStatusText('')
@@ -797,11 +843,13 @@ export function useShakaPlayer({
         setErrorTitle('')
         setErrorCode(undefined)
         setStatus('ready')
+
         try {
           await video.play()
         } catch {
           /* user can press play */
         }
+
         if (
           !disposed &&
           !player.isLive() &&
@@ -818,26 +866,15 @@ export function useShakaPlayer({
       } catch (err) {
         if (disposed) return
         if (recoveryCount.current >= 3) {
-          if (video.paused || video.ended || video.readyState < 2) {
-            setBusy(false)
-            setStatusText('')
-            const formatted = formatPlayerError(err || { code: 1001, message: reason })
-            setErrorTitle(formatted.title)
-            setErrorMsg(formatted.message || `Playback failed (${reason}). The stream is unreachable right now.`)
-            setErrorCode(formatted.code)
-            setStatus('error')
-          } else {
-            setBusy(false)
-            setStatusText('')
-          }
+          failPermanently(err)
         } else {
-          setStatusText('Retrying…')
+          setStatusText(`Recovery attempt ${attempt} of 3 failed — retrying…`)
           if (retryTimer) clearTimeout(retryTimer)
           retryTimer = setTimeout(() => {
             if (!disposed && statusRef.current !== 'error') {
               void recoverPlayback(reason)
             }
-          }, 1200)
+          }, 1500)
         }
       } finally {
         isRecovering = false
@@ -866,38 +903,25 @@ export function useShakaPlayer({
         return
       }
 
+      const isRecoverable =
+        detail?.code == null ||
+        RECOVERABLE_CODES.has(detail.code) ||
+        (liveRef.current && LIVE_RECOVERABLE_CODES.has(detail.code))
+
+      if (!isRecoverable) {
+        failPermanently(detail)
+        return
+      }
+
       // If video is currently actively playing smoothly (readyState >= 3, not paused):
       // A transient Shaka error (e.g. on a parallel segment download) must NOT block the screen!
       if (!video.paused && !video.ended && video.readyState >= 3) {
         console.warn('[player] non-fatal player error during active playback, attempting background recovery:', detail)
-        if (
-          detail?.code != null &&
-          (RECOVERABLE_CODES.has(detail.code) ||
-            (liveRef.current && LIVE_RECOVERABLE_CODES.has(detail.code)))
-        ) {
-          void recoverPlayback(`error ${detail.code}`)
-        } else {
-          const formatted = formatPlayerError(detail)
-          onOsd?.(`Playback warning: ${formatted.title}`, 'info')
-        }
+        void recoverPlayback(`error ${detail?.code ?? 'unknown'}`)
         return
       }
 
-      if (
-        detail?.code != null &&
-        (RECOVERABLE_CODES.has(detail.code) ||
-          (liveRef.current && LIVE_RECOVERABLE_CODES.has(detail.code)))
-      ) {
-        void recoverPlayback(`error ${detail.code}`)
-        return
-      }
-      setBusy(false)
-      setStatusText('')
-      const formatted = formatPlayerError(detail)
-      setErrorTitle(formatted.title)
-      setErrorMsg(formatted.message)
-      setErrorCode(formatted.code)
-      setStatus('error')
+      void recoverPlayback(`error ${detail?.code ?? 'unknown'}`)
     }
     player.addEventListener('error', onPlayerError)
 
@@ -918,7 +942,7 @@ export function useShakaPlayer({
         if (disposed || video.paused || scrubbingRef.current) return
         console.warn('[player] buffering stall detected, initiating recovery')
         void recoverPlayback('buffering stall')
-      }, 15000)
+      }, 8000)
     }
 
     const onShakaBuffering = (event: Event): void => {
@@ -962,14 +986,14 @@ export function useShakaPlayer({
           bufferBehind: 60,
           returnToEndOfLiveWindowWhenOutside: true,
           retryParameters: {
-            maxAttempts: 10,
+            maxAttempts: 3,
             baseDelay: 500,
             backoffFactor: 2,
             fuzzFactor: 0.5,
-            timeout: 10000
+            timeout: 8000
           },
           stallEnabled: true,
-          stallThreshold: 5,
+          stallThreshold: 3,
           stallSkip: 0.1,
           // `failureCallback` is deliberately not used: it fires for the same
           // critical failures as the `error` event, so wiring recovery to both
@@ -1288,91 +1312,8 @@ export function useShakaPlayer({
         }
       } catch (err) {
         if (disposed) return
-        setStatusText('Stream failed to start — retrying with fresh URLs…')
-        try {
-          await window.api.refreshManifest(videoId)
-          if (disposed) return
-          const sep = manifestUrl.includes('?') ? '&' : '?'
-          const retryStartAt =
-            !isLive && Number.isFinite(startPosition) && startPosition > 0.5
-              ? startPosition
-              : isLive
-                ? -2
-                : undefined
-          await player.load(`${manifestUrl}${sep}refresh=1`, retryStartAt)
-          if (disposed) return
-          // Same as recovery: the retry is a fresh manifest, so the original
-          // dub has to be named again before playback starts.
-          reapplyAudioAfterLoad()
-          if (player.isLive()) {
-            const seekRange = player.seekRange()
-            const liveEdge = Math.max(seekRange.start, seekRange.end - 2)
-            video.currentTime = liveEdge
-            setCurrentTime(liveEdge)
-            setLiveWindow(seekRange)
-            setDuration(0)
-            liveRef.current = true
-            setLive(true)
-          } else if (startPosition > 0.5) {
-            try {
-              video.currentTime = startPosition
-              setCurrentTime(startPosition)
-            } catch {
-              /* keep */
-            }
-          }
-          setStatus('ready')
-          setBusy(false)
-          setStatusText('')
-          lastProgressRef.current = { t: video.currentTime, at: Date.now() }
-          if (autoplay) {
-            try {
-              await video.play()
-            } catch {
-              /* rejected */
-            }
-          }
-          return
-        } catch {
-          /* manifest retry failed, try direct progressive fallback if not live */
-          if (!isLive) {
-            try {
-              setStatusText('Stream failed — trying direct playback…')
-              const direct = await window.api.getProgressiveUrl(videoId)
-              if (direct && !disposed) {
-                const retryStartAt =
-                  Number.isFinite(startPosition) && startPosition > 0.5 ? startPosition : undefined
-                await player.load(direct, retryStartAt)
-                if (disposed) return
-                setStatus('ready')
-                setBusy(false)
-                setStatusText('')
-                setErrorMsg('')
-                setErrorTitle('')
-                setErrorCode(undefined)
-                lastProgressRef.current = { t: video.currentTime, at: Date.now() }
-                if (autoplay) {
-                  try {
-                    await video.play()
-                  } catch {
-                    /* rejected */
-                  }
-                }
-                return
-              }
-            } catch {
-              /* direct fallback failed */
-            }
-          }
-        }
-        if (disposed) return
-        setBusy(false)
-        setStatusText('')
-        const formatted = formatPlayerError(err)
-        setErrorTitle(formatted.title)
-        setErrorMsg(formatted.message)
-        setErrorCode(formatted.code)
-        setStatus('error')
+        console.warn('[player] initial stream load failed, initiating automatic recovery:', err)
+        void recoverPlayback('initial load failed')
       }
     })()
 
@@ -1450,14 +1391,15 @@ export function useShakaPlayer({
       const lp = lastProgressRef.current
       const deltaT = Math.abs(video.currentTime - lp.t)
       const elapsedMs = now - lp.at
-      if (deltaT > 0.2) {
+      if (deltaT > 0.15) {
         lastProgressRef.current = { t: video.currentTime, at: now }
         return
       }
-      if (elapsedMs < 12_000) return
-      if (now - lastRecoveryRef.current < 15_000) return
-      void recoverPlaybackRef.current?.(`stall: frozen at ${video.currentTime.toFixed(1)}s for ${(elapsedMs / 1000).toFixed(0)}s`)
-    }, 2000)
+      if (elapsedMs < 5_000) return
+      if (now - lastRecoveryRef.current < 6_000) return
+      console.warn(`[player] silent stall detected: frozen at ${video.currentTime.toFixed(1)}s for ${(elapsedMs / 1000).toFixed(1)}s`)
+      void recoverPlaybackRef.current?.(`silent stall: frozen at ${video.currentTime.toFixed(1)}s for ${(elapsedMs / 1000).toFixed(0)}s`)
+    }, 1000)
     return () => window.clearInterval(id)
   }, [videoId, manifestUrl, scrubbingRef, videoRef])
 
@@ -1475,20 +1417,27 @@ export function useShakaPlayer({
     }
 
     const onTime = (): void => {
-      // Auto-recover if video is actively playing / advancing despite error state:
-      if (statusRef.current === 'error' && !video.paused && !video.ended && video.readyState >= 2) {
-        console.log('[player] playback auto-recovered during error, clearing error overlay')
-        setStatus('ready')
-        setErrorMsg('')
-        setErrorTitle('')
-        setErrorCode(undefined)
-        setBusy(false)
-        setStatusText('')
+      // Auto-recover if video is genuinely advancing (>1s) despite an earlier cleared error:
+      if (statusRef.current === 'error' && recoveryCount.current === 0 && !video.paused && !video.ended) {
+        const deltaFromProgress = Math.abs(video.currentTime - lastProgressRef.current.t)
+        if (deltaFromProgress > 1.0) {
+          console.log('[player] playback auto-recovered, clearing error overlay')
+          setStatus('ready')
+          setErrorMsg('')
+          setErrorTitle('')
+          setErrorCode(undefined)
+          setBusy(false)
+          setStatusText('')
+        }
       }
-      // If video has made sustained progress (>3s), reset recovery attempts counter
-      if (lastProgressRef.current && Math.abs(video.currentTime - lastProgressRef.current.t) > 3) {
-        recoveryCount.current = 0
-        lastProgressRef.current = { t: video.currentTime, at: Date.now() }
+      // If video has made sustained progress (>=3s past the recovery point), reset recovery attempts counter
+      if (recoveryCount.current > 0) {
+        const progressFromRecovery = Math.abs(video.currentTime - lastRecoveryPosRef.current)
+        if (progressFromRecovery >= 3.0) {
+          console.log('[player] sustained playback confirmed (>3s), resetting recovery attempts counter')
+          recoveryCount.current = 0
+          onOsd?.('Playback restored', 'play')
+        }
       }
 
       setCurrentTime(video.currentTime)
@@ -1516,7 +1465,7 @@ export function useShakaPlayer({
     }
     const onPlay = (): void => {
       setPlaying(true)
-      if (statusRef.current === 'error' && video.readyState >= 2) {
+      if (statusRef.current === 'error' && recoveryCount.current === 0) {
         setStatus('ready')
         setErrorMsg('')
         setErrorTitle('')
@@ -1546,7 +1495,7 @@ export function useShakaPlayer({
     }
     const onPlaying = (): void => {
       setPlaying(true)
-      if (statusRef.current === 'error') {
+      if (statusRef.current === 'error' && recoveryCount.current === 0) {
         console.log('[player] playback resumed during error, clearing error overlay')
         setStatus('ready')
         setErrorMsg('')

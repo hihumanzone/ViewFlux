@@ -57,7 +57,11 @@ export const MiniPlayerControls = memo(function MiniPlayerControls({
     <div
       className={`miniplayer__controls${visible ? ' miniplayer__controls--visible' : ''}`}
       onClick={(e) => {
-        // Prevent clicking inside controls from propagating to parent video stage
+        if (e.target === e.currentTarget) {
+          onTogglePlay()
+        }
+      }}
+      onDoubleClick={(e) => {
         e.stopPropagation()
       }}
     >

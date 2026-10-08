@@ -554,43 +554,96 @@ export const Player = forwardRef<PlayerHandle, PlayerProps>(function Player(
     onNextVideo: props.playlistNavigation?.onNext
   })
 
-  // Stage click/double click
-  const onStageClick = useCallback((): void => {
-    // If text was selected (e.g. subtitle, chapter, title), do not toggle play
-    const sel = window.getSelection()
-    if (sel && sel.toString().trim().length > 0) {
-      return
-    }
-    if (menuRef.current !== null) {
-      closeMenu()
-      return
-    }
-    if (clickTimerRef.current != null) {
-      window.clearTimeout(clickTimerRef.current)
-      clickTimerRef.current = null
-      return
-    }
-    clickTimerRef.current = window.setTimeout(() => {
-      clickTimerRef.current = null
-      shaka.togglePlay()
-    }, 240)
-  }, [shaka, closeMenu])
+  const lastFullscreenToggleRef = useRef(0)
 
-  const onStageDoubleClick = useCallback((): void => {
-    const sel = window.getSelection()
-    if (sel && sel.toString().trim().length > 0) {
-      return
-    }
-    if (clickTimerRef.current != null) {
-      window.clearTimeout(clickTimerRef.current)
-      clickTimerRef.current = null
-    }
-    if (isMini) {
-      onExpand?.()
-      return
-    }
-    toggleFullscreen()
-  }, [isMini, onExpand, toggleFullscreen])
+  // Player click & double click controller
+  const handlePlayerClick = useCallback(
+    (e: React.MouseEvent): void => {
+      // Ignore clicks on controls, seekbar, and popovers
+      const target = e.target as HTMLElement | null
+      if (
+        target?.closest(
+          'button, input, select, textarea, a, .seek, .menu, .sheet, .miniplayer__header, .miniplayer__actions, .miniplayer__center, .player__error'
+        )
+      ) {
+        return
+      }
+
+      // If text was selected (e.g. subtitle, chapter, title), do not toggle play
+      const sel = window.getSelection()
+      if (sel && sel.toString().trim().length > 0) {
+        return
+      }
+
+      if (menuRef.current !== null) {
+        closeMenu()
+        return
+      }
+
+      if (isMini) {
+        shaka.togglePlay()
+        return
+      }
+
+      // Double-click detection via browser detail counter
+      if (e.detail >= 2) {
+        if (clickTimerRef.current != null) {
+          window.clearTimeout(clickTimerRef.current)
+          clickTimerRef.current = null
+        }
+        if (Date.now() - lastFullscreenToggleRef.current > 300) {
+          lastFullscreenToggleRef.current = Date.now()
+          toggleFullscreen()
+        }
+        return
+      }
+
+      if (e.detail === 1) {
+        if (clickTimerRef.current != null) {
+          window.clearTimeout(clickTimerRef.current)
+        }
+        clickTimerRef.current = window.setTimeout(() => {
+          clickTimerRef.current = null
+          shaka.togglePlay()
+        }, 250)
+      }
+    },
+    [shaka, closeMenu, isMini, toggleFullscreen]
+  )
+
+  const handlePlayerDoubleClick = useCallback(
+    (e: React.MouseEvent): void => {
+      const target = e.target as HTMLElement | null
+      if (
+        target?.closest(
+          'button, input, select, textarea, a, .seek, .menu, .sheet, .miniplayer__header, .miniplayer__actions, .miniplayer__center, .player__error'
+        )
+      ) {
+        return
+      }
+
+      const sel = window.getSelection()
+      if (sel && sel.toString().trim().length > 0) {
+        return
+      }
+
+      if (clickTimerRef.current != null) {
+        window.clearTimeout(clickTimerRef.current)
+        clickTimerRef.current = null
+      }
+
+      if (isMini) {
+        // Per user preference: double-clicking only operates on the normal player
+        return
+      }
+
+      if (Date.now() - lastFullscreenToggleRef.current > 300) {
+        lastFullscreenToggleRef.current = Date.now()
+        toggleFullscreen()
+      }
+    },
+    [isMini, toggleFullscreen]
+  )
 
   const isControlsVisible = controlsVisible || menu !== null
 
@@ -693,6 +746,8 @@ export const Player = forwardRef<PlayerHandle, PlayerProps>(function Player(
         isCursorHidden ? ' player--hide-cursor' : ''
       }`}
       style={subtitleVars}
+      onClick={handlePlayerClick}
+      onDoubleClick={handlePlayerDoubleClick}
       onPointerMove={handlePointerMove}
       onPointerDown={handlePointerDown}
       onPointerEnter={handlePointerEnter}
@@ -780,6 +835,11 @@ export const Player = forwardRef<PlayerHandle, PlayerProps>(function Player(
 
       {shaka.status === 'ready' && (
         <>
+          <div className="player__stage" />
+
+          {/* Ephemeral HUD / OSD badge */}
+          <PlayerOsd osd={osd} isMini={isMini} />
+
           {isMini ? (
             <MiniPlayerControls
               playing={shaka.playing}
@@ -813,39 +873,40 @@ export const Player = forwardRef<PlayerHandle, PlayerProps>(function Player(
             />
           ) : (
             <>
+              {/* Big center play button when paused */}
               <div
-                className="player__stage"
-                onClick={onStageClick}
-                onDoubleClick={onStageDoubleClick}
-              />
+                className={`player__center player__center--play${
+                  !shaka.playing && !shaka.busy ? ' player__center--play-visible' : ''
+                }`}
+                aria-hidden={shaka.playing || shaka.busy}
+              >
+                <button
+                  className="player__big-play"
+                  aria-label="Play"
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    shaka.togglePlay()
+                  }}
+                  onDoubleClick={(e) => {
+                    e.stopPropagation()
+                    if (Date.now() - lastFullscreenToggleRef.current > 300) {
+                      lastFullscreenToggleRef.current = Date.now()
+                      toggleFullscreen()
+                    }
+                  }}
+                  tabIndex={!shaka.playing && !shaka.busy ? 0 : -1}
+                >
+                  <Icon name="play" size={34} />
+                </button>
+              </div>
 
-          {/* Big center play button when paused */}
-          <div
-            className={`player__center player__center--play${
-              !shaka.playing && !shaka.busy ? ' player__center--play-visible' : ''
-            }`}
-            aria-hidden={shaka.playing || shaka.busy}
-          >
-            <button
-              className="player__big-play"
-              aria-label="Play"
-              onClick={shaka.togglePlay}
-              tabIndex={!shaka.playing && !shaka.busy ? 0 : -1}
-            >
-              <Icon name="play" size={34} />
-            </button>
-          </div>
-
-          {/* Ephemeral HUD / OSD badge */}
-          <PlayerOsd osd={osd} />
-
-          {/* Floating Controls Overlay */}
-          <div
-            ref={setOverlayRef}
-            className={`player__overlay${
-              isControlsVisible ? '' : ' player__overlay--hidden'
-            }`}
-          >
+              {/* Floating Controls Overlay */}
+              <div
+                ref={setOverlayRef}
+                className={`player__overlay${
+                  isControlsVisible ? '' : ' player__overlay--hidden'
+                }`}
+              >
             <SeekBar
               duration={shaka.duration}
               currentTime={isControlsVisible ? shaka.currentTime : 0}
