@@ -58,9 +58,33 @@ export function SearchPage({
 
   const sentinelRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
+  const searchBarFieldRef = useRef<HTMLDivElement>(null)
   const requestRef = useRef(0)
   const suggRequestRef = useRef(0)
   const suggTimer = useRef<number | null>(null)
+
+  // Close suggestions when clicking anywhere outside the search field
+  useEffect(() => {
+    if (!showSuggestions) return
+    const onPointerDown = (event: PointerEvent): void => {
+      const target = event.target as Node | null
+      if (!target) return
+      if (searchBarFieldRef.current?.contains(target)) return
+      setShowSuggestions(false)
+    }
+    const onPointerUp = (): void => {
+      // Seamlessly restore focus to the search input after clicking/dragging the scrollbar
+      if (document.activeElement !== inputRef.current) {
+        inputRef.current?.focus({ preventScroll: true })
+      }
+    }
+    window.addEventListener('pointerdown', onPointerDown, true)
+    window.addEventListener('pointerup', onPointerUp, true)
+    return () => {
+      window.removeEventListener('pointerdown', onPointerDown, true)
+      window.removeEventListener('pointerup', onPointerUp, true)
+    }
+  }, [showSuggestions])
 
   const cancelSuggestions = useCallback(() => {
     if (suggTimer.current) {
@@ -272,6 +296,13 @@ export function SearchPage({
     }
   }
 
+  useEffect(() => {
+    if (activeSuggestion >= 0) {
+      const el = document.getElementById(`search-suggestion-${activeSuggestion}`)
+      el?.scrollIntoView({ block: 'nearest' })
+    }
+  }, [activeSuggestion])
+
   const renderItem = (item: SearchItem, index: number): React.JSX.Element => {
     if (item.type === 'video') {
       const rawVideo = item as VideoSummary & { type: 'video' }
@@ -369,7 +400,7 @@ export function SearchPage({
             submit()
           }}
         >
-          <div className="search-bar__field">
+          <div ref={searchBarFieldRef} className="search-bar__field">
             <Icon name="search" size={20} className="search-bar__lead" />
             <input
               ref={inputRef}
@@ -392,13 +423,20 @@ export function SearchPage({
               onDrop={onInputDrop}
               onKeyDown={onInputKeyDown}
               onFocus={() => suggestions.length > 0 && setShowSuggestions(true)}
-              onBlur={() => window.setTimeout(() => setShowSuggestions(false), 140)}
+              onBlur={(event) => {
+                const nextTarget = event.relatedTarget as Node | null
+                // Close suggestions when keyboard navigation (Tab key) moves focus outside the search bar
+                if (nextTarget && !searchBarFieldRef.current?.contains(nextTarget)) {
+                  setShowSuggestions(false)
+                }
+              }}
             />
             {input && (
               <button
                 type="button"
                 className="icon-btn icon-btn--sm search-bar__clear"
                 aria-label="Clear"
+                onMouseDown={(e) => e.preventDefault()}
                 onClick={() => {
                   onInputChange('')
                   setInput('')
@@ -409,24 +447,40 @@ export function SearchPage({
               </button>
             )}
             {showSuggestions && suggestions.length > 0 && (
-              <div className="suggestions" id="search-suggestions" role="listbox" aria-label="Search suggestions">
-                {suggestions.map((s, index) => (
-                  <button
-                    type="button"
-                    key={s}
-                    id={`search-suggestion-${index}`}
-                    role="option"
-                    aria-selected={index === activeSuggestion}
-                    className={`suggestions__item${index === activeSuggestion ? ' suggestions__item--active' : ''}`}
-                    onMouseDown={(e) => {
-                      e.preventDefault()
-                      submit(s)
-                    }}
-                  >
-                    <Icon name="search" size={18} />
-                    <span>{s}</span>
-                  </button>
-                ))}
+              <div
+                className="suggestions"
+                id="search-suggestions"
+                role="listbox"
+                aria-label="Search suggestions"
+                onMouseDown={(e) => {
+                  // Prevent the search input from losing focus when clicking or dragging the scrollbar
+                  e.preventDefault()
+                }}
+              >
+                <div
+                  className="suggestions__content"
+                  onMouseDown={(e) => {
+                    e.preventDefault()
+                  }}
+                >
+                  {suggestions.map((s, index) => (
+                    <button
+                      type="button"
+                      key={s}
+                      id={`search-suggestion-${index}`}
+                      role="option"
+                      aria-selected={index === activeSuggestion}
+                      className={`suggestions__item${index === activeSuggestion ? ' suggestions__item--active' : ''}`}
+                      onMouseDown={(e) => {
+                        e.preventDefault()
+                        submit(s)
+                      }}
+                    >
+                      <Icon name="search" size={18} />
+                      <span>{s}</span>
+                    </button>
+                  ))}
+                </div>
               </div>
             )}
           </div>

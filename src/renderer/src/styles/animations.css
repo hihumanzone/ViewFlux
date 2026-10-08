@@ -23,6 +23,10 @@
   animation: page-in var(--t-med) var(--ease-out) both;
 }
 
+.animate-page {
+  animation: page-in var(--t-slow) var(--ease-out);
+}
+
 @keyframes fade-in {
   from {
     opacity: 0;

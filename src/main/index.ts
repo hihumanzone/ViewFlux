@@ -363,6 +363,19 @@ function setupWebRequest(): void {
 // Configure application identity at module scope before ready event
 app.setName('ViewFlux')
 
+// Disable Chromium DirectComposition hardware video overlays on Windows.
+// When letterboxed videos (e.g. 21:9 or 2.35:1) play in fullscreen on Windows, Chromium's DComp
+// video overlay plane can occlude sibling DOM overlays (player controls, seek bar, captions)
+// situated in the letterbox margin areas. Disabling video overlays forces standard compositing
+// into the root swapchain while preserving full hardware-accelerated decoding.
+if (process.platform === 'win32') {
+  app.commandLine.appendSwitch('disable-direct-composition-video-overlays')
+  app.commandLine.appendSwitch(
+    'disable-features',
+    'DirectCompositionVideoOverlays,DirectCompositionSoftwareOverlays'
+  )
+}
+
 // Single-instance lock MUST be acquired before `ready` — otherwise two
 // launches can both pass `whenReady`, both bind the media proxy / userData,
 // and the second one silently exits on Chromium's internal Singleton lock

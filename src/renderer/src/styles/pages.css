@@ -106,7 +106,8 @@
   max-width: none;
 }
 
-.search-bar:focus-within {
+.search-bar:focus-within,
+.search-bar:has(.suggestions) {
   z-index: 60;
 }
 
@@ -129,7 +130,8 @@
     transform var(--t-fast) var(--ease-spring);
 }
 
-.search-bar__field:focus-within {
+.search-bar__field:focus-within,
+.search-bar__field:has(.suggestions) {
   background: var(--surface-3);
   border-color: var(--primary);
   box-shadow: 0 4px 20px rgb(0 0 0 / 0.4), 0 0 16px -2px var(--primary-glow);
@@ -204,18 +206,49 @@
   right: 0;
   z-index: 40;
   max-height: min(440px, calc(100vh - 160px));
-  overflow-y: auto;
-  overflow-x: hidden;
-  overscroll-behavior: contain;
-  padding: 10px;
   border-radius: var(--r-lg);
   background: var(--surface-3);
   border: 1px solid var(--outline-variant);
   box-shadow: var(--shadow-3);
   backdrop-filter: blur(24px) saturate(180%);
   animation: menu-pop var(--t-med) var(--ease-spring);
-  scrollbar-width: thin;
-  scrollbar-color: var(--surface-variant) transparent;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.suggestions__content {
+  flex: 1 1 auto;
+  min-height: 0;
+  max-height: min(440px, calc(100vh - 160px));
+  overflow-y: auto;
+  overflow-x: hidden;
+  overscroll-behavior: contain;
+  padding: 10px;
+  box-sizing: border-box;
+  scrollbar-gutter: stable;
+}
+
+.suggestions__content::-webkit-scrollbar {
+  width: 6px;
+}
+
+.suggestions__content::-webkit-scrollbar-track {
+  background: transparent;
+  margin: 10px 0;
+}
+
+.suggestions__content::-webkit-scrollbar-thumb {
+  background: var(--surface-variant);
+  border-radius: 9999px;
+  border: 1px solid transparent;
+  background-clip: padding-box;
+}
+
+.suggestions__content::-webkit-scrollbar-thumb:hover {
+  background: var(--outline);
+  border: 1px solid transparent;
+  background-clip: padding-box;
 }
 
 .suggestions__item {
@@ -659,7 +692,28 @@
   overflow: auto hidden;
   padding: 3px 0 6px;
   margin-top: -3px;
-  scrollbar-width: thin;
+}
+
+.watch__chapters-carousel::-webkit-scrollbar {
+  height: 6px;
+}
+
+.watch__chapters-carousel::-webkit-scrollbar-track {
+  background: transparent;
+  margin: 0 8px;
+}
+
+.watch__chapters-carousel::-webkit-scrollbar-thumb {
+  background: var(--surface-variant);
+  border-radius: 9999px;
+  border: 1px solid transparent;
+  background-clip: padding-box;
+}
+
+.watch__chapters-carousel::-webkit-scrollbar-thumb:hover {
+  background: var(--outline);
+  border: 1px solid transparent;
+  background-clip: padding-box;
 }
 
 .watch__chapter-card {
@@ -1012,9 +1066,30 @@ html[data-resizing='true'] .watch__side-resizer {
   overflow-x: hidden;
   overscroll-behavior: contain;
   padding-right: 4px;
-  scrollbar-width: thin;
-  scrollbar-color: var(--surface-variant) transparent;
+  scrollbar-gutter: stable;
   animation: page-in var(--t-med) var(--ease-out);
+}
+
+.queue::-webkit-scrollbar {
+  width: 6px;
+}
+
+.queue::-webkit-scrollbar-track {
+  background: transparent;
+  margin: 6px 0 10px;
+}
+
+.queue::-webkit-scrollbar-thumb {
+  background: var(--surface-variant);
+  border-radius: 9999px;
+  border: 1px solid transparent;
+  background-clip: padding-box;
+}
+
+.queue::-webkit-scrollbar-thumb:hover {
+  background: var(--outline);
+  border: 1px solid transparent;
+  background-clip: padding-box;
 }
 
 .queue__item {
@@ -2459,6 +2534,7 @@ button.list-row__channel-name:hover,
   flex-direction: column;
   gap: 20px;
   width: 100%;
+  animation: page-in var(--t-slow) var(--ease-out);
 }
 
 .settings-nav {

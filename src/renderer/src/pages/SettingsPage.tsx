@@ -10,6 +10,7 @@ import { DEFAULT_SUBTITLE_STYLE } from '../../../shared/subtitles'
 import { PLAYBACK_SPEEDS as SPEEDS } from '../../../shared/media'
 import { APP_VERSION_LABEL } from '../../../shared/appInfo'
 import { formatExact } from '../lib/format'
+import { scrollPageToTop } from '../lib/scroll'
 
 /**
  * `auto` follows the bandwidth, `max` picks the highest variant the manifest
@@ -205,7 +206,10 @@ export function SettingsPage(): React.JSX.Element {
             role="tab"
             aria-selected={activeCategory === cat.id}
             className={`settings-nav__pill${activeCategory === cat.id ? ' settings-nav__pill--active' : ''}`}
-            onClick={() => setActiveCategory(cat.id)}
+            onClick={() => {
+              setActiveCategory(cat.id)
+              scrollPageToTop('auto')
+            }}
           >
             <Icon name={cat.icon} size={16} />
             <span>{cat.label}</span>
@@ -213,7 +217,7 @@ export function SettingsPage(): React.JSX.Element {
         ))}
       </div>
 
-      <div key={activeCategory} className="settings animate-fade-up">
+      <div key={activeCategory} className="settings animate-page">
         {/* ---- Playback Card ---- */}
         {matchesCategory('playback') && (
           <section className="settings-card">
