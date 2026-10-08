@@ -20,8 +20,18 @@ Built with **Electron + Vite + React + TypeScript**, extracting data with
       <br /><sub><b>Search</b> — videos, channels, playlists and YouTube Music in one grid, with filter chips, live suggestions and infinite scroll.</sub>
     </td>
     <td width="50%" valign="top">
+      <img src="screenshots/search-recent.png" alt="Recent searches landing page with quick search reuse and management" />
+      <br /><sub><b>Recent searches</b> — search history with quick query reuse, per-item deletion and one-click clear all.</sub>
+    </td>
+  </tr>
+  <tr>
+    <td width="50%" valign="top">
       <img src="screenshots/watch.png" alt="Watch page with the player, control bar and playlist queue" />
       <br /><sub><b>Watch</b> — adaptive DASH playback with the M3 control bar, customisable subtitles and the playlist queue.</sub>
+    </td>
+    <td width="50%" valign="top">
+      <img src="screenshots/channels-recent-feed.png" alt="Saved channels recent uploads feed filtered by folder, label and recency" />
+      <br /><sub><b>Saved channels</b> — bookmark channels into folders and labels, then browse an on-demand recent uploads feed.</sub>
     </td>
   </tr>
   <tr>
@@ -32,16 +42,6 @@ Built with **Electron + Vite + React + TypeScript**, extracting data with
     <td width="50%" valign="top">
       <img src="screenshots/playlist-youtube.png" alt="A saved YouTube playlist kept as a live reference" />
       <br /><sub><b>YouTube playlist</b> — play it all, keep it as a live reference, or copy it into a local playlist.</sub>
-    </td>
-  </tr>
-  <tr>
-    <td width="50%" valign="top">
-      <img src="screenshots/playlist-detail.png" alt="Local playlist detail with a reorderable track list" />
-      <br /><sub><b>Local playlist</b> — numbered, reorderable tracks that play through the in-page queue.</sub>
-    </td>
-    <td width="50%" valign="top">
-      <img src="screenshots/channels-recent-feed.png" alt="Saved channels recent uploads feed filtered by folder, label and recency" />
-      <br /><sub><b>Saved channels</b> — bookmark channels into folders and labels, then browse an on-demand recent uploads feed.</sub>
     </td>
   </tr>
   <tr>
