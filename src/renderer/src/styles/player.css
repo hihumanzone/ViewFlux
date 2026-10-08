@@ -30,6 +30,13 @@
   overflow: visible;
 }
 
+/* ---- Cursor auto-hide when idle during playback ---- */
+.player--hide-cursor,
+.player--hide-cursor * {
+  cursor: none !important;
+}
+
+
 .player__video {
   position: absolute;
   inset: 0;

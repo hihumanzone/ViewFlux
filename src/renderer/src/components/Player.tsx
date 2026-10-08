@@ -45,6 +45,9 @@ const EMPTY_SEGMENTS: SponsorSegment[] = []
 const SUBTITLE_CLEARANCE = 14
 /** Resting gap between the bottom of the stage and the captions when controls hide. */
 const SUBTITLE_RESTING_GAP = 16
+/** Inactivity duration (ms) before controls and cursor hide during active playback. */
+const CONTROLS_AUTOHIDE_DELAY = 2600
+
 
 export const Player = forwardRef<PlayerHandle, PlayerProps>(function Player(
   props,
@@ -108,6 +111,8 @@ export const Player = forwardRef<PlayerHandle, PlayerProps>(function Player(
 
   // UI state
   const [controlsVisible, setControlsVisible] = useState(true)
+  const [cursorHidden, setCursorHidden] = useState(false)
+  const lastPointerPosRef = useRef({ x: -1, y: -1 })
   const [menu, setMenu] = useState<MenuKind | null>(null)
   const [menuAnchor, setMenuAnchor] = useState<HTMLElement | null>(null)
   const [fullscreen, setFullscreen] = useState(
@@ -274,20 +279,27 @@ export const Player = forwardRef<PlayerHandle, PlayerProps>(function Player(
   const menuRef = useRef<MenuKind | null>(menu)
   menuRef.current = menu
 
-  // Controls auto-hide: while any menu is open, the overlay must stay visible and not auto-hide
-  const revealControls = useCallback((): void => {
-    setControlsVisible(true)
-    if (hideTimerRef.current != null) {
-      window.clearTimeout(hideTimerRef.current)
-      hideTimerRef.current = null
-    }
-    if (shaka.playing && menu === null) {
-      hideTimerRef.current = window.setTimeout(() => {
-        setControlsVisible(false)
+  // Controls & cursor auto-hide: while any menu is open, the overlay must stay visible and not auto-hide
+  const revealControls = useCallback(
+    (revealCursor = true): void => {
+      setControlsVisible(true)
+      if (revealCursor) {
+        setCursorHidden(false)
+      }
+      if (hideTimerRef.current != null) {
+        window.clearTimeout(hideTimerRef.current)
         hideTimerRef.current = null
-      }, 2600)
-    }
-  }, [shaka.playing, menu])
+      }
+      if (shaka.playing && menu === null) {
+        hideTimerRef.current = window.setTimeout(() => {
+          setControlsVisible(false)
+          setCursorHidden(true)
+          hideTimerRef.current = null
+        }, CONTROLS_AUTOHIDE_DELAY)
+      }
+    },
+    [shaka.playing, menu]
+  )
 
   const onScrubStart = useCallback(() => {
     scrubbingRef.current = true
@@ -296,11 +308,12 @@ export const Player = forwardRef<PlayerHandle, PlayerProps>(function Player(
       hideTimerRef.current = null
     }
     setControlsVisible(true)
+    setCursorHidden(false)
   }, [])
 
   const onScrubEnd = useCallback(() => {
     scrubbingRef.current = false
-    revealControls()
+    revealControls(true)
   }, [revealControls])
 
   useEffect(() => {
@@ -311,13 +324,15 @@ export const Player = forwardRef<PlayerHandle, PlayerProps>(function Player(
 
     if (!shaka.playing || menu !== null) {
       setControlsVisible(true)
+      setCursorHidden(false)
       return
     }
 
     hideTimerRef.current = window.setTimeout(() => {
       setControlsVisible(false)
+      setCursorHidden(true)
       hideTimerRef.current = null
-    }, 2600)
+    }, CONTROLS_AUTOHIDE_DELAY)
 
     return () => {
       if (hideTimerRef.current != null) {
@@ -492,6 +507,7 @@ export const Player = forwardRef<PlayerHandle, PlayerProps>(function Player(
         hideTimerRef.current = null
       }
       setControlsVisible(true)
+      setCursorHidden(false)
       if (menu === kind) {
         closeMenu()
         return
@@ -533,7 +549,7 @@ export const Player = forwardRef<PlayerHandle, PlayerProps>(function Player(
     onTogglePip: togglePip,
     onStepSpeed: audioGraph.stepSpeed,
     onCloseMenu: closeMenu,
-    onRevealControls: revealControls,
+    onRevealControls: () => revealControls(false),
     onPreviousVideo: props.playlistNavigation?.onPrevious,
     onNextVideo: props.playlistNavigation?.onNext
   })
@@ -577,6 +593,46 @@ export const Player = forwardRef<PlayerHandle, PlayerProps>(function Player(
   }, [isMini, onExpand, toggleFullscreen])
 
   const isControlsVisible = controlsVisible || menu !== null
+
+  const isCursorHidden =
+    cursorHidden &&
+    shaka.playing &&
+    !shaka.busy &&
+    shaka.status === 'ready' &&
+    !isMini &&
+    menu === null &&
+    !scrubbingRef.current
+
+  const handlePointerMove = useCallback(
+    (e: React.PointerEvent): void => {
+      if (e.clientX === lastPointerPosRef.current.x && e.clientY === lastPointerPosRef.current.y) {
+        return
+      }
+      lastPointerPosRef.current = { x: e.clientX, y: e.clientY }
+      revealControls(true)
+    },
+    [revealControls]
+  )
+
+  const handlePointerDown = useCallback((): void => {
+    revealControls(true)
+  }, [revealControls])
+
+  const handlePointerEnter = useCallback(
+    (e: React.PointerEvent): void => {
+      lastPointerPosRef.current = { x: e.clientX, y: e.clientY }
+      revealControls(true)
+    },
+    [revealControls]
+  )
+
+  const handlePointerLeave = useCallback((): void => {
+    lastPointerPosRef.current = { x: -1, y: -1 }
+    setCursorHidden(false)
+    if (shaka.playing && menu === null) {
+      setControlsVisible(false)
+    }
+  }, [shaka.playing, menu])
 
   /**
    * Captions are absolutely positioned inside the stage, so their bottom offset
@@ -633,12 +689,14 @@ export const Player = forwardRef<PlayerHandle, PlayerProps>(function Player(
   return (
     <div
       ref={containerRef}
-      className={`player${fullscreen ? ' player--fullscreen' : ''}`}
+      className={`player${fullscreen ? ' player--fullscreen' : ''}${
+        isCursorHidden ? ' player--hide-cursor' : ''
+      }`}
       style={subtitleVars}
-      onPointerMove={revealControls}
-      onPointerLeave={() => {
-        if (shaka.playing && menu === null) setControlsVisible(false)
-      }}
+      onPointerMove={handlePointerMove}
+      onPointerDown={handlePointerDown}
+      onPointerEnter={handlePointerEnter}
+      onPointerLeave={handlePointerLeave}
     >
       <video ref={videoRef} className="player__video" playsInline />
       {poster && (
