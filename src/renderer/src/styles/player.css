@@ -37,6 +37,17 @@
   object-fit: contain;
   background: #000;
   z-index: 1;
+
+  /*
+   * Keep Chromium from promoting the video surface to a DirectComposition
+   * hardware overlay plane. When the controls auto-hide, there may be no
+   * visible DOM content over the video, so an unusual video aspect ratio can
+   * become an overlay candidate. If it stays promoted while the controls fade
+   * back in, the controls can remain hit-testable but render underneath the
+   * video surface. A tiny opacity delta is visually imperceptible but makes
+   * the video ineligible for an overlay plane.
+   */
+  opacity: 0.999;
 }
 
 .player__poster {
