@@ -242,7 +242,7 @@ export const Player = forwardRef<PlayerHandle, PlayerProps>(function Player(
       void document.exitFullscreen().catch(() => undefined)
       showOsd('Exit fullscreen', 'fullscreenExit')
     } else {
-      void containerRef.current?.requestFullscreen().catch(() => undefined)
+      void document.documentElement.requestFullscreen().catch(() => undefined)
       showOsd('Fullscreen', 'fullscreen')
     }
   }, [showOsd])
