@@ -87,7 +87,10 @@ export function PlaylistsPage(): React.JSX.Element {
           message="Create a playlist, then use the save option on any video — or save a YouTube playlist from its page."
         />
       ) : (
-        <div className={`playlist-grid${viewMode === 'list' ? ' playlist-grid--list' : ''} animate-fade-up`}>
+        <div
+          key={viewMode}
+          className={`playlist-grid${viewMode === 'list' ? ' playlist-grid--list' : ''} animate-fade-up`}
+        >
           {playlists.map((playlist) => {
             const youtube = isYouTube(playlist)
             const active = menu?.playlist.id === playlist.id

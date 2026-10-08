@@ -350,7 +350,10 @@ export class ChannelService {
       console.warn(`[youtube] channel ${id} does not have a live streams tab:`, err)
       return { items: [], continuation: null }
     }
-    const items = feedVideos(feed, ctx)
+    const items = feedVideos(feed, ctx).map((v) => ({
+      ...v,
+      isStreamed: !v.isLive ? true : v.isStreamed
+    }))
     return {
       items,
       continuation: feed.has_continuation
@@ -368,8 +371,12 @@ export class ChannelService {
       entry.ctx as
         | { author?: string; authorId?: string | null; authorAvatar?: string | null }
         | undefined
+    const items = feedVideos(next, ctx).map((v) => ({
+      ...v,
+      isStreamed: !v.isLive ? true : v.isStreamed
+    }))
     return {
-      items: feedVideos(next, ctx),
+      items,
       continuation: next.has_continuation
         ? this.tokens.set({ kind: 'channel:live', feed: next, ctx })
         : null

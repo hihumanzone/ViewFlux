@@ -598,11 +598,11 @@ export function SearchPage({
       {Boolean(query.trim()) && results.length > 0 && (
         <div key={`${query}|${filter}`} className="search-results-wrap animate-fade-up">
           {viewMode === 'grid' ? (
-            <MasonryGrid>
+            <MasonryGrid key="search-grid" className="animate-fade-up">
               {results.map((item, index) => renderItem(item, index))}
             </MasonryGrid>
           ) : (
-            <ul className="list animate-fade-up">
+            <ul key="search-list" className="list animate-fade-up">
               {results.map((item, index) => renderListItem(item, index))}
             </ul>
           )}

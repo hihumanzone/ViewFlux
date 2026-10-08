@@ -32,8 +32,14 @@ export const VideoCard = memo(function VideoCard({
       ? progress
       : getHistoryProgress(video.videoId, video.duration)
 
+  const isPrem = Boolean(video.isPremiere || /premiere/i.test(video.published ?? ''))
+  const isStream = Boolean(video.isStreamed || /streamed/i.test(video.published ?? ''))
+
   const isEndedPremiere =
-    Boolean(video.isPremiere) && !video.isLive && video.duration != null && video.duration > 0
+    isPrem && !video.isLive && video.duration != null && video.duration > 0
+
+  const isEndedStream =
+    isStream && !video.isLive && video.duration != null && video.duration > 0 && !isEndedPremiere
 
   const isSquare =
     video.thumbAspect === 'square' ||
@@ -51,11 +57,15 @@ export const VideoCard = memo(function VideoCard({
     >
       <div className="video-card__thumb-wrap">
         <img className="video-card__thumb" src={video.thumbnail} alt="" loading="lazy" />
-        {isEndedPremiere && (
+        {isEndedPremiere ? (
           <div className="video-card__top-badge">
-            <span className="badge badge--premiere">Premiere</span>
+            <span className="badge badge--premiered">Premiered</span>
           </div>
-        )}
+        ) : isEndedStream ? (
+          <div className="video-card__top-badge">
+            <span className="badge badge--streamed">Streamed</span>
+          </div>
+        ) : null}
         <div
           className={
             effectiveProgress > 0
@@ -65,7 +75,7 @@ export const VideoCard = memo(function VideoCard({
         >
           {video.isLive ? (
             <span className="badge badge--live">Live</span>
-          ) : isEndedPremiere ? (
+          ) : isEndedPremiere || isEndedStream ? (
             <span className="badge">{formatDuration(video.duration!)}</span>
           ) : video.isPremiere ? (
             <span className="badge badge--premiere">Premiere</span>

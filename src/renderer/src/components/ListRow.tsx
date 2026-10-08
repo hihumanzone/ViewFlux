@@ -103,9 +103,6 @@ export const ListRow = memo(function ListRow({
     navigate(to)
   }
 
-  const isEndedPremiere =
-    Boolean(isPremiere) && !isLive && duration != null && duration > 0
-
   return (
     <li
       className={`list-row${thumbSquare ? ' list-row--square-thumb' : ''}`}
@@ -113,17 +110,8 @@ export const ListRow = memo(function ListRow({
     >
       <div className="list-row__thumb-wrap">
         <img className="list-row__thumb" src={thumbnail} alt="" loading="lazy" />
-        {isEndedPremiere && (
-          <div className="video-card__top-badge">
-            <span className="badge badge--premiere">Premiere</span>
-          </div>
-        )}
         {effectiveOverlay}
-        {isLive ? (
-          <span className="badge badge--live">LIVE</span>
-        ) : isPremiere && !isEndedPremiere ? (
-          <span className="badge badge--premiere">PREMIERE</span>
-        ) : hasDuration ? (
+        {hasDuration ? (
           <span
             className={
               effectiveHasProgress
@@ -133,6 +121,10 @@ export const ListRow = memo(function ListRow({
           >
             {formatDuration(duration)}
           </span>
+        ) : isLive ? (
+          <span className="badge badge--live">LIVE</span>
+        ) : isPremiere ? (
+          <span className="badge badge--premiere">PREMIERE</span>
         ) : null}
       </div>
       <div className="list-row__body">

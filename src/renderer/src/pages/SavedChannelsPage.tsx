@@ -459,7 +459,7 @@ export function SavedChannelsPage({ initialTab }: { initialTab?: string | null }
                 {lastFetchedAt ? ` · Updated ${new Date(lastFetchedAt).toLocaleTimeString()}` : ''}
               </div>
               {feedViewMode === 'list' ? (
-                <ul className="list animate-fade-up">
+                <ul key="feed-list" className="list animate-fade-up">
                   {sortedFeedVideos.map((video) => {
                     const enrichedVideo = enrichVideoWithHistory(video, historyMap)
                     return (
@@ -490,7 +490,7 @@ export function SavedChannelsPage({ initialTab }: { initialTab?: string | null }
                   })}
                 </ul>
               ) : (
-                <MasonryGrid>
+                <MasonryGrid key="feed-grid" className="animate-fade-up">
                   {sortedFeedVideos.map((video) => {
                     const enrichedVideo = enrichVideoWithHistory(video, historyMap)
                     return <VideoCard key={video.videoId} video={enrichedVideo} />
@@ -679,7 +679,10 @@ export function SavedChannelsPage({ initialTab }: { initialTab?: string | null }
               message="No bookmarked channels match your search."
             />
           ) : (
-            <div className={`saved-grid${channelsViewMode === 'list' ? ' saved-grid--list' : ''}`}>
+            <div
+              key={channelsViewMode}
+              className={`saved-grid${channelsViewMode === 'list' ? ' saved-grid--list' : ''} animate-fade-up`}
+            >
               {filteredChannels.map((channel) => {
                 const folder = channelFolders.find((f) => f.id === channel.folderId)
                 return (
