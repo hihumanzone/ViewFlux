@@ -140,11 +140,28 @@ export function formatPlayerError(err: unknown): PlayerErrorInfo {
     }
   }
 
-  if (rawMessage.startsWith('stall:') || rawMessage.includes('frozen at')) {
+  if (rawMessage.includes('seek stall')) {
+    return {
+      title: 'Seek timed out',
+      message:
+        'Video playback could not resume at the requested timestamp. This can happen if YouTube temporarily throttles stream chunks or during connection stalls.',
+      code: typeof code === 'number' ? code : 1003
+    }
+  }
+
+  if (rawMessage.startsWith('stall:') || rawMessage.includes('frozen at') || rawMessage.includes('buffering stall')) {
     return {
       title: 'Playback stalled',
       message: 'Video stopped advancing during playback. Automatic recovery attempts were unsuccessful.',
       code: typeof code === 'number' ? code : 1001
+    }
+  }
+
+  if (code === 1010) {
+    return {
+      title: 'Stream download failed',
+      message: 'Repeated attempts to download the media stream from YouTube failed. Please check your connection or try retrying.',
+      code: 1010
     }
   }
 

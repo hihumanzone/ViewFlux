@@ -550,6 +550,7 @@ export interface AppApi {
   windowClose?: () => Promise<void>
   isWindowMaximized?: () => Promise<boolean>
   onWindowMaximizedChange?: (callback: (maximized: boolean) => void) => () => void
+  onPlayerDebugLog?: (callback: (entry: PlaybackLogEntry) => void) => () => void
 
   platform: 'win32' | 'darwin' | 'linux' | string
 }
@@ -588,4 +589,22 @@ export interface UpdaterStatus {
   releaseNotes?: string
   progress?: UpdateProgress
   error?: string
+}
+
+export type LogLevel = 'info' | 'warn' | 'error' | 'debug' | 'INFO' | 'WARN' | 'ERROR' | 'DEBUG'
+
+export type LogSubsystem = 'SHAKA' | 'PROXY' | 'MANIFEST' | 'WATCHDOG' | 'MEDIA' | 'RECOVERY'
+
+export interface PlaybackLogEntry {
+  id: string
+  timestamp: number
+  isoTime: string
+  level: LogLevel
+  subsystem: LogSubsystem
+  action: string
+  message: string
+  trigger?: string
+  nextStep?: string
+  rawError?: string
+  data?: Record<string, unknown>
 }

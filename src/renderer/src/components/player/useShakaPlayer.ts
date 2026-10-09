@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import shaka from 'shaka-player'
 import { isAudioItagUrl, languageName } from '../../../../shared/media'
+import { appendPlayerDebugLog } from './usePlayerDebugLogs'
 import {
   audioCode,
   formatPlayerError,
@@ -131,7 +132,7 @@ const CODE_LOAD_INTERRUPTED = 7000
  * manifest, and on a live stream a fresh manifest is exactly what the playlist
  * refresh would have produced anyway — so they must not be fatal.
  */
-const RECOVERABLE_CODES = new Set([1001, 1002, 1003, 3014, 3015, 3016, 3017, 3018, 3019])
+const RECOVERABLE_CODES = new Set([1001, 1002, 1003, 1010, 3014, 3015, 3016, 3017, 3018, 3019])
 
 /**
  * Codes that only make sense to retry on a live stream, where the resource in
@@ -248,6 +249,14 @@ export function useShakaPlayer({
   }, [clearError])
 
   const retryPlayback = useCallback(async (): Promise<void> => {
+    appendPlayerDebugLog({
+      level: 'INFO',
+      subsystem: 'RECOVERY',
+      action: 'USER_RETRY',
+      message: 'User initiated manual playback retry',
+      trigger: 'User clicked Retry button',
+      nextStep: 'Resetting recovery counter and invoking recoverPlayback("user retry")'
+    })
     recoveryCount.current = 0
     setErrorMsg('')
     setErrorTitle('')
@@ -489,6 +498,14 @@ export function useShakaPlayer({
       const player = playerRef.current
       if (!player) return
       if (height == null && audioTier == null) {
+        appendPlayerDebugLog({
+          level: 'INFO',
+          subsystem: 'MEDIA',
+          action: 'TRACK_SELECT_AUTO',
+          message: 'Enabling Shaka ABR (Auto quality mode)',
+          trigger: 'selectStream(null, null)',
+          nextStep: 'player.configure({ abr: { enabled: true } })'
+        })
         player.configure({ abr: { enabled: true } } as unknown as shaka.extern.PlayerConfiguration)
         setSelectedHeight(null)
         setSelectedAudioTier(null)
@@ -510,6 +527,15 @@ export function useShakaPlayer({
         (track) => (height == null || track.height === height) && inTier(track)
       )
       if (!best) return
+      appendPlayerDebugLog({
+        level: 'INFO',
+        subsystem: 'MEDIA',
+        action: 'TRACK_SELECT_MANUAL',
+        message: `Selecting variant: height=${best.height}p, bandwidth=${(best.bandwidth / 1000).toFixed(0)}kbps, audio=${best.audioBandwidth ? `${(best.audioBandwidth / 1000).toFixed(0)}kbps` : 'n/a'}`,
+        trigger: `selectStream(height=${height}, audioTier=${audioTier})`,
+        nextStep: 'Disabling ABR and calling player.selectVariantTrack',
+        data: { variantId: best.id, height: best.height, bandwidth: best.bandwidth, videoCodec: best.videoCodec, audioCodec: best.audioCodec }
+      })
       player.configure({ abr: { enabled: false } } as unknown as shaka.extern.PlayerConfiguration)
       player.selectVariantTrack(best, true)
       setSelectedHeight(height)
@@ -617,36 +643,57 @@ export function useShakaPlayer({
     [videoRef]
   )
 
-  const seekTo = useCallback(
-    (time: number) => {
-      const video = videoRef.current
-      if (!video) return
-      const target = clampToSeekable(time)
-      video.currentTime = target
-      setCurrentTime(target)
-    },
-    [clampToSeekable, videoRef]
-  )
-
   const seekAccumulatorRef = useRef<{ total: number; timer: number | null }>({
     total: 0,
     timer: null
   })
+  const seekDebounceTimerRef = useRef<number | null>(null)
+  const pendingSeekTargetRef = useRef<number | null>(null)
 
   useEffect(() => {
     return () => {
       if (seekAccumulatorRef.current.timer) {
         window.clearTimeout(seekAccumulatorRef.current.timer)
       }
+      if (seekDebounceTimerRef.current) {
+        window.clearTimeout(seekDebounceTimerRef.current)
+      }
     }
   }, [])
+
+  const seekTo = useCallback(
+    (time: number) => {
+      const video = videoRef.current
+      if (!video) return
+      if (seekDebounceTimerRef.current) {
+        window.clearTimeout(seekDebounceTimerRef.current)
+        seekDebounceTimerRef.current = null
+      }
+      pendingSeekTargetRef.current = null
+      const target = clampToSeekable(time)
+      appendPlayerDebugLog({
+        level: 'INFO',
+        subsystem: 'MEDIA',
+        action: 'SEEK_DIRECT',
+        message: `Direct seek requested to ${target.toFixed(2)}s (raw: ${time.toFixed(2)}s)`,
+        trigger: `seekTo(${time.toFixed(2)})`,
+        nextStep: 'Assigned video.currentTime directly',
+        data: { target, rawTime: time }
+      })
+      video.currentTime = target
+      setCurrentTime(target)
+    },
+    [clampToSeekable, videoRef]
+  )
 
   const seekBy = useCallback(
     (delta: number) => {
       const video = videoRef.current
       if (!video) return
-      const target = clampToSeekable(video.currentTime + delta)
-      video.currentTime = target
+
+      const base = pendingSeekTargetRef.current ?? video.currentTime
+      const target = clampToSeekable(base + delta)
+      pendingSeekTargetRef.current = target
       setCurrentTime(target)
 
       if (seekAccumulatorRef.current.timer) {
@@ -662,6 +709,38 @@ export function useShakaPlayer({
       const formatted = total > 0 ? `+${total}s` : `${total}s`
       const icon = total > 0 ? 'forward' : total < 0 ? 'back' : delta >= 0 ? 'forward' : 'back'
       onOsd?.(formatted, icon)
+
+      appendPlayerDebugLog({
+        level: 'DEBUG',
+        subsystem: 'MEDIA',
+        action: 'SEEK_ACCUMULATE',
+        message: `Seek accumulation: delta=${delta > 0 ? '+' : ''}${delta}s, target=${target.toFixed(2)}s, totalRunning=${total}s`,
+        trigger: `seekBy(${delta})`,
+        nextStep: 'Debouncing CDN range requests by 180ms'
+      })
+
+      // Debounce the actual assignment to video.currentTime by 180ms.
+      // Rapid arrow presses accumulate smoothly in the UI without firing a flurry
+      // of aborted range requests to YouTube's CDN, which triggers rate limits.
+      if (seekDebounceTimerRef.current) {
+        window.clearTimeout(seekDebounceTimerRef.current)
+      }
+      seekDebounceTimerRef.current = window.setTimeout(() => {
+        seekDebounceTimerRef.current = null
+        const finalTarget = pendingSeekTargetRef.current
+        pendingSeekTargetRef.current = null
+        if (finalTarget != null && videoRef.current) {
+          appendPlayerDebugLog({
+            level: 'INFO',
+            subsystem: 'MEDIA',
+            action: 'SEEK_DISPATCH',
+            message: `Dispatching debounced seek: setting video.currentTime = ${finalTarget.toFixed(2)}s`,
+            trigger: 'Debounce timer expired (180ms)',
+            nextStep: 'Assigned video.currentTime, awaiting HTMLMediaElement:seeked'
+          })
+          videoRef.current.currentTime = finalTarget
+        }
+      }, 180)
     },
     [clampToSeekable, onOsd, videoRef]
   )
@@ -675,6 +754,11 @@ export function useShakaPlayer({
     const video = videoRef.current
     const player = playerRef.current
     if (!video || !player || !liveRef.current) return
+    if (seekDebounceTimerRef.current) {
+      window.clearTimeout(seekDebounceTimerRef.current)
+      seekDebounceTimerRef.current = null
+    }
+    pendingSeekTargetRef.current = null
     const range = player.seekRange()
     const target = Math.max(range.start, range.end - 2)
     video.currentTime = target
@@ -744,11 +828,37 @@ export function useShakaPlayer({
       )
       setErrorCode(formatted.code ?? 1001)
       setStatus('error')
+
+      const rawErr =
+        errOrReason instanceof Error
+          ? errOrReason.stack || errOrReason.message
+          : typeof errOrReason === 'object' && errOrReason !== null
+            ? JSON.stringify(errOrReason, Object.getOwnPropertyNames(errOrReason))
+            : String(errOrReason)
+
+      appendPlayerDebugLog({
+        level: 'ERROR',
+        subsystem: 'RECOVERY',
+        action: 'PERMANENT_FAILURE',
+        message: `Playback failed permanently after ${recoveryCount.current} recovery attempt(s): ${formatted.title}`,
+        trigger: String(errOrReason),
+        nextStep: 'Displaying player error card with debug console and manual retry option',
+        rawError: rawErr,
+        data: { formattedCode: formatted.code, attempts: recoveryCount.current, videoTime: video.currentTime }
+      })
     }
 
     const recoverPlayback = async (reason: string): Promise<void> => {
       if (disposed) return
       if (isRecovering) {
+        appendPlayerDebugLog({
+          level: 'DEBUG',
+          subsystem: 'RECOVERY',
+          action: 'RECOVERY_DEBOUNCED',
+          message: `Recovery already in progress, skipping duplicate trigger: ${reason}`,
+          trigger: reason,
+          nextStep: 'Awaiting completion of ongoing recovery cycle'
+        })
         console.log('[player] recovery already in progress, skipping duplicate trigger:', reason)
         return
       }
@@ -779,15 +889,52 @@ export function useShakaPlayer({
       setStatusText(statusMsg)
       onOsd?.(`Recovering playback (${attempt}/3)…`, 'refresh')
 
+      appendPlayerDebugLog({
+        level: 'WARN',
+        subsystem: 'RECOVERY',
+        action: 'RECOVERY_START',
+        message: `Initiating automatic recovery (attempt ${attempt}/3) due to: ${reason}`,
+        trigger: reason,
+        nextStep: 'Requesting fresh CDN manifest from main process and reloading Shaka player',
+        data: { attempt, maxAttempts: 3, resumeAt, startAt, isLive: player.isLive() }
+      })
+
       try {
-        // Request fresh manifest with newly signed CDN URLs from main process
-        await window.api.refreshManifest(videoId)
+        let recoveryTimer: ReturnType<typeof setTimeout> | null = null
+        const timeoutPromise = new Promise<never>((_, reject) => {
+          recoveryTimer = setTimeout(
+            () => reject(new Error('Stream recovery timed out after 15s')),
+            15_000
+          )
+        })
+
+        try {
+          await Promise.race([
+            (async () => {
+              // Request fresh manifest with newly signed CDN URLs from main process
+              await window.api.refreshManifest(videoId)
+              if (disposed) return
+
+              const sep = manifestUrl.includes('?') ? '&' : '?'
+              const reloadStartAt = player.isLive() ? -2 : startAt
+              await player.load(`${manifestUrl}${sep}refresh=1&_t=${Date.now()}`, reloadStartAt)
+            })(),
+            timeoutPromise
+          ])
+        } finally {
+          if (recoveryTimer) clearTimeout(recoveryTimer)
+        }
         if (disposed) return
 
-        const sep = manifestUrl.includes('?') ? '&' : '?'
-        const reloadStartAt = player.isLive() ? -2 : startAt
-        await player.load(`${manifestUrl}${sep}refresh=1&_t=${Date.now()}`, reloadStartAt)
-        if (disposed) return
+        appendPlayerDebugLog({
+          level: 'INFO',
+          subsystem: 'RECOVERY',
+          action: 'RECOVERY_LOAD_SUCCESS',
+          message: `Shaka player re-loaded fresh manifest successfully (attempt ${attempt}/3)`,
+          trigger: 'player.load resolved',
+          nextStep: 'Reapplying audio tracks, quality selections, and playhead position',
+          data: { attempt, resumeAt }
+        })
 
         reapplyAudioAfterLoad()
 
@@ -844,6 +991,16 @@ export function useShakaPlayer({
         setErrorCode(undefined)
         setStatus('ready')
 
+        appendPlayerDebugLog({
+          level: 'INFO',
+          subsystem: 'RECOVERY',
+          action: 'RECOVERY_SUCCESS',
+          message: `Stream recovery attempt ${attempt}/3 completed successfully at ${video.currentTime.toFixed(2)}s`,
+          trigger: 'Playback resumed',
+          nextStep: 'Monitoring for sustained playback progress (>=3s)',
+          data: { attempt, targetPosition: resumeAt, actualPosition: video.currentTime }
+        })
+
         try {
           await video.play()
         } catch {
@@ -865,6 +1022,17 @@ export function useShakaPlayer({
         }
       } catch (err) {
         if (disposed) return
+        const rawErr = (err as Error)?.stack || String(err)
+        appendPlayerDebugLog({
+          level: 'ERROR',
+          subsystem: 'RECOVERY',
+          action: 'RECOVERY_FAIL',
+          message: `Recovery attempt ${attempt}/3 failed: ${(err as Error)?.message || String(err)}`,
+          trigger: 'Error in recoverPlayback promise',
+          nextStep: recoveryCount.current >= 3 ? 'Exhausted attempts -> fail permanently' : 'Scheduling retry in 1500ms',
+          rawError: rawErr,
+          data: { attempt, error: String(err) }
+        })
         if (recoveryCount.current >= 3) {
           failPermanently(err)
         } else {
@@ -895,6 +1063,40 @@ export function useShakaPlayer({
       // recovery.
       if (detail?.code === CODE_LOAD_INTERRUPTED) return
       console.error('[player-shaka-error]', detail)
+
+      const isRecoverable =
+        detail?.code == null ||
+        RECOVERABLE_CODES.has(detail.code) ||
+        (liveRef.current && LIVE_RECOVERABLE_CODES.has(detail.code))
+
+      const rawErr =
+        typeof errObj === 'object' && errObj !== null
+          ? JSON.stringify(errObj, Object.getOwnPropertyNames(errObj))
+          : String(errObj)
+
+      appendPlayerDebugLog({
+        level: (detail?.severity ?? 2) < 2 ? 'WARN' : 'ERROR',
+        subsystem: 'SHAKA',
+        action: 'PLAYER_ERROR',
+        message: `Shaka player error code ${detail?.code ?? 'unknown'}: ${detail?.message || 'Media/network failure'}`,
+        trigger: 'shaka.Player "error" event',
+        nextStep:
+          (detail?.severity ?? 2) < 2
+            ? 'Non-critical error (severity < 2), ignoring or buffering'
+            : !isRecoverable
+              ? 'Unrecoverable error code -> failPermanently'
+              : !video.paused && !video.ended && video.readyState >= 3
+                ? 'Active playback detected -> background recoverPlayback'
+                : 'Triggering recoverPlayback',
+        rawError: rawErr,
+        data: {
+          code: detail?.code,
+          severity: detail?.severity,
+          category: (errObj as Record<string, unknown>)?.category,
+          isRecoverable
+        }
+      })
+
       if ((detail?.severity ?? 2) < 2) {
         if (statusRef.current === 'ready' && !playingRef.current) {
           setBusy(true)
@@ -902,11 +1104,6 @@ export function useShakaPlayer({
         }
         return
       }
-
-      const isRecoverable =
-        detail?.code == null ||
-        RECOVERABLE_CODES.has(detail.code) ||
-        (liveRef.current && LIVE_RECOVERABLE_CODES.has(detail.code))
 
       if (!isRecoverable) {
         failPermanently(detail)
@@ -936,11 +1133,19 @@ export function useShakaPlayer({
 
     const startBufferingWatchdog = (): void => {
       clearBufferingWatchdog()
-      if (disposed || video.paused || scrubbingRef.current) return
+      if (disposed || scrubbingRef.current) return
       bufferingTimer = setTimeout(() => {
         bufferingTimer = null
-        if (disposed || video.paused || scrubbingRef.current) return
+        if (disposed || scrubbingRef.current) return
         console.warn('[player] buffering stall detected, initiating recovery')
+        appendPlayerDebugLog({
+          level: 'WARN',
+          subsystem: 'WATCHDOG',
+          action: 'BUFFERING_STALL',
+          message: 'Buffering stall watchdog fired after 8s of unprogressed buffering',
+          trigger: 'bufferingTimer (8000ms threshold reached)',
+          nextStep: 'Invoking recoverPlayback("buffering stall")'
+        })
         void recoverPlayback('buffering stall')
       }, 8000)
     }
@@ -948,6 +1153,14 @@ export function useShakaPlayer({
     const onShakaBuffering = (event: Event): void => {
       const isBuffering = (event as unknown as { buffering?: boolean }).buffering ?? false
       if (disposed || statusRef.current !== 'ready') return
+      appendPlayerDebugLog({
+        level: 'DEBUG',
+        subsystem: 'SHAKA',
+        action: isBuffering ? 'BUFFERING_START' : 'BUFFERING_END',
+        message: isBuffering ? 'Shaka player entered buffering state' : 'Shaka player exited buffering state',
+        trigger: 'shaka.Player "buffering" event',
+        nextStep: isBuffering ? 'Arming 8s buffering stall watchdog' : 'Clearing buffering stall watchdog'
+      })
       if (isBuffering) {
         setBusy(true)
         setStatusText((prev) => (prev === '' || prev === 'Buffering…' ? 'Buffering…' : prev))
@@ -962,7 +1175,6 @@ export function useShakaPlayer({
     }
     player.addEventListener('buffering', onShakaBuffering)
     video.addEventListener('playing', clearBufferingWatchdog)
-    video.addEventListener('pause', clearBufferingWatchdog)
 
     /**
      * Keep the audio menu honest. Shaka can change the playing audio language on
@@ -975,8 +1187,19 @@ export function useShakaPlayer({
     const onAudioMaybeChanged = (): void => {
       if (!disposed) reconcileAudioSelection()
     }
+    const onAdaptation = (): void => {
+      appendPlayerDebugLog({
+        level: 'DEBUG',
+        subsystem: 'SHAKA',
+        action: 'ADAPTATION',
+        message: 'Shaka ABR adaptation triggered (active rendition adjusted)',
+        trigger: 'shaka.Player "adaptation" event',
+        nextStep: 'Reconciling audio language selection'
+      })
+      if (!disposed) reconcileAudioSelection()
+    }
     player.addEventListener('audiotrackschanged', onAudioMaybeChanged)
-    player.addEventListener('adaptation', onAudioMaybeChanged)
+    player.addEventListener('adaptation', onAdaptation)
 
     const buildConfig = (forLive: boolean): shaka.extern.PlayerConfiguration =>
       ({
@@ -1069,7 +1292,17 @@ export function useShakaPlayer({
                 : uri.includes('.ts') || uri.includes('/seg.ts') || uri.includes('/sq/') || uri.includes('/govp/')
                   ? '.ts'
                   : ''
-          return `${proxyBase}/media${ext}?u=${encodeURIComponent(uri)}`
+          const proxiedUri = `${proxyBase}/media${ext}?u=${encodeURIComponent(uri)}`
+          appendPlayerDebugLog({
+            level: 'DEBUG',
+            subsystem: 'PROXY',
+            action: 'REWRITE_URI',
+            message: `Routing media request via local proxy (${ext || 'raw'})`,
+            trigger: 'shaka.Player RequestFilter',
+            nextStep: 'Dispatching HTTP request to local streaming proxy',
+            data: { ext, originalUri: uri.slice(0, 120) }
+          })
+          return proxiedUri
         }
         return uri
       })
@@ -1134,6 +1367,15 @@ export function useShakaPlayer({
       }
 
       // If response payload is truncated (less than requested range), signal a recoverable error to trigger a clean retry
+      appendPlayerDebugLog({
+        level: 'WARN',
+        subsystem: 'MEDIA',
+        action: 'RANGE_TRUNCATED',
+        message: `Response payload truncated: received ${currentLength}B, expected ${expectedLength}B (Range: ${rangeHeader})`,
+        trigger: 'shaka.Player ResponseFilter byte validation',
+        nextStep: 'Throwing shaka.util.Error(RECOVERABLE, NETWORK, BAD_HTTP_STATUS) to force segment retry',
+        data: { currentLength, expectedLength, rangeHeader, uri: response.uri }
+      })
       throw new shaka.util.Error(
         shaka.util.Error.Severity.RECOVERABLE,
         shaka.util.Error.Category.NETWORK,
@@ -1148,6 +1390,14 @@ export function useShakaPlayer({
 
     void (async () => {
       try {
+        appendPlayerDebugLog({
+          level: 'INFO',
+          subsystem: 'SHAKA',
+          action: 'INIT_ATTACH',
+          message: `Attaching Shaka player to video element for videoId: ${videoId}`,
+          trigger: 'useShakaPlayer mount',
+          nextStep: 'Configuring streaming parameters and calling player.load()'
+        })
         // Starting 2 seconds behind the live edge ensures buffered media is
         // immediately available to decode without stalling.
         const mountStartAt =
@@ -1158,8 +1408,26 @@ export function useShakaPlayer({
               : undefined
         await player.attach(video)
         player.configure(config)
+        appendPlayerDebugLog({
+          level: 'INFO',
+          subsystem: 'MANIFEST',
+          action: 'LOAD_START',
+          message: `Calling player.load("${manifestUrl}", startAt=${mountStartAt ?? 'default'})`,
+          trigger: 'Initial stream load execution',
+          nextStep: 'Shaka parsing DASH MPD / HLS playlist and initializing SourceBuffers',
+          data: { manifestUrl, mountStartAt, isLive }
+        })
         await player.load(manifestUrl, mountStartAt)
         if (disposed) return
+
+        appendPlayerDebugLog({
+          level: 'INFO',
+          subsystem: 'SHAKA',
+          action: 'LOAD_SUCCESS',
+          message: `Manifest loaded successfully. Liveness=${player.isLive()}`,
+          trigger: 'player.load resolved',
+          nextStep: 'Configuring variant tracks, audio selections, and playhead'
+        })
 
         // The hint can be wrong (a replayed broadcast is served as a live
         // playlist for a while, and vice versa), so trust Shaka from here on.
@@ -1312,6 +1580,17 @@ export function useShakaPlayer({
         }
       } catch (err) {
         if (disposed) return
+        const rawErr = (err as Error)?.stack || String(err)
+        appendPlayerDebugLog({
+          level: 'ERROR',
+          subsystem: 'SHAKA',
+          action: 'INIT_LOAD_FAILED',
+          message: `Initial player.load failed: ${(err as Error)?.message || String(err)}`,
+          trigger: 'player.load rejected',
+          nextStep: 'Triggering automatic recoverPlayback("initial load failed")',
+          rawError: rawErr,
+          data: { manifestUrl, error: String(err) }
+        })
         console.warn('[player] initial stream load failed, initiating automatic recovery:', err)
         void recoverPlayback('initial load failed')
       }
@@ -1398,6 +1677,15 @@ export function useShakaPlayer({
       if (elapsedMs < 5_000) return
       if (now - lastRecoveryRef.current < 6_000) return
       console.warn(`[player] silent stall detected: frozen at ${video.currentTime.toFixed(1)}s for ${(elapsedMs / 1000).toFixed(1)}s`)
+      appendPlayerDebugLog({
+        level: 'WARN',
+        subsystem: 'WATCHDOG',
+        action: 'SILENT_STALL',
+        message: `Silent stall detected: playhead frozen at ${video.currentTime.toFixed(1)}s for ${(elapsedMs / 1000).toFixed(1)}s without pause or seek`,
+        trigger: 'Playhead progress watchdog interval (1000ms)',
+        nextStep: 'Triggering automatic stream recovery',
+        data: { currentTime: video.currentTime, elapsedMs, paused: video.paused, readyState: video.readyState }
+      })
       void recoverPlaybackRef.current?.(`silent stall: frozen at ${video.currentTime.toFixed(1)}s for ${(elapsedMs / 1000).toFixed(0)}s`)
     }, 1000)
     return () => window.clearInterval(id)
@@ -1435,6 +1723,14 @@ export function useShakaPlayer({
         const progressFromRecovery = Math.abs(video.currentTime - lastRecoveryPosRef.current)
         if (progressFromRecovery >= 3.0) {
           console.log('[player] sustained playback confirmed (>3s), resetting recovery attempts counter')
+          appendPlayerDebugLog({
+            level: 'INFO',
+            subsystem: 'RECOVERY',
+            action: 'SUSTAINED_PROGRESS',
+            message: `Sustained playback confirmed (${progressFromRecovery.toFixed(1)}s past recovery mark). Reset recovery count to 0.`,
+            trigger: 'timeupdate progress check',
+            nextStep: 'Continuing normal playback'
+          })
           recoveryCount.current = 0
           onOsd?.('Playback restored', 'play')
         }
@@ -1493,7 +1789,40 @@ export function useShakaPlayer({
         setStatusText('Buffering…')
       }
     }
+    let seekStallTimer: ReturnType<typeof setTimeout> | null = null
+
+    const clearSeekWatchdog = (): void => {
+      if (seekStallTimer) {
+        clearTimeout(seekStallTimer)
+        seekStallTimer = null
+      }
+    }
+
+    const startSeekWatchdog = (): void => {
+      clearSeekWatchdog()
+      if (scrubbingRef.current) return
+      seekStallTimer = setTimeout(() => {
+        seekStallTimer = null
+        if (scrubbingRef.current) return
+        const v = videoRef.current
+        if (v && v.seeking && statusRef.current === 'ready') {
+          console.warn(`[player] seek stall detected: video.seeking remained true for 7s at ${v.currentTime.toFixed(1)}s`)
+          appendPlayerDebugLog({
+            level: 'WARN',
+            subsystem: 'WATCHDOG',
+            action: 'SEEK_STALL',
+            message: `Seek stall watchdog fired: HTMLMediaElement.seeking stayed true for 7s at ${v.currentTime.toFixed(1)}s`,
+            trigger: 'seekStallTimer (7000ms threshold reached)',
+            nextStep: 'Initiating recoverPlayback to reload stream and clear seek lock',
+            data: { currentTime: v.currentTime, seeking: v.seeking, readyState: v.readyState }
+          })
+          void recoverPlaybackRef.current?.(`seek stall at ${v.currentTime.toFixed(1)}s`)
+        }
+      }, 7000)
+    }
+
     const onPlaying = (): void => {
+      clearSeekWatchdog()
       setPlaying(true)
       if (statusRef.current === 'error' && recoveryCount.current === 0) {
         console.log('[player] playback resumed during error, clearing error overlay')
@@ -1506,18 +1835,37 @@ export function useShakaPlayer({
       setStatusText('')
     }
     const onSeeking = (): void => {
+      appendPlayerDebugLog({
+        level: 'DEBUG',
+        subsystem: 'MEDIA',
+        action: 'MEDIA_SEEKING',
+        message: `HTMLMediaElement fired seeking event (target=${video.currentTime.toFixed(2)}s)`,
+        trigger: 'video:seeking',
+        nextStep: 'Arming 7s seek stall watchdog'
+      })
       if (statusRef.current === 'ready' && !scrubbingRef.current) {
         setBusy(true)
         setStatusText('Seeking…')
+        startSeekWatchdog()
       }
     }
     const onSeeked = (): void => {
+      appendPlayerDebugLog({
+        level: 'DEBUG',
+        subsystem: 'MEDIA',
+        action: 'MEDIA_SEEKED',
+        message: `HTMLMediaElement fired seeked event (settled at ${video.currentTime.toFixed(2)}s)`,
+        trigger: 'video:seeked',
+        nextStep: 'Clearing seek stall watchdog'
+      })
+      clearSeekWatchdog()
       if (statusRef.current === 'ready' && !scrubbingRef.current) {
         setBusy(false)
         setStatusText('')
       }
     }
     const handleEnded = (): void => {
+      clearSeekWatchdog()
       setPlaying(false)
       setBusy(false)
       setStatusText('')
@@ -1535,6 +1883,7 @@ export function useShakaPlayer({
     video.addEventListener('ended', handleEnded)
 
     return () => {
+      clearSeekWatchdog()
       if (!liveRef.current && video.currentTime > 0) {
         onTimeUpdateRef.current(video.currentTime, video.duration || 0)
       }

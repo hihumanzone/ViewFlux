@@ -45,6 +45,8 @@ export interface PlayerMenusProps {
   sleepTimerMinutes?: number | null
   sleepTimerRemainingSec?: number | null
   onSetSleepTimer?: (minutes: number | null) => void
+  showDebugConsole?: boolean
+  onToggleDebugConsole?: () => void
 }
 
 export const PlayerMenus = memo(function PlayerMenus({
@@ -80,7 +82,9 @@ export const PlayerMenus = memo(function PlayerMenus({
   onTogglePip,
   sleepTimerMinutes,
   sleepTimerRemainingSec,
-  onSetSleepTimer
+  onSetSleepTimer,
+  showDebugConsole,
+  onToggleDebugConsole
 }: PlayerMenusProps): React.JSX.Element {
   const safeRate = Number.isFinite(rate) && rate >= 0.25 ? rate : 1
   const sleepTimerSliderValue =
@@ -220,6 +224,21 @@ export const PlayerMenus = memo(function PlayerMenus({
             />
           </div>
         )}
+
+        <div className="sheet__row sheet__row--toggle">
+          <div>
+            <div className="sheet__label">Debug log</div>
+            <div className="sheet__hint">Show real-time technical playback log console (D).</div>
+          </div>
+          <Switch
+            on={showDebugConsole ?? false}
+            label="Debug log"
+            onClick={() => {
+              onToggleDebugConsole?.()
+              onClose()
+            }}
+          />
+        </div>
       </Menu>
 
       {/* 2. Quality Menu */}

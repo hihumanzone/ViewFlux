@@ -2,6 +2,7 @@ import { ORIGIN, REFERER, USER_AGENT } from '../http'
 import { rewriteDash, rewriteHls } from '../proxy'
 import { CLIENT, getClient } from './client'
 import { pruneMap } from './tokens'
+import { emitPlayerDebugLog } from '../debugLogger'
 import type { CachedManifest } from './types'
 import type { VideoService } from './video'
 
@@ -32,48 +33,129 @@ export class ManifestService {
     }
 
     const yt = await getClient()
-    const info = await yt.getBasicInfo(videoId, { client: CLIENT })
-    if (info.playability_status?.status !== 'OK' || !info.streaming_data) return null
+    const clientsToTry = force ? (['ANDROID_VR', CLIENT] as const) : ([CLIENT, 'ANDROID_VR'] as const)
 
-    const sd = info.streaming_data as unknown as {
-      dash_manifest_url?: string
-      hls_manifest_url?: string
-    }
+    emitPlayerDebugLog({
+      level: 'info',
+      subsystem: 'MANIFEST',
+      action: 'MANIFEST_RESOLVE_START',
+      message: `Resolving manifest for video=${videoId} (force=${force})`,
+      trigger: force ? 'Stream recovery manifest refresh request' : 'Initial video load',
+      nextStep: `Attempting Innertube client priority: [${clientsToTry.join(', ')}]`,
+      data: { videoId, force, clients: clientsToTry }
+    })
 
-    const providedManifest = sd.hls_manifest_url ?? sd.dash_manifest_url
-    const isLive = Boolean(info.basic_info?.is_live)
+    for (const client of clientsToTry) {
+      try {
+        emitPlayerDebugLog({
+          level: 'debug',
+          subsystem: 'MANIFEST',
+          action: 'CLIENT_ATTEMPT',
+          message: `Querying Innertube basicInfo with client=${client}`,
+          trigger: 'ManifestService client loop',
+          data: { videoId, client }
+        })
 
-    if (isLive) {
-      const xml =
-        (providedManifest ? await this.fetchLiveManifest(providedManifest) : null) ??
-        (await this.liveFallbackManifest(videoId))
-      if (xml) {
-        this.manifestCache.set(videoId, { xml, fetchedAt: Date.now(), ttl: LIVE_TTL_MS })
-        pruneMap(this.manifestCache, 30)
-        return xml
+        const info = await yt.getBasicInfo(videoId, { client })
+        if (info.playability_status?.status !== 'OK' || !info.streaming_data) {
+          emitPlayerDebugLog({
+            level: 'warn',
+            subsystem: 'MANIFEST',
+            action: 'CLIENT_PLAYABILITY_UNAVAILABLE',
+            message: `Client ${client} returned playability status=${info.playability_status?.status ?? 'UNKNOWN'}`,
+            trigger: 'yt.getBasicInfo playability check',
+            nextStep: 'Falling back to next client profile',
+            rawError: info.playability_status?.reason ?? 'No streaming data',
+            data: { status: info.playability_status?.status, client }
+          })
+          continue
+        }
+
+        const sd = info.streaming_data as unknown as {
+          dash_manifest_url?: string
+          hls_manifest_url?: string
+        }
+
+        const providedManifest = sd.hls_manifest_url ?? sd.dash_manifest_url
+        const isLive = Boolean(info.basic_info?.is_live)
+
+        if (isLive) {
+          const xml =
+            (providedManifest ? await this.fetchLiveManifest(providedManifest) : null) ??
+            (await this.liveFallbackManifest(videoId))
+          if (xml) {
+            emitPlayerDebugLog({
+              level: 'info',
+              subsystem: 'MANIFEST',
+              action: 'LIVE_MANIFEST_RESOLVED',
+              message: `Live stream manifest resolved (length=${xml.length}B)`,
+              data: { isLive: true, length: xml.length }
+            })
+            this.manifestCache.set(videoId, { xml, fetchedAt: Date.now(), ttl: LIVE_TTL_MS })
+            pruneMap(this.manifestCache, 30)
+            return xml
+          }
+          return null
+        }
+
+        try {
+          const xml = await info.toDash({
+            url_transformer: (url: URL) =>
+              new URL(`${this.proxyBase}/media?u=${encodeURIComponent(url.toString())}`)
+          })
+          emitPlayerDebugLog({
+            level: 'info',
+            subsystem: 'MANIFEST',
+            action: 'DASH_MANIFEST_GENERATED',
+            message: `Generated DASH MPD with client=${client} (length=${xml.length}B)`,
+            trigger: 'info.toDash()',
+            nextStep: 'Delivering MPD to Shaka player',
+            data: { client, length: xml.length }
+          })
+          this.manifestCache.set(videoId, { xml, fetchedAt: Date.now(), ttl: MANIFEST_TTL_MS })
+          pruneMap(this.manifestCache, 30)
+          return xml
+        } catch (dashErr) {
+          emitPlayerDebugLog({
+            level: 'warn',
+            subsystem: 'MANIFEST',
+            action: 'DASH_GENERATION_FAILED',
+            message: `info.toDash() failed on client=${client}: ${(dashErr as Error)?.message}`,
+            trigger: 'info.toDash() error',
+            nextStep: 'Attempting provided manifest or live fallback',
+            rawError: (dashErr as Error)?.stack ?? String(dashErr)
+          })
+          const xml =
+            (providedManifest ? await this.fetchLiveManifest(providedManifest) : null) ??
+            (await this.liveFallbackManifest(videoId))
+          if (xml) {
+            this.manifestCache.set(videoId, { xml, fetchedAt: Date.now(), ttl: LIVE_TTL_MS })
+            pruneMap(this.manifestCache, 30)
+            return xml
+          }
+        }
+      } catch (clientErr) {
+        emitPlayerDebugLog({
+          level: 'warn',
+          subsystem: 'MANIFEST',
+          action: 'CLIENT_FETCH_ERROR',
+          message: `Client ${client} threw error: ${(clientErr as Error)?.message}`,
+          trigger: 'ManifestService client catch block',
+          nextStep: 'Trying next client fallback',
+          rawError: (clientErr as Error)?.stack ?? String(clientErr)
+        })
       }
-      return null
     }
 
-    try {
-      const xml = await info.toDash({
-        url_transformer: (url: URL) =>
-          new URL(`${this.proxyBase}/media?u=${encodeURIComponent(url.toString())}`)
-      })
-      this.manifestCache.set(videoId, { xml, fetchedAt: Date.now(), ttl: MANIFEST_TTL_MS })
-      pruneMap(this.manifestCache, 30)
-      return xml
-    } catch {
-      const xml =
-        (providedManifest ? await this.fetchLiveManifest(providedManifest) : null) ??
-        (await this.liveFallbackManifest(videoId))
-      if (xml) {
-        this.manifestCache.set(videoId, { xml, fetchedAt: Date.now(), ttl: LIVE_TTL_MS })
-        pruneMap(this.manifestCache, 30)
-        return xml
-      }
-      return null
-    }
+    emitPlayerDebugLog({
+      level: 'error',
+      subsystem: 'MANIFEST',
+      action: 'ALL_CLIENTS_EXHAUSTED',
+      message: `Failed to resolve stream manifest for video=${videoId} across all clients`,
+      trigger: 'ManifestService getManifest exhaustion',
+      nextStep: 'Returning null (404 to Shaka player)'
+    })
+    return null
   }
 
   private async liveFallbackManifest(videoId: string): Promise<string | null> {

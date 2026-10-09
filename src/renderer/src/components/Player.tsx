@@ -22,6 +22,8 @@ import { SeekBar } from './player/SeekBar'
 import { PlayerControls } from './player/PlayerControls'
 import { MiniPlayerControls } from './player/MiniPlayerControls'
 import { PlayerMenus } from './player/PlayerMenus'
+import { PlayerDebugConsole } from './player/PlayerDebugConsole'
+import { usePlayerDebugLogs } from './player/usePlayerDebugLogs'
 import { usePlayerAudioGraph } from './player/usePlayerAudioGraph'
 import { useShakaPlayer } from './player/useShakaPlayer'
 import { usePlayerHotkeys } from './player/usePlayerHotkeys'
@@ -139,6 +141,17 @@ export const Player = forwardRef<PlayerHandle, PlayerProps>(function Player(
     setOsd({ id, text, icon })
     osdTimerRef.current = window.setTimeout(() => setOsd(null), 850)
   }, [])
+
+  // Technical Debug Logging
+  const { logs: debugLogs, clearLogs: clearDebugLogs } = usePlayerDebugLogs()
+  const [showDebugConsole, setShowDebugConsole] = useState(false)
+  const toggleDebugConsole = useCallback(() => {
+    setShowDebugConsole((prev) => {
+      const next = !prev
+      showOsd(next ? 'Debug console: On' : 'Debug console: Off', 'terminal')
+      return next
+    })
+  }, [showOsd])
 
   // Sleep Timer state & handlers
   const { minutes: sleepTimerMinutes, remainingSec: sleepTimerRemainingSec } = useSleepTimer()
@@ -534,6 +547,8 @@ export const Player = forwardRef<PlayerHandle, PlayerProps>(function Player(
     hasError: shaka.status === 'error',
     fullscreen,
     isMini,
+    debugConsoleOpen: showDebugConsole,
+    onToggleDebugConsole: toggleDebugConsole,
     onExpand,
     onClose,
     onDismissError: shaka.dismissError,
@@ -816,6 +831,15 @@ export const Player = forwardRef<PlayerHandle, PlayerProps>(function Player(
             <button
               type="button"
               className="btn btn--tonal btn--sm"
+              onClick={() => setShowDebugConsole(true)}
+              title="Open technical playback debug console (D)"
+            >
+              <Icon name="terminal" size={16} />
+              Debug log
+            </button>
+            <button
+              type="button"
+              className="btn btn--tonal btn--sm"
               onClick={shaka.dismissError}
             >
               <Icon name="close" size={16} />
@@ -990,11 +1014,21 @@ export const Player = forwardRef<PlayerHandle, PlayerProps>(function Player(
               sleepTimerMinutes={sleepTimerMinutes}
               sleepTimerRemainingSec={sleepTimerRemainingSec}
               onSetSleepTimer={handleSetSleepTimer}
+              showDebugConsole={showDebugConsole}
+              onToggleDebugConsole={toggleDebugConsole}
             />
           )}
         </>
       )}
     </>
+  )}
+
+  {showDebugConsole && (
+    <PlayerDebugConsole
+      logs={debugLogs}
+      onClear={clearDebugLogs}
+      onClose={() => setShowDebugConsole(false)}
+    />
   )}
 </div>
   )

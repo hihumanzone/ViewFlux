@@ -7,7 +7,8 @@ import type {
   PlaylistVideo,
   SavedChannel,
   SearchFilter,
-  Settings
+  Settings,
+  PlaybackLogEntry
 } from '../shared/types'
 
 const api: AppApi = {
@@ -129,6 +130,15 @@ const api: AppApi = {
     ipcRenderer.on('window:maximized-change', listener)
     return () => {
       ipcRenderer.removeListener('window:maximized-change', listener)
+    }
+  },
+  onPlayerDebugLog: (callback: (entry: PlaybackLogEntry) => void) => {
+    const listener = (_e: Electron.IpcRendererEvent, entry: PlaybackLogEntry): void => {
+      callback(entry)
+    }
+    ipcRenderer.on('player:debug-log', listener)
+    return () => {
+      ipcRenderer.removeListener('player:debug-log', listener)
     }
   },
 

@@ -7,6 +7,7 @@ import { MediaProxy } from './proxy'
 import { fetchDislikes, fetchSponsorSegments } from './services'
 import { YOUTUBE_REQUEST_GLOBALS } from './http'
 import { initAutoUpdater } from './updater'
+import { setDebugLoggerWindow } from './debugLogger'
 import type {
   ChannelSort,
   HistoryEntry,
@@ -107,6 +108,8 @@ function createWindow(): void {
     }
   })
 
+  setDebugLoggerWindow(mainWindow)
+
   mainWindow.on('maximize', () => {
     mainWindow?.webContents.send('window:maximized-change', true)
   })
@@ -127,6 +130,7 @@ function createWindow(): void {
   })
 
   mainWindow.on('closed', () => {
+    setDebugLoggerWindow(null)
     mainWindow = null
   })
 

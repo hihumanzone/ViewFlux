@@ -2,6 +2,7 @@ import { createServer, type IncomingMessage, type Server, type ServerResponse } 
 import { Readable, Transform } from 'node:stream'
 import { isAudioItagUrl } from '../shared/media'
 import { ORIGIN, REFERER, USER_AGENT } from './http'
+import { emitPlayerDebugLog } from './debugLogger'
 
 const ALLOWED_HOST_SUFFIXES = [
   'googlevideo.com',
@@ -315,6 +316,22 @@ export class MediaProxy {
     }
     if (req.headers.range) headers.Range = req.headers.range
 
+    const itag = target.searchParams.get('itag') ?? 'unknown'
+    const requestedRange = (req.headers.range as string) ?? 'full'
+    emitPlayerDebugLog({
+      level: 'debug',
+      subsystem: 'PROXY',
+      action: 'PROXY_MEDIA_REQUEST',
+      message: `GET /media (itag=${itag}, Range: ${requestedRange})`,
+      trigger: 'Shaka/HTML5 video range request to localhost proxy',
+      data: {
+        host: target.host,
+        itag,
+        range: requestedRange,
+        pathname: target.pathname
+      }
+    })
+
     const controller = new AbortController()
     let clientClosed = false
     req.on('close', () => {
@@ -378,12 +395,39 @@ export class MediaProxy {
     }
 
     if (!upstream) {
+      emitPlayerDebugLog({
+        level: 'error',
+        subsystem: 'PROXY',
+        action: 'UPSTREAM_FETCH_FAILED',
+        message: `Upstream fetch failed after 3 attempts for itag=${itag} (lastStatus: ${lastStatus})`,
+        trigger: 'MediaProxy fetch loop exhausted',
+        nextStep: 'Responding with HTTP 502 to Shaka player to trigger retry/recovery',
+        rawError: `Upstream unavailable (status ${lastStatus})`,
+        data: { itag, lastStatus, host: target.host }
+      })
       if (!res.headersSent && !clientClosed) {
         res.writeHead(502, { 'Cache-Control': 'no-store' })
         res.end(`upstream unavailable (status ${lastStatus})`)
       }
       return
     }
+
+    const isErr = upstream.status >= 400
+    emitPlayerDebugLog({
+      level: isErr ? 'warn' : 'debug',
+      subsystem: 'PROXY',
+      action: isErr ? 'UPSTREAM_HTTP_ERROR' : 'UPSTREAM_RESPONSE',
+      message: `Upstream responded with HTTP ${upstream.status} for itag=${itag}`,
+      trigger: 'fetch to googlevideo.com',
+      nextStep: isErr ? 'Returning upstream status to player' : 'Streaming response body to player',
+      rawError: isErr ? `HTTP ${upstream.status} ${upstream.statusText}` : undefined,
+      data: {
+        status: upstream.status,
+        itag,
+        contentLength: upstream.headers.get('content-length'),
+        contentRange: upstream.headers.get('content-range')
+      }
+    })
 
     if (req.method === 'HEAD' || !upstream.body) {
       for (const name of PASSTHROUGH_HEADERS) {
@@ -537,20 +581,55 @@ export class MediaProxy {
     const stream = sniffed
       ? Readable.from(replay(sniffed))
       : Readable.fromWeb(upstream.body as unknown as import('stream/web').ReadableStream)
+
+    // Abort if upstream stops sending data for 10 seconds to prevent hanging TCP sockets
+    let idleTimer: NodeJS.Timeout | null = null
+    const resetIdleTimer = (): void => {
+      if (idleTimer) clearTimeout(idleTimer)
+      idleTimer = setTimeout(() => {
+        emitPlayerDebugLog({
+          level: 'error',
+          subsystem: 'PROXY',
+          action: 'STREAM_IDLE_TIMEOUT',
+          message: `Upstream media body stalled for 10s (itag=${itag}). Terminating socket to prevent player freeze.`,
+          trigger: 'MediaProxy handleMedia 10s inactivity timer',
+          nextStep: 'Socket destroyed; Shaka/watchdogs will detect drop and trigger recovery retry'
+        })
+        console.warn('[proxy] upstream media body stalled (10s idle timeout), terminating connection')
+        stream.destroy(new Error('upstream body timeout'))
+        res.destroy()
+      }, 10_000)
+      idleTimer.unref?.()
+    }
+    const clearIdleTimer = (): void => {
+      if (idleTimer) {
+        clearTimeout(idleTimer)
+        idleTimer = null
+      }
+    }
+
+    resetIdleTimer()
+    stream.on('data', resetIdleTimer)
+    stream.on('end', clearIdleTimer)
+    stream.on('close', clearIdleTimer)
     stream.on('error', () => {
+      clearIdleTimer()
       res.destroy()
     })
 
     if (shouldSlice && rangeStart !== undefined) {
       const sliceStream = createRangeSliceStream(rangeStart, rangeEnd)
       sliceStream.on('error', () => {
+        clearIdleTimer()
         res.destroy()
       })
       sliceStream.on('end', () => {
+        clearIdleTimer()
         stream.destroy()
       })
       stream.pipe(sliceStream).pipe(res)
       const onStreamClose = (): void => {
+        clearIdleTimer()
         stream.destroy()
         sliceStream.destroy()
       }
@@ -559,6 +638,7 @@ export class MediaProxy {
     } else {
       stream.pipe(res)
       const onStreamClose = (): void => {
+        clearIdleTimer()
         stream.destroy()
       }
       req.on('close', onStreamClose)

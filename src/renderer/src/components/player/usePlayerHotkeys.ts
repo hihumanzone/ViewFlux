@@ -15,6 +15,8 @@ export interface UsePlayerHotkeysProps {
   hasError?: boolean
   fullscreen?: boolean
   isMini?: boolean
+  debugConsoleOpen?: boolean
+  onToggleDebugConsole?: () => void
   onExpand?: () => void
   onClose?: () => void
   onDismissError?: () => void
@@ -44,6 +46,8 @@ export function usePlayerHotkeys({
   hasError,
   fullscreen,
   isMini,
+  debugConsoleOpen,
+  onToggleDebugConsole,
   onExpand,
   onClose,
   onDismissError,
@@ -163,6 +167,14 @@ export function usePlayerHotkeys({
           onToggleCaptions()
           break
         }
+        case 'd':
+        case 'D':
+          if (!event.ctrlKey && !event.metaKey && !event.altKey && onToggleDebugConsole) {
+            event.preventDefault()
+            onToggleDebugConsole()
+            break
+          }
+          break
         case 'N':
           if (event.shiftKey && onNextVideo) {
             event.preventDefault()
@@ -201,7 +213,10 @@ export function usePlayerHotkeys({
           }
           break
         case 'Escape':
-          if (menuOpen) {
+          if (debugConsoleOpen && onToggleDebugConsole) {
+            event.preventDefault()
+            onToggleDebugConsole()
+          } else if (menuOpen) {
             event.preventDefault()
             onCloseMenu()
           } else if (hasError) {
@@ -228,6 +243,8 @@ export function usePlayerHotkeys({
       menuOpen,
       hasError,
       fullscreen,
+      debugConsoleOpen,
+      onToggleDebugConsole,
       onDismissError,
       onTogglePlay,
       onSeekBy,

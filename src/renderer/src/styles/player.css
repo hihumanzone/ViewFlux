@@ -1928,3 +1928,320 @@
   text-align: center;
 }
 
+/* ============================================================
+   Player Technical Debug Console
+   ============================================================ */
+
+.player__debug-console {
+  position: absolute;
+  inset: 12px;
+  z-index: 55;
+  display: flex;
+  flex-direction: column;
+  background: rgba(8, 12, 18, 0.94);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 10px;
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.85), 0 0 0 1px rgba(0, 0, 0, 0.5);
+  font-family: 'JetBrains Mono', 'Fira Code', 'Cascadia Code', Consolas, Menlo, monospace;
+  color: #e2e8f0;
+  overflow: hidden;
+  user-select: text;
+  animation: modal-enter var(--t-fast) var(--ease-spring);
+}
+
+.player__debug-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 12px;
+  background: rgba(15, 22, 33, 0.98);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  flex-shrink: 0;
+  user-select: none;
+}
+
+.player__debug-title-group {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.player__debug-live-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #10b981;
+  box-shadow: 0 0 8px #10b981;
+  animation: debug-pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+
+@keyframes debug-pulse {
+  0%, 100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.4;
+    transform: scale(0.85);
+  }
+}
+
+.player__debug-icon {
+  color: #38bdf8;
+}
+
+.player__debug-title {
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  color: #f8fafc;
+}
+
+.player__debug-counter {
+  font-size: 11px;
+  color: #64748b;
+  margin-left: 4px;
+}
+
+.player__debug-filters {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.player__debug-chip {
+  padding: 2px 8px;
+  border-radius: 4px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.04);
+  color: #94a3b8;
+  font-size: 10.5px;
+  font-weight: 600;
+  font-family: inherit;
+  cursor: pointer;
+  transition: all 120ms ease;
+}
+
+.player__debug-chip:hover {
+  background: rgba(255, 255, 255, 0.08);
+  color: #f1f5f9;
+}
+
+.player__debug-chip--active {
+  background: rgba(56, 189, 248, 0.18);
+  border-color: rgba(56, 189, 248, 0.5);
+  color: #38bdf8;
+}
+
+.player__debug-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.player__debug-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 8px;
+  border-radius: 4px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.05);
+  color: #cbd5e1;
+  font-size: 11px;
+  font-family: inherit;
+  cursor: pointer;
+  transition: all 120ms ease;
+}
+
+.player__debug-btn:hover {
+  background: rgba(255, 255, 255, 0.1);
+  color: #ffffff;
+}
+
+.player__debug-btn--active {
+  background: rgba(16, 185, 129, 0.15);
+  border-color: rgba(16, 185, 129, 0.4);
+  color: #34d399;
+}
+
+.player__debug-btn--close {
+  padding: 3px;
+  color: #94a3b8;
+}
+
+.player__debug-btn--close:hover {
+  color: #f87171;
+  background: rgba(239, 68, 68, 0.15);
+  border-color: rgba(239, 68, 68, 0.3);
+}
+
+.player__debug-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 8px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.player__debug-empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  color: #64748b;
+  font-size: 12px;
+}
+
+.player__debug-row {
+  border-radius: 4px;
+  padding: 3px 6px;
+  transition: background 100ms ease;
+}
+
+.player__debug-row--clickable {
+  cursor: pointer;
+}
+
+.player__debug-row:hover {
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.player__debug-row--expanded {
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.player__debug-line {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  font-size: 11px;
+  line-height: 1.5;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.player__debug-timestamp {
+  color: #64748b;
+  font-size: 10.5px;
+  flex-shrink: 0;
+  font-variant-numeric: tabular-nums;
+}
+
+.player__debug-badge {
+  font-size: 9.5px;
+  font-weight: 700;
+  padding: 1px 4px;
+  border-radius: 3px;
+  flex-shrink: 0;
+  line-height: 1.2;
+}
+
+.player__debug-badge--info {
+  background: rgba(56, 189, 248, 0.15);
+  color: #38bdf8;
+}
+
+.player__debug-badge--warn {
+  background: rgba(245, 158, 11, 0.2);
+  color: #fbbf24;
+}
+
+.player__debug-badge--error {
+  background: rgba(239, 68, 68, 0.25);
+  color: #f87171;
+}
+
+.player__debug-badge--debug {
+  background: rgba(148, 163, 184, 0.15);
+  color: #94a3b8;
+}
+
+.player__debug-subsystem {
+  font-weight: 700;
+  flex-shrink: 0;
+  font-size: 11px;
+}
+
+.player__debug-action {
+  font-weight: 600;
+  color: #f1f5f9;
+  flex-shrink: 0;
+}
+
+.player__debug-msg {
+  color: #cbd5e1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.player__debug-expand-hint {
+  margin-left: auto;
+  color: #64748b;
+  flex-shrink: 0;
+  padding-left: 6px;
+}
+
+.player__debug-details {
+  margin: 6px 0 4px 24px;
+  padding: 8px 10px;
+  background: rgba(0, 0, 0, 0.5);
+  border-left: 2px solid #38bdf8;
+  border-radius: 0 4px 4px 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 11px;
+}
+
+.player__debug-field {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.player__debug-label {
+  font-size: 9.5px;
+  font-weight: 700;
+  color: #94a3b8;
+  letter-spacing: 0.05em;
+}
+
+.player__debug-val {
+  color: #e2e8f0;
+}
+
+.player__debug-val--trigger {
+  color: #fde047;
+}
+
+.player__debug-val--next {
+  color: #86efac;
+}
+
+.player__debug-pre {
+  background: rgba(0, 0, 0, 0.4);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 4px;
+  padding: 6px 8px;
+  font-family: inherit;
+  font-size: 10.5px;
+  line-height: 1.4;
+  overflow-x: auto;
+  max-height: 160px;
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+
+.player__debug-val--error {
+  color: #fca5a5;
+  background: rgba(239, 68, 68, 0.1);
+  border-color: rgba(239, 68, 68, 0.25);
+}
+
+
