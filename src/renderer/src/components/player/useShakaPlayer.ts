@@ -258,6 +258,10 @@ export function useShakaPlayer({
       nextStep: 'Resetting recovery counter and invoking recoverPlayback("user retry")'
     })
     recoveryCount.current = 0
+    recoverySuccessTimeRef.current = 0
+    recoveryResumePosRef.current = 0
+    recoveryActiveRef.current = false
+    isRecoveringRef.current = false
     setErrorMsg('')
     setErrorTitle('')
     setErrorCode(undefined)
@@ -290,10 +294,15 @@ export function useShakaPlayer({
   const recoveryCount = useRef(0)
   const lastRecoveryRef = useRef(0)
   const lastRecoveryPosRef = useRef(0)
+  const isRecoveringRef = useRef(false)
+  const recoveryActiveRef = useRef(false)
+  const recoverySuccessTimeRef = useRef(0)
+  const recoveryResumePosRef = useRef(0)
   const lastProgressRef = useRef({ t: 0, at: Date.now() })
   const liveRef = useRef(false)
   liveRef.current = live
   const recoverPlaybackRef = useRef<((reason: string) => Promise<void>) | null>(null)
+  const failPermanentlyRef = useRef<((reason: unknown) => void) | null>(null)
   const selectedHeightRef = useRef<number | null>(null)
   selectedHeightRef.current = selectedHeight
   const preferredQualityRef = useRef(preferredQuality)
@@ -801,7 +810,6 @@ export function useShakaPlayer({
       player.setVideoContainer(containerRef.current)
     }
 
-    let isRecovering = false
     let retryTimer: ReturnType<typeof setTimeout> | null = null
 
     const failPermanently = (errOrReason: unknown): void => {
@@ -810,7 +818,8 @@ export function useShakaPlayer({
         clearTimeout(retryTimer)
         retryTimer = null
       }
-      isRecovering = false
+      isRecoveringRef.current = false
+      recoveryActiveRef.current = false
       try {
         video.pause()
       } catch {
@@ -850,7 +859,7 @@ export function useShakaPlayer({
 
     const recoverPlayback = async (reason: string): Promise<void> => {
       if (disposed) return
-      if (isRecovering) {
+      if (isRecoveringRef.current) {
         appendPlayerDebugLog({
           level: 'DEBUG',
           subsystem: 'RECOVERY',
@@ -868,7 +877,8 @@ export function useShakaPlayer({
         return
       }
 
-      isRecovering = true
+      isRecoveringRef.current = true
+      recoveryActiveRef.current = true
       recoveryCount.current += 1
       const attempt = recoveryCount.current
       lastRecoveryRef.current = Date.now()
@@ -917,7 +927,8 @@ export function useShakaPlayer({
 
               const sep = manifestUrl.includes('?') ? '&' : '?'
               const reloadStartAt = player.isLive() ? -2 : startAt
-              await player.load(`${manifestUrl}${sep}refresh=1&_t=${Date.now()}`, reloadStartAt)
+              // Since refreshManifest already cached the fresh manifest, load directly with cache-buster
+              await player.load(`${manifestUrl}${sep}_t=${Date.now()}`, reloadStartAt)
             })(),
             timeoutPromise
           ])
@@ -991,16 +1002,6 @@ export function useShakaPlayer({
         setErrorCode(undefined)
         setStatus('ready')
 
-        appendPlayerDebugLog({
-          level: 'INFO',
-          subsystem: 'RECOVERY',
-          action: 'RECOVERY_SUCCESS',
-          message: `Stream recovery attempt ${attempt}/3 completed successfully at ${video.currentTime.toFixed(2)}s`,
-          trigger: 'Playback resumed',
-          nextStep: 'Monitoring for sustained playback progress (>=3s)',
-          data: { attempt, targetPosition: resumeAt, actualPosition: video.currentTime }
-        })
-
         try {
           await video.play()
         } catch {
@@ -1020,7 +1021,22 @@ export function useShakaPlayer({
             /* keep playing */
           }
         }
+
+        recoveryResumePosRef.current = video.currentTime
+        recoverySuccessTimeRef.current = Date.now()
+        recoveryActiveRef.current = false
+
+        appendPlayerDebugLog({
+          level: 'INFO',
+          subsystem: 'RECOVERY',
+          action: 'RECOVERY_SUCCESS',
+          message: `Stream recovery attempt ${attempt}/3 completed successfully at ${video.currentTime.toFixed(2)}s`,
+          trigger: 'Playback resumed',
+          nextStep: 'Monitoring for sustained forward playback progress (>=3s)',
+          data: { attempt, targetPosition: resumeAt, actualPosition: video.currentTime }
+        })
       } catch (err) {
+        recoveryActiveRef.current = false
         if (disposed) return
         const rawErr = (err as Error)?.stack || String(err)
         appendPlayerDebugLog({
@@ -1045,10 +1061,11 @@ export function useShakaPlayer({
           }, 1500)
         }
       } finally {
-        isRecovering = false
+        isRecoveringRef.current = false
       }
     }
     recoverPlaybackRef.current = recoverPlayback
+    failPermanentlyRef.current = failPermanently
 
     const onPlayerError = (event: Event): void => {
       const errObj =
@@ -1105,8 +1122,12 @@ export function useShakaPlayer({
         return
       }
 
-      if (!isRecoverable) {
+      if (!isRecoverable || recoveryCount.current >= 3) {
         failPermanently(detail)
+        return
+      }
+
+      if (isRecoveringRef.current || recoveryActiveRef.current) {
         return
       }
 
@@ -1133,10 +1154,14 @@ export function useShakaPlayer({
 
     const startBufferingWatchdog = (): void => {
       clearBufferingWatchdog()
-      if (disposed || scrubbingRef.current) return
+      if (disposed || scrubbingRef.current || isRecoveringRef.current || recoveryActiveRef.current) return
       bufferingTimer = setTimeout(() => {
         bufferingTimer = null
-        if (disposed || scrubbingRef.current) return
+        if (disposed || scrubbingRef.current || isRecoveringRef.current || recoveryActiveRef.current) return
+        if (recoveryCount.current >= 3) {
+          failPermanently('buffering stall after 3 recovery attempts')
+          return
+        }
         console.warn('[player] buffering stall detected, initiating recovery')
         appendPlayerDebugLog({
           level: 'WARN',
@@ -1603,6 +1628,7 @@ export function useShakaPlayer({
       video.removeEventListener('playing', clearBufferingWatchdog)
       video.removeEventListener('pause', clearBufferingWatchdog)
       recoverPlaybackRef.current = null
+      failPermanentlyRef.current = null
       player.removeEventListener('error', onPlayerError)
       player.removeEventListener('buffering', onShakaBuffering)
       player.removeEventListener('audiotrackschanged', onAudioMaybeChanged)
@@ -1658,6 +1684,7 @@ export function useShakaPlayer({
     const id = window.setInterval(() => {
       const video = videoRef.current
       if (!video || statusRef.current !== 'ready') return
+      if (isRecoveringRef.current || recoveryActiveRef.current || recoveryCount.current >= 3) return
       if (document.hidden || scrubbingRef.current) {
         lastProgressRef.current = { t: video.currentTime, at: Date.now() }
         return
@@ -1718,20 +1745,38 @@ export function useShakaPlayer({
           setStatusText('')
         }
       }
-      // If video has made sustained progress (>=3s past the recovery point), reset recovery attempts counter
-      if (recoveryCount.current > 0) {
-        const progressFromRecovery = Math.abs(video.currentTime - lastRecoveryPosRef.current)
-        if (progressFromRecovery >= 3.0) {
+      // If video has made sustained progress (>=3s forward past the recovery resume point), reset recovery attempts counter
+      if (
+        recoveryCount.current > 0 &&
+        !isRecoveringRef.current &&
+        !recoveryActiveRef.current &&
+        recoverySuccessTimeRef.current > 0 &&
+        !video.paused &&
+        !video.seeking &&
+        !video.ended &&
+        video.readyState >= 3
+      ) {
+        const elapsedSinceSuccess = Date.now() - recoverySuccessTimeRef.current
+        const forwardProgress = video.currentTime - recoveryResumePosRef.current
+        const isLiveStream = playerRef.current?.isLive() ?? liveRef.current
+        const hasSustained = isLiveStream
+          ? elapsedSinceSuccess >= 4000
+          : forwardProgress >= 3.0 && elapsedSinceSuccess >= 3000
+
+        if (hasSustained) {
           console.log('[player] sustained playback confirmed (>3s), resetting recovery attempts counter')
           appendPlayerDebugLog({
             level: 'INFO',
             subsystem: 'RECOVERY',
             action: 'SUSTAINED_PROGRESS',
-            message: `Sustained playback confirmed (${progressFromRecovery.toFixed(1)}s past recovery mark). Reset recovery count to 0.`,
+            message: `Sustained playback confirmed (advanced ${forwardProgress.toFixed(1)}s over ${(elapsedSinceSuccess / 1000).toFixed(1)}s). Reset recovery count to 0.`,
             trigger: 'timeupdate progress check',
-            nextStep: 'Continuing normal playback'
+            nextStep: 'Continuing normal playback',
+            data: { attempts: recoveryCount.current, forwardProgress, elapsedSinceSuccess }
           })
           recoveryCount.current = 0
+          recoverySuccessTimeRef.current = 0
+          recoveryResumePosRef.current = 0
           onOsd?.('Playback restored', 'play')
         }
       }
@@ -1800,12 +1845,16 @@ export function useShakaPlayer({
 
     const startSeekWatchdog = (): void => {
       clearSeekWatchdog()
-      if (scrubbingRef.current) return
+      if (scrubbingRef.current || isRecoveringRef.current || recoveryActiveRef.current) return
       seekStallTimer = setTimeout(() => {
         seekStallTimer = null
-        if (scrubbingRef.current) return
+        if (scrubbingRef.current || isRecoveringRef.current || recoveryActiveRef.current) return
         const v = videoRef.current
         if (v && v.seeking && statusRef.current === 'ready') {
+          if (recoveryCount.current >= 3) {
+            failPermanentlyRef.current?.(`seek stall at ${v.currentTime.toFixed(1)}s after 3 recovery attempts`)
+            return
+          }
           console.warn(`[player] seek stall detected: video.seeking remained true for 7s at ${v.currentTime.toFixed(1)}s`)
           appendPlayerDebugLog({
             level: 'WARN',

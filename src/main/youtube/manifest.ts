@@ -11,6 +11,7 @@ const LIVE_TTL_MS = 60 * 1000
 
 export class ManifestService {
   private readonly manifestCache = new Map<string, CachedManifest>()
+  private readonly inFlight = new Map<string, Promise<string | null>>()
   private proxyBase = ''
 
   constructor(private readonly videoService: VideoService) {}
@@ -20,6 +21,22 @@ export class ManifestService {
   }
 
   async getManifest(videoId: string, force = false): Promise<string | null> {
+    const inFlightKey = `${videoId}:${force}`
+    const existing = this.inFlight.get(inFlightKey)
+    if (existing) {
+      return existing
+    }
+
+    const task = this.fetchManifestInternal(videoId, force)
+    this.inFlight.set(inFlightKey, task)
+    try {
+      return await task
+    } finally {
+      this.inFlight.delete(inFlightKey)
+    }
+  }
+
+  private async fetchManifestInternal(videoId: string, force = false): Promise<string | null> {
     if (force) {
       this.videoService.clearInfoCache(videoId)
       this.manifestCache.delete(videoId)
@@ -33,7 +50,10 @@ export class ManifestService {
     }
 
     const yt = await getClient()
-    const clientsToTry = force ? (['ANDROID_VR', CLIENT] as const) : ([CLIENT, 'ANDROID_VR'] as const)
+    // VISIONOS is our primary desktop client — it supports 1080p, DASH MPD,
+    // and matches our desktop proxy headers without 403 Forbidden errors.
+    // ANDROID_VR is kept solely as an unplayable fallback.
+    const clientsToTry = [CLIENT, 'ANDROID_VR'] as const
 
     emitPlayerDebugLog({
       level: 'info',
