@@ -80,9 +80,6 @@ export function App(): React.JSX.Element {
     activeWatch && (route.name !== 'watch' || route.videoId !== activeWatch.videoId)
   )
 
-  useEffect(() => {
-    document.documentElement.dataset.miniplayer = isMini ? 'true' : 'false'
-  }, [isMini])
 
   // Reset page scroller to top on route change
   useEffect(() => {

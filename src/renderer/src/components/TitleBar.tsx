@@ -63,9 +63,6 @@ export function TitleBar(): React.JSX.Element {
           <Icon name="forward" size={17} />
         </button>
       </div>
-      <div className="titlebar__app-name">
-        <span>ViewFlux</span>
-      </div>
       <div className="titlebar__spacer" />
       <div className="titlebar__actions">
         <button

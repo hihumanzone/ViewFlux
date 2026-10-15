@@ -1,8 +1,9 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { VideoCard } from '../components/VideoCard'
 import { MasonryGrid } from '../components/MasonryGrid'
 import { EmptyState, Loader } from '../components/EmptyState'
 import { Icon } from '../components/Icons'
+import { InlineSearch } from '../components/InlineSearch'
 import { ListRow } from '../components/ListRow'
 import { ChannelLine } from '../components/ChannelLine'
 import { VideoOptions } from '../components/VideoOptions'
@@ -31,6 +32,18 @@ export function RemotePlaylistPage({ playlistId }: { playlistId: string }): Reac
   const [viewMode, setViewMode] = useViewMode('remote-playlist')
   const [saving, setSaving] = useState(false)
   const [copying, setCopying] = useState(false)
+  const [searchQuery, setSearchQuery] = useState('')
+
+  const filteredItems = useMemo(() => {
+    const q = searchQuery.trim().toLowerCase()
+    if (!q) return items
+    const tokens = q.split(/\s+/).filter(Boolean)
+    return items.filter((video) => {
+      const title = (video.title || '').toLowerCase()
+      const author = (video.author || '').toLowerCase()
+      return tokens.every((tok) => title.includes(tok) || author.includes(tok))
+    })
+  }, [items, searchQuery])
 
   const sentinelRef = useRef<HTMLDivElement>(null)
 
@@ -111,7 +124,7 @@ export function RemotePlaylistPage({ playlistId }: { playlistId: string }): Reac
   }
 
   const playAll = (): void => {
-    const first = items[0]
+    const first = filteredItems[0]
     if (first) navigate(`#/watch/${first.videoId}?list=yt:${playlist.id}`)
   }
 
@@ -184,12 +197,39 @@ export function RemotePlaylistPage({ playlistId }: { playlistId: string }): Reac
         </div>
       </header>
 
+      {items.length > 0 && (
+        <div className="toolbar-row">
+          <InlineSearch
+            value={searchQuery}
+            onChange={setSearchQuery}
+            placeholder="Search playlist by title or keywords..."
+            ariaLabel="Search playlist"
+          />
+          {searchQuery && (
+            <div className="toolbar-row__count">
+              {filteredItems.length} {filteredItems.length === 1 ? 'match' : 'matches'}
+            </div>
+          )}
+        </div>
+      )}
+
       {items.length === 0 ? (
         <EmptyState icon="playlist" title="This playlist is empty" />
+      ) : filteredItems.length === 0 && searchQuery ? (
+        <EmptyState
+          icon="search"
+          title="No matching videos"
+          message={`No videos matching “${searchQuery}” were found in this playlist.`}
+          action={
+            <button className="btn btn--tonal" onClick={() => setSearchQuery('')}>
+              Clear search
+            </button>
+          }
+        />
       ) : viewMode === 'grid' ? (
         <>
           <MasonryGrid key={playlist.id} className="animate-fade-up">
-            {items.map((video, index) => {
+            {filteredItems.map((video, index) => {
               const enrichedVideo = enrichVideoWithHistory(video, historyMap)
               return (
                 <VideoCard
@@ -200,13 +240,13 @@ export function RemotePlaylistPage({ playlistId }: { playlistId: string }): Reac
               )
             })}
           </MasonryGrid>
-          <div ref={sentinelRef} />
+          {!searchQuery && <div ref={sentinelRef} />}
           {loadingMore && <Loader label="Loading more…" />}
         </>
       ) : (
         <>
           <ul key={playlist.id} className="list animate-fade-up">
-            {items.map((video, index) => {
+            {filteredItems.map((video, index) => {
               const enrichedVideo = enrichVideoWithHistory(video, historyMap)
               return (
                 <ListRow
@@ -236,7 +276,7 @@ export function RemotePlaylistPage({ playlistId }: { playlistId: string }): Reac
               )
             })}
           </ul>
-          <div ref={sentinelRef} />
+          {!searchQuery && <div ref={sentinelRef} />}
           {loadingMore && <Loader label="Loading more…" />}
         </>
       )}

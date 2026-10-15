@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Player, type PlayerHandle } from '../components/Player'
 import { AddToPlaylistDialog } from '../components/AddToPlaylistDialog'
+import { InlineSearch } from '../components/InlineSearch'
 import { EmptyState, Loader, Spinner } from '../components/EmptyState'
 import { Icon } from '../components/Icons'
 import { navigate } from '../lib/router'
@@ -677,6 +678,28 @@ export function WatchPage({
   const queueIndex = queue ? queue.items.findIndex((v) => v.videoId === videoId) : -1
   const activeQueueItemRef = useRef<HTMLButtonElement>(null)
 
+  const [showQueueSearch, setShowQueueSearch] = useState(false)
+  const [queueSearchQuery, setQueueSearchQuery] = useState('')
+
+  useEffect(() => {
+    setQueueSearchQuery('')
+    setShowQueueSearch(false)
+  }, [listId])
+
+  const displayedQueueItems = useMemo(() => {
+    if (!queue) return []
+    const q = queueSearchQuery.trim().toLowerCase()
+    if (!q) return queue.items.map((item, originalIndex) => ({ item, originalIndex }))
+    const tokens = q.split(/\s+/).filter(Boolean)
+    return queue.items
+      .map((item, originalIndex) => ({ item, originalIndex }))
+      .filter(({ item }) => {
+        const title = (item.title || '').toLowerCase()
+        const author = (item.author || '').toLowerCase()
+        return tokens.every((tok) => title.includes(tok) || author.includes(tok))
+      })
+  }, [queue, queueSearchQuery])
+
   useEffect(() => {
     // Keep the playing row inside the playlist pane. A bare `scrollIntoView`
     // would also scroll every scrollable ancestor — the main column included —
@@ -1017,6 +1040,7 @@ export function WatchPage({
               preferredQuality={settings.preferredQuality}
               preservePitch={settings.preservePitch}
               skipSilence={settings.skipSilence}
+              defaultLoop={settings.loopByDefault}
               defaultAudioLanguage={details.defaultAudioLanguage ?? null}
               playlistNavigation={playlistNavigation}
               onPitchChange={(value) => updateSettings({ preservePitch: value })}
@@ -1358,6 +1382,18 @@ export function WatchPage({
             <div className="watch__side-actions">
               <button
                 type="button"
+                className={`icon-btn${showQueueSearch || queueSearchQuery ? ' icon-btn--active' : ''}`}
+                title={showQueueSearch ? 'Hide search' : 'Search playlist videos'}
+                aria-label="Search playlist videos"
+                onClick={() => {
+                  setShowQueueSearch((v) => !v)
+                  if (showQueueSearch) setQueueSearchQuery('')
+                }}
+              >
+                <Icon name="search" size={18} />
+              </button>
+              <button
+                type="button"
                 className={`icon-btn${settings.autoplayPlaylists ? ' icon-btn--active' : ''}`}
                 title={settings.autoplayPlaylists ? 'Autoplay is on' : 'Autoplay is off'}
                 aria-label={settings.autoplayPlaylists ? 'Autoplay is on' : 'Autoplay is off'}
@@ -1377,34 +1413,51 @@ export function WatchPage({
             </div>
           </div>
 
+          {showQueueSearch && (
+            <div className="watch__side-search" style={{ padding: '8px 12px', borderBottom: '1px solid var(--outline-variant)' }}>
+              <InlineSearch
+                value={queueSearchQuery}
+                onChange={setQueueSearchQuery}
+                placeholder="Search playlist..."
+                ariaLabel="Search playlist"
+              />
+            </div>
+          )}
+
           <div className="queue">
-            {queue.items.map((video, index) => {
-              const isActive = index === queueIndex
-              const progress = getHistoryProgress(video.videoId, video.duration)
-              const histPct = progress > 0 ? Math.min(100, Math.max(0, progress * 100)) : 0
-              return (
-                <button
-                  key={`${video.videoId}-${index}`}
-                  ref={isActive ? activeQueueItemRef : undefined}
-                  className={`queue__item${isActive ? ' queue__item--active' : ''}`}
-                  onClick={() => navigate(`#/watch/${video.videoId}?list=${queue.id}`)}
-                >
-                  <div className="queue__thumb-wrap">
-                    <img className="queue__thumb" src={video.thumbnail} alt="" loading="lazy" />
-                    <span className="queue__index">{index + 1}</span>
-                    {histPct > 0 && (
-                      <div className="video-card__progress">
-                        <i style={{ width: `${histPct}%` }} />
-                      </div>
-                    )}
-                  </div>
-                  <div>
-                    <div className="queue__title">{video.title}</div>
-                    <div className="queue__meta">{video.author}</div>
-                  </div>
-                </button>
-              )
-            })}
+            {displayedQueueItems.length === 0 && queueSearchQuery ? (
+              <div style={{ padding: '24px 16px', textAlign: 'center', color: 'var(--on-surface-variant)', fontSize: '13px' }}>
+                No videos match “{queueSearchQuery}”
+              </div>
+            ) : (
+              displayedQueueItems.map(({ item: video, originalIndex }) => {
+                const isActive = originalIndex === queueIndex
+                const progress = getHistoryProgress(video.videoId, video.duration)
+                const histPct = progress > 0 ? Math.min(100, Math.max(0, progress * 100)) : 0
+                return (
+                  <button
+                    key={`${video.videoId}-${originalIndex}`}
+                    ref={isActive ? activeQueueItemRef : undefined}
+                    className={`queue__item${isActive ? ' queue__item--active' : ''}`}
+                    onClick={() => navigate(`#/watch/${video.videoId}?list=${queue.id}`)}
+                  >
+                    <div className="queue__thumb-wrap">
+                      <img className="queue__thumb" src={video.thumbnail} alt="" loading="lazy" />
+                      <span className="queue__index">{originalIndex + 1}</span>
+                      {histPct > 0 && (
+                        <div className="video-card__progress">
+                          <i style={{ width: `${histPct}%` }} />
+                        </div>
+                      )}
+                    </div>
+                    <div>
+                      <div className="queue__title">{video.title}</div>
+                      <div className="queue__meta">{video.author}</div>
+                    </div>
+                  </button>
+                )
+              })
+            )}
           </div>
         </aside>
       )}

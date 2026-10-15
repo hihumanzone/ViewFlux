@@ -2,6 +2,7 @@ import { ORIGIN, REFERER, USER_AGENT } from '../http'
 import { rewriteDash, rewriteHls } from '../proxy'
 import { CLIENT, getClient } from './client'
 import { pruneMap } from './tokens'
+import { poTokenService } from './pot'
 import { emitPlayerDebugLog } from '../debugLogger'
 import type { CachedManifest } from './types'
 import type { VideoService } from './video'
@@ -50,6 +51,7 @@ export class ManifestService {
     }
 
     const yt = await getClient()
+    const poToken = (await poTokenService.getTokenForVideo(videoId)) ?? undefined
     // VISIONOS is our primary desktop client — it supports 1080p, DASH MPD,
     // and matches our desktop proxy headers without 403 Forbidden errors.
     // ANDROID_VR is kept solely as an unplayable fallback.
@@ -59,10 +61,10 @@ export class ManifestService {
       level: 'info',
       subsystem: 'MANIFEST',
       action: 'MANIFEST_RESOLVE_START',
-      message: `Resolving manifest for video=${videoId} (force=${force})`,
+      message: `Resolving manifest for video=${videoId} (force=${force}, hasPoToken=${Boolean(poToken)})`,
       trigger: force ? 'Stream recovery manifest refresh request' : 'Initial video load',
       nextStep: `Attempting Innertube client priority: [${clientsToTry.join(', ')}]`,
-      data: { videoId, force, clients: clientsToTry }
+      data: { videoId, force, clients: clientsToTry, hasPoToken: Boolean(poToken) }
     })
 
     for (const client of clientsToTry) {
@@ -76,7 +78,7 @@ export class ManifestService {
           data: { videoId, client }
         })
 
-        const info = await yt.getBasicInfo(videoId, { client })
+        const info = await yt.getBasicInfo(videoId, { client, po_token: poToken })
         if (info.playability_status?.status !== 'OK' || !info.streaming_data) {
           emitPlayerDebugLog({
             level: 'warn',
@@ -101,8 +103,8 @@ export class ManifestService {
 
         if (isLive) {
           const xml =
-            (providedManifest ? await this.fetchLiveManifest(providedManifest) : null) ??
-            (await this.liveFallbackManifest(videoId))
+            (providedManifest ? await this.fetchLiveManifest(providedManifest, poToken) : null) ??
+            (await this.liveFallbackManifest(videoId, poToken))
           if (xml) {
             emitPlayerDebugLog({
               level: 'info',
@@ -120,17 +122,23 @@ export class ManifestService {
 
         try {
           const xml = await info.toDash({
-            url_transformer: (url: URL) =>
-              new URL(`${this.proxyBase}/media?u=${encodeURIComponent(url.toString())}`)
+            url_transformer: (url: URL) => {
+              if (poToken && !url.searchParams.has('pot')) {
+                url.searchParams.set('pot', poToken)
+              }
+              return new URL(
+                `${this.proxyBase}/media?v=${encodeURIComponent(videoId)}&u=${encodeURIComponent(url.toString())}`
+              )
+            }
           })
           emitPlayerDebugLog({
             level: 'info',
             subsystem: 'MANIFEST',
             action: 'DASH_MANIFEST_GENERATED',
-            message: `Generated DASH MPD with client=${client} (length=${xml.length}B)`,
+            message: `Generated DASH MPD with client=${client} (length=${xml.length}B, poTokenAttached=${Boolean(poToken)})`,
             trigger: 'info.toDash()',
             nextStep: 'Delivering MPD to Shaka player',
-            data: { client, length: xml.length }
+            data: { client, length: xml.length, hasPoToken: Boolean(poToken) }
           })
           this.manifestCache.set(videoId, { xml, fetchedAt: Date.now(), ttl: MANIFEST_TTL_MS })
           pruneMap(this.manifestCache, 30)
@@ -146,8 +154,9 @@ export class ManifestService {
             rawError: (dashErr as Error)?.stack ?? String(dashErr)
           })
           const xml =
-            (providedManifest ? await this.fetchLiveManifest(providedManifest) : null) ??
-            (await this.liveFallbackManifest(videoId))
+            (providedManifest
+              ? await this.fetchLiveManifest(providedManifest, poToken, videoId)
+              : null) ?? (await this.liveFallbackManifest(videoId, poToken))
           if (xml) {
             this.manifestCache.set(videoId, { xml, fetchedAt: Date.now(), ttl: LIVE_TTL_MS })
             pruneMap(this.manifestCache, 30)
@@ -178,11 +187,11 @@ export class ManifestService {
     return null
   }
 
-  private async liveFallbackManifest(videoId: string): Promise<string | null> {
+  private async liveFallbackManifest(videoId: string, poToken?: string): Promise<string | null> {
     const yt = await getClient()
     for (const client of ['VISIONOS', 'ANDROID', 'ANDROID_VR'] as const) {
       try {
-        const info = await yt.getBasicInfo(videoId, { client })
+        const info = await yt.getBasicInfo(videoId, { client, po_token: poToken })
         if (info.playability_status?.status !== 'OK' || !info.streaming_data) continue
         const sd = info.streaming_data as unknown as {
           dash_manifest_url?: string
@@ -190,7 +199,7 @@ export class ManifestService {
         }
         const provided = sd.hls_manifest_url ?? sd.dash_manifest_url
         if (!provided) continue
-        const xml = await this.fetchLiveManifest(provided)
+        const xml = await this.fetchLiveManifest(provided, poToken, videoId)
         if (xml) return xml
       } catch {
         /* try next client */
@@ -199,13 +208,30 @@ export class ManifestService {
     return null
   }
 
-  private async fetchLiveManifest(manifestUrl: string): Promise<string | null> {
+  private async fetchLiveManifest(
+    manifestUrl: string,
+    poToken?: string,
+    videoId?: string
+  ): Promise<string | null> {
     let target = manifestUrl
     try {
       const decipher = (await getClient()).session.player
       if (decipher) target = (await decipher.decipher(manifestUrl)) ?? manifestUrl
     } catch {
       /* play undeciphered URL */
+    }
+
+    try {
+      const u = new URL(target)
+      if (poToken && !u.searchParams.has('pot')) {
+        u.searchParams.set('pot', poToken)
+      }
+      if (videoId && !u.searchParams.has('v')) {
+        u.searchParams.set('v', videoId)
+      }
+      target = u.toString()
+    } catch {
+      // keep target as is
     }
 
     try {
@@ -231,11 +257,21 @@ export class ManifestService {
       } catch {
         // fall through
       }
-      return body.replace(/https:\/\/[^\s"'<>\]]+/g, (url) =>
-        url.includes('.googlevideo.com') || url.includes('.youtube.com')
-          ? `${this.proxyBase}/media?u=${encodeURIComponent(url)}`
-          : url
-      )
+      return body.replace(/https:\/\/[^\s"'<>\]]+/g, (url) => {
+        if (url.includes('.googlevideo.com') || url.includes('.youtube.com')) {
+          let u = url
+          if (poToken && !u.includes('pot=')) {
+            try {
+              const parsed = new URL(u)
+              parsed.searchParams.set('pot', poToken)
+              u = parsed.toString()
+            } catch {}
+          }
+          const vQuery = videoId ? `&v=${encodeURIComponent(videoId)}` : ''
+          return `${this.proxyBase}/media?u=${encodeURIComponent(u)}${vQuery}`
+        }
+        return url
+      })
     } catch {
       return null
     }

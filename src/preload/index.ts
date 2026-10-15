@@ -142,6 +142,10 @@ const api: AppApi = {
     }
   },
 
+  getPoTokenStatus: () => ipcRenderer.invoke('pot:status'),
+  refreshPoToken: () => ipcRenderer.invoke('pot:refresh'),
+  testPoToken: (videoId?: string) => ipcRenderer.invoke('pot:test', videoId),
+
   platform: process.platform
 }
 

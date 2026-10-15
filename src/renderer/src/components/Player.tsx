@@ -74,6 +74,7 @@ export const Player = forwardRef<PlayerHandle, PlayerProps>(function Player(
     preservePitch,
     skipSilence,
     defaultAudioLanguage,
+    defaultLoop = false,
     chapters = [],
     onPitchChange,
     onSkipSilenceChange,
@@ -194,6 +195,15 @@ export const Player = forwardRef<PlayerHandle, PlayerProps>(function Player(
     }
   }, [])
 
+  const [loop, setLoop] = useState(defaultLoop)
+  const toggleLoop = useCallback(() => {
+    setLoop((prev) => {
+      const next = !prev
+      showOsd(next ? 'Loop: On' : 'Loop: Off', 'repeat')
+      return next
+    })
+  }, [showOsd])
+
   // Shaka Player Hook (DASH, Variant tracks, Audio tracks, Captions, Watchdog)
   const shaka = useShakaPlayer({
     videoRef,
@@ -211,6 +221,7 @@ export const Player = forwardRef<PlayerHandle, PlayerProps>(function Player(
     safeInitialSpeed,
     preservePitch,
     scrubbingRef,
+    loop,
     onTimeUpdate: props.onTimeUpdate,
     onEnded: props.onEnded,
     maybeSkip,
@@ -562,6 +573,7 @@ export const Player = forwardRef<PlayerHandle, PlayerProps>(function Player(
     onToggleFullscreen: toggleFullscreen,
     onToggleCaptions: shaka.toggleCaptions,
     onTogglePip: togglePip,
+    onToggleLoop: toggleLoop,
     onStepSpeed: audioGraph.stepSpeed,
     onCloseMenu: closeMenu,
     onRevealControls: () => revealControls(false),
@@ -965,6 +977,7 @@ export const Player = forwardRef<PlayerHandle, PlayerProps>(function Player(
               audioTracks={shaka.audioTracks}
               skipSilence={liveStream ? false : skipSilence}
               sleepTimerActive={sleepTimerMinutes !== null}
+              loop={loop}
               fullscreen={fullscreen}
               activeMenu={menu}
               playlistNavigation={props.playlistNavigation}
@@ -991,6 +1004,8 @@ export const Player = forwardRef<PlayerHandle, PlayerProps>(function Player(
               onTogglePitch={audioGraph.togglePitch}
               skipSilence={liveStream ? false : skipSilence}
               onToggleSkipSilence={audioGraph.toggleSkipSilence}
+              loop={loop}
+              onToggleLoop={toggleLoop}
               levelHeights={shaka.levelHeights}
               selectedHeight={shaka.selectedHeight}
               selectedAudioTier={shaka.selectedAudioTier}

@@ -3,6 +3,7 @@ import type { CaptionTrack, Chapter, VideoDetails } from '../../shared/types'
 import { CLIENT, getClient } from './client'
 import { extractVideoChapters, normalizeThumbs, pickThumbnail, text } from './parsers'
 import { pruneMap } from './tokens'
+import { poTokenService } from './pot'
 import type { CachedInfo, TextLike, ThumbLike } from './types'
 
 const INFO_TTL_MS = 10 * 60 * 1000
@@ -28,11 +29,12 @@ export class VideoService {
 
     const promise = (async () => {
       const yt = await getClient()
+      const poToken = (await poTokenService.getTokenForVideo(videoId)) ?? undefined
       let info: Awaited<ReturnType<Innertube['getInfo']>>
       try {
-        info = await yt.getInfo(videoId, { client: CLIENT })
+        info = await yt.getInfo(videoId, { client: CLIENT, po_token: poToken })
       } catch {
-        info = (await yt.getBasicInfo(videoId, { client: CLIENT })) as any
+        info = (await yt.getBasicInfo(videoId, { client: CLIENT, po_token: poToken })) as any
       }
       this.infoCache.set(videoId, { info, fetchedAt: Date.now() })
       pruneMap(this.infoCache, 50)
@@ -177,7 +179,8 @@ export class VideoService {
   async getProgressiveUrl(videoId: string): Promise<string | null> {
     try {
       const yt = await getClient()
-      const info = await yt.getBasicInfo(videoId, { client: CLIENT })
+      const poToken = (await poTokenService.getTokenForVideo(videoId)) ?? undefined
+      const info = await yt.getBasicInfo(videoId, { client: CLIENT, po_token: poToken })
       if (info.playability_status?.status !== 'OK' || !info.streaming_data || !this.proxyBase) {
         return null
       }
@@ -187,9 +190,14 @@ export class VideoService {
       if (muxed.length === 0) return null
       muxed.sort((a, b) => (b.height ?? 0) - (a.height ?? 0))
       const best = muxed[0]
-      return best?.url
-        ? `${this.proxyBase}/media?u=${encodeURIComponent(best.url)}`
-        : null
+      if (!best?.url) return null
+      let targetUrl = best.url
+      if (poToken && !targetUrl.includes('pot=')) {
+        const u = new URL(targetUrl)
+        u.searchParams.set('pot', poToken)
+        targetUrl = u.toString()
+      }
+      return `${this.proxyBase}/media?v=${encodeURIComponent(videoId)}&u=${encodeURIComponent(targetUrl)}`
     } catch {
       return null
     }

@@ -1,5 +1,6 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { Icon } from '../components/Icons'
+import { InlineSearch } from '../components/InlineSearch'
 import { ChannelLine } from '../components/ChannelLine'
 import { EmptyState, Loader } from '../components/EmptyState'
 import { ListRow } from '../components/ListRow'
@@ -78,20 +79,32 @@ function LocalPlaylist({ playlist }: { playlist: Playlist }): React.JSX.Element 
   const { historyMap, refreshPlaylists, confirm, toast } = useApp()
   const [current, setCurrent] = useState(playlist)
   const [viewMode, setViewMode] = useViewMode('playlist-detail')
+  const [searchQuery, setSearchQuery] = useState('')
 
   useEffect(() => {
     setCurrent(playlist)
   }, [playlist])
 
+  const filteredVideos = useMemo(() => {
+    const q = searchQuery.trim().toLowerCase()
+    if (!q) return current.videos
+    const tokens = q.split(/\s+/).filter(Boolean)
+    return current.videos.filter((video) => {
+      const title = (video.title || '').toLowerCase()
+      const author = (video.author || '').toLowerCase()
+      return tokens.every((tok) => title.includes(tok) || author.includes(tok))
+    })
+  }, [current.videos, searchQuery])
+
   const playAll = (): void => {
-    const first = current.videos[0]
+    const first = filteredVideos[0]
     if (first) navigate(`#/watch/${first.videoId}?list=${current.id}`)
   }
 
   const shufflePlay = (): void => {
-    if (current.videos.length === 0) return
-    const randomIndex = Math.floor(Math.random() * current.videos.length)
-    const target = current.videos[randomIndex]
+    if (filteredVideos.length === 0) return
+    const randomIndex = Math.floor(Math.random() * filteredVideos.length)
+    const target = filteredVideos[randomIndex]
     if (target) navigate(`#/watch/${target.videoId}?list=${current.id}`)
   }
 
@@ -184,15 +197,42 @@ function LocalPlaylist({ playlist }: { playlist: Playlist }): React.JSX.Element 
         </div>
       </div>
 
+      {current.videos.length > 0 && (
+        <div className="toolbar-row">
+          <InlineSearch
+            value={searchQuery}
+            onChange={setSearchQuery}
+            placeholder="Search playlist by title or keywords..."
+            ariaLabel="Search playlist"
+          />
+          {searchQuery && (
+            <div className="toolbar-row__count">
+              {filteredVideos.length} {filteredVideos.length === 1 ? 'match' : 'matches'}
+            </div>
+          )}
+        </div>
+      )}
+
       {current.videos.length === 0 ? (
         <EmptyState
           icon="bookmark"
           title="This playlist is empty"
           message="Use the save option on any video to add it here."
         />
+      ) : filteredVideos.length === 0 && searchQuery ? (
+        <EmptyState
+          icon="search"
+          title="No matching videos"
+          message={`No videos matching “${searchQuery}” were found in this playlist.`}
+          action={
+            <button className="btn btn--tonal" onClick={() => setSearchQuery('')}>
+              Clear search
+            </button>
+          }
+        />
       ) : viewMode === 'grid' ? (
         <MasonryGrid key={current.id} className="animate-fade-up">
-          {current.videos.map((video) => {
+          {filteredVideos.map((video) => {
             const enrichedVideo = enrichVideoWithHistory(video, historyMap)
             return (
               <VideoCard
@@ -205,7 +245,7 @@ function LocalPlaylist({ playlist }: { playlist: Playlist }): React.JSX.Element 
         </MasonryGrid>
       ) : (
         <ul key={current.id} className="list animate-fade-up">
-          {current.videos.map((video, index) => {
+          {filteredVideos.map((video, index) => {
             const enrichedVideo = enrichVideoWithHistory(video, historyMap)
             return (
               <ListRow
@@ -220,22 +260,26 @@ function LocalPlaylist({ playlist }: { playlist: Playlist }): React.JSX.Element 
                 actions={
                   <>
                     <VideoOptions video={enrichedVideo} label="Video options" />
-                    <button
-                      className="icon-btn icon-btn--sm"
-                      aria-label={`Move “${video.title}” up`}
-                      disabled={index === 0}
-                      onClick={() => void move(index, index - 1)}
-                    >
-                      <Icon name="up" size={18} />
-                    </button>
-                    <button
-                      className="icon-btn icon-btn--sm"
-                      aria-label={`Move “${video.title}” down`}
-                      disabled={index === current.videos.length - 1}
-                      onClick={() => void move(index, index + 1)}
-                    >
-                      <Icon name="down" size={18} />
-                    </button>
+                    {!searchQuery && (
+                      <>
+                        <button
+                          className="icon-btn icon-btn--sm"
+                          aria-label={`Move “${video.title}” up`}
+                          disabled={index === 0}
+                          onClick={() => void move(index, index - 1)}
+                        >
+                          <Icon name="up" size={18} />
+                        </button>
+                        <button
+                          className="icon-btn icon-btn--sm"
+                          aria-label={`Move “${video.title}” down`}
+                          disabled={index === current.videos.length - 1}
+                          onClick={() => void move(index, index + 1)}
+                        >
+                          <Icon name="down" size={18} />
+                        </button>
+                      </>
+                    )}
                     <button
                       className="icon-btn icon-btn--sm"
                       aria-label={`Remove “${video.title}” from this playlist`}
@@ -277,6 +321,7 @@ function SavedYouTubePlaylist({ playlist }: { playlist: Playlist }): React.JSX.E
     useRemotePlaylist(playlist.youtubeId ?? null)
   const [menuAnchor, setMenuAnchor] = useState<HTMLElement | null>(null)
   const [busy, setBusy] = useState(false)
+  const [searchQuery, setSearchQuery] = useState('')
   const sentinelRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
@@ -292,15 +337,26 @@ function SavedYouTubePlaylist({ playlist }: { playlist: Playlist }): React.JSX.E
     return () => observer.disconnect()
   }, [loadMore])
 
+  const filteredItems = useMemo(() => {
+    const q = searchQuery.trim().toLowerCase()
+    if (!q) return items
+    const tokens = q.split(/\s+/).filter(Boolean)
+    return items.filter((video) => {
+      const title = (video.title || '').toLowerCase()
+      const author = (video.author || '').toLowerCase()
+      return tokens.every((tok) => title.includes(tok) || author.includes(tok))
+    })
+  }, [items, searchQuery])
+
   const playAll = (): void => {
-    const first = items[0]
+    const first = filteredItems[0]
     if (first) navigate(`#/watch/${first.videoId}?list=yt:${playlist.youtubeId}`)
   }
 
   const shufflePlay = (): void => {
-    if (items.length === 0) return
-    const randomIndex = Math.floor(Math.random() * items.length)
-    const target = items[randomIndex]
+    if (filteredItems.length === 0) return
+    const randomIndex = Math.floor(Math.random() * filteredItems.length)
+    const target = filteredItems[randomIndex]
     if (target) navigate(`#/watch/${target.videoId}?list=yt:${playlist.youtubeId}`)
   }
 
@@ -406,6 +462,22 @@ function SavedYouTubePlaylist({ playlist }: { playlist: Playlist }): React.JSX.E
         </div>
       </div>
 
+      {items.length > 0 && (
+        <div className="toolbar-row">
+          <InlineSearch
+            value={searchQuery}
+            onChange={setSearchQuery}
+            placeholder="Search playlist by title or keywords..."
+            ariaLabel="Search playlist"
+          />
+          {searchQuery && (
+            <div className="toolbar-row__count">
+              {filteredItems.length} {filteredItems.length === 1 ? 'match' : 'matches'}
+            </div>
+          )}
+        </div>
+      )}
+
       <Menu anchor={menuAnchor} open={Boolean(menuAnchor)} onClose={() => setMenuAnchor(null)} align="end">
         {playlist.youtubeId && (
           <MenuItem
@@ -448,10 +520,23 @@ function SavedYouTubePlaylist({ playlist }: { playlist: Playlist }): React.JSX.E
         <EmptyState icon="playlist" title="This playlist is empty" />
       )}
 
-      {items.length > 0 && (
+      {filteredItems.length === 0 && searchQuery && (
+        <EmptyState
+          icon="search"
+          title="No matching videos"
+          message={`No videos matching “${searchQuery}” were found in this playlist.`}
+          action={
+            <button className="btn btn--tonal" onClick={() => setSearchQuery('')}>
+              Clear search
+            </button>
+          }
+        />
+      )}
+
+      {filteredItems.length > 0 && (
         viewMode === 'grid' ? (
           <MasonryGrid key={`yt-synced-${playlist.id}`} className="animate-fade-up">
-            {items.map((video: VideoSummary) => {
+            {filteredItems.map((video: VideoSummary) => {
               const enrichedVideo = enrichVideoWithHistory(video, historyMap)
               return (
                 <VideoCard
@@ -464,7 +549,7 @@ function SavedYouTubePlaylist({ playlist }: { playlist: Playlist }): React.JSX.E
           </MasonryGrid>
         ) : (
           <ul key={`yt-synced-${playlist.id}`} className="list animate-fade-up">
-            {items.map((video: VideoSummary, index: number) => {
+            {filteredItems.map((video: VideoSummary, index: number) => {
               const enrichedVideo = enrichVideoWithHistory(video, historyMap)
               return (
                 <ListRow
@@ -494,7 +579,7 @@ function SavedYouTubePlaylist({ playlist }: { playlist: Playlist }): React.JSX.E
         )
       )}
 
-      {items.length > 0 && <div ref={sentinelRef} />}
+      {items.length > 0 && !searchQuery && <div ref={sentinelRef} />}
       {loadingMore && <Loader label="Loading more…" />}
     </div>
   )

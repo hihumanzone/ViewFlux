@@ -21,6 +21,7 @@ export interface PlayerControlsProps {
   audioTracks: AudioTrack[]
   skipSilence: boolean
   sleepTimerActive?: boolean
+  loop?: boolean
   fullscreen: boolean
   activeMenu?: MenuKind | null
   playlistNavigation?: PlaylistNavigation | null
@@ -58,6 +59,7 @@ export const PlayerControls = memo(function PlayerControls({
   audioTracks,
   skipSilence,
   sleepTimerActive,
+  loop = false,
   fullscreen,
   activeMenu,
   playlistNavigation,
@@ -238,9 +240,9 @@ export const PlayerControls = memo(function PlayerControls({
 
         {/* Playback settings button */}
         <button
-          className={`icon-btn player__btn--tonal${(!isLive && skipSilence) || sleepTimerActive ? ' icon-btn--active' : ''}`}
+          className={`icon-btn player__btn--tonal${(!isLive && (skipSilence || loop)) || sleepTimerActive ? ' icon-btn--active' : ''}`}
           aria-label="Playback settings"
-          title={sleepTimerActive ? 'Playback settings (Sleep timer active)' : 'Playback settings'}
+          title={sleepTimerActive ? 'Playback settings (Sleep timer active)' : loop ? 'Playback settings (Loop active)' : 'Playback settings'}
           aria-haspopup="menu"
           aria-expanded={activeMenu === 'settings'}
           onClick={(event) => onToggleMenu('settings', event.currentTarget)}

@@ -66,6 +66,7 @@ export interface PlayerProps {
   preferredQuality: Settings['preferredQuality']
   preservePitch: boolean
   skipSilence: boolean
+  defaultLoop?: boolean
   /**
    * Language of the video's original audio track (main-process resolved from
    * the player response's `audioIsDefault`/`is_original` markers — the same

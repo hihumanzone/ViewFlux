@@ -29,7 +29,9 @@ export function PlayerDebugConsole({
           (l) => l.level.toLowerCase() === 'error' || l.level.toLowerCase() === 'warn' || l.rawError
         )
       case 'NETWORK':
-        return logs.filter((l) => l.subsystem === 'PROXY' || l.subsystem === 'MANIFEST')
+        return logs.filter(
+          (l) => l.subsystem === 'PROXY' || l.subsystem === 'MANIFEST' || l.subsystem === 'POTOKEN'
+        )
       case 'RECOVERY':
         return logs.filter((l) => l.subsystem === 'RECOVERY' || l.subsystem === 'WATCHDOG')
       case 'SHAKA':
@@ -92,6 +94,8 @@ export function PlayerDebugConsole({
         return '#10b981' // emerald-500
       case 'RECOVERY':
         return '#eab308' // yellow-500
+      case 'POTOKEN':
+        return '#06b6d4' // cyan-500
       default:
         return '#94a3b8'
     }

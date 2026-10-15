@@ -51,6 +51,13 @@ function normalizeReduceMotion(raw: Partial<Settings> | undefined): ReduceMotion
   return DEFAULT_SETTINGS.reduceMotion
 }
 
+function normalizePoTokenMode(raw: unknown): Settings['poTokenMode'] {
+  if (raw === 'auto' || raw === 'external' || raw === 'manual' || raw === 'disabled') {
+    return raw
+  }
+  return DEFAULT_SETTINGS.poTokenMode
+}
+
 /**
  * Fills in missing settings keys. The top level is a shallow merge, so nested
  * objects (the subtitle style) need their own normalisation to survive a file
@@ -58,11 +65,17 @@ function normalizeReduceMotion(raw: Partial<Settings> | undefined): ReduceMotion
  */
 function withSettingDefaults(raw: Partial<Settings> | undefined): Settings {
   const reduceMotion = normalizeReduceMotion(raw)
+  const poTokenMode = normalizePoTokenMode(raw?.poTokenMode)
   return {
     ...DEFAULT_SETTINGS,
     ...(raw ?? {}),
     reduceMotion,
     respectSystemMotion: reduceMotion === 'system',
+    poTokenMode,
+    externalPoTokenUrl: typeof raw?.externalPoTokenUrl === 'string' ? raw.externalPoTokenUrl : DEFAULT_SETTINGS.externalPoTokenUrl,
+    manualPoToken: typeof raw?.manualPoToken === 'string' ? raw.manualPoToken : DEFAULT_SETTINGS.manualPoToken,
+    manualVisitorData: typeof raw?.manualVisitorData === 'string' ? raw.manualVisitorData : DEFAULT_SETTINGS.manualVisitorData,
+    loopByDefault: typeof raw?.loopByDefault === 'boolean' ? raw.loopByDefault : DEFAULT_SETTINGS.loopByDefault,
     subtitleStyle: normalizeSubtitleStyle(raw?.subtitleStyle)
   }
 }

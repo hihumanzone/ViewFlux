@@ -41,6 +41,7 @@ export interface UseShakaPlayerProps {
   safeInitialSpeed: number
   preservePitch: boolean
   scrubbingRef: React.RefObject<boolean>
+  loop?: boolean
   onTimeUpdate: (position: number, duration: number) => void
   onEnded: () => void
   maybeSkip: (time: number) => void
@@ -217,6 +218,7 @@ export function useShakaPlayer({
   safeInitialSpeed,
   preservePitch,
   scrubbingRef,
+  loop,
   onTimeUpdate,
   onEnded,
   maybeSkip,
@@ -328,6 +330,8 @@ export function useShakaPlayer({
   onTimeUpdateRef.current = onTimeUpdate
   const onEndedRef = useRef(onEnded)
   onEndedRef.current = onEnded
+  const loopRef = useRef(loop)
+  loopRef.current = loop
 
   const levelHeights = useMemo(() => {
     const byHeight = new Map<number, number>()
@@ -1915,6 +1919,11 @@ export function useShakaPlayer({
     }
     const handleEnded = (): void => {
       clearSeekWatchdog()
+      if (loopRef.current) {
+        video.currentTime = 0
+        void video.play().catch(() => undefined)
+        return
+      }
       setPlaying(false)
       setBusy(false)
       setStatusText('')

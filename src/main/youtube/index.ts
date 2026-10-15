@@ -126,3 +126,6 @@ export class YoutubeService {
     return this.manifestService.getManifest(videoId, force)
   }
 }
+
+export { resetClient } from './client'
+

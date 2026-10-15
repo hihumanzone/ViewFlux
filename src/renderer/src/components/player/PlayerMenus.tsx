@@ -19,6 +19,8 @@ export interface PlayerMenusProps {
   onTogglePitch: () => void
   skipSilence: boolean
   onToggleSkipSilence: () => void
+  loop?: boolean
+  onToggleLoop?: () => void
   // Quality menu props
   levelHeights: { height: number; bandwidth: number }[]
   selectedHeight: number | null
@@ -60,6 +62,8 @@ export const PlayerMenus = memo(function PlayerMenus({
   onTogglePitch,
   skipSilence,
   onToggleSkipSilence,
+  loop = false,
+  onToggleLoop,
   levelHeights,
   selectedHeight,
   selectedAudioTier,
@@ -221,6 +225,20 @@ export const PlayerMenus = memo(function PlayerMenus({
               on={skipSilence}
               label="Skip silence"
               onClick={onToggleSkipSilence}
+            />
+          </div>
+        )}
+
+        {!isLive && onToggleLoop && (
+          <div className="sheet__row sheet__row--toggle">
+            <div>
+              <div className="sheet__label">Loop video</div>
+              <div className="sheet__hint">Replay automatically when finished.</div>
+            </div>
+            <Switch
+              on={loop}
+              label="Loop video"
+              onClick={onToggleLoop}
             />
           </div>
         )}
@@ -392,6 +410,17 @@ export const PlayerMenus = memo(function PlayerMenus({
           hint={`${safeRate === 1 ? 'Normal' : `${safeRate.toFixed(2)}×`}`}
           onSelect={() => onOpenMenu?.('settings')}
         />
+        {!isLive && onToggleLoop && (
+          <MenuItem
+            icon="repeat"
+            label="Loop video"
+            hint={loop ? 'On' : 'Off'}
+            onSelect={() => {
+              onToggleLoop()
+              onClose()
+            }}
+          />
+        )}
         {onTogglePip && (
           <MenuItem
             icon="pip"

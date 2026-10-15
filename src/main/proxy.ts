@@ -3,6 +3,7 @@ import { Readable, Transform } from 'node:stream'
 import { isAudioItagUrl } from '../shared/media'
 import { ORIGIN, REFERER, USER_AGENT } from './http'
 import { emitPlayerDebugLog } from './debugLogger'
+import { poTokenService } from './youtube/pot'
 
 const ALLOWED_HOST_SUFFIXES = [
   'googlevideo.com',
@@ -318,17 +319,20 @@ export class MediaProxy {
 
     const itag = target.searchParams.get('itag') ?? 'unknown'
     const requestedRange = (req.headers.range as string) ?? 'full'
+    const canonicalVideoId = url.searchParams.get('v') || target.searchParams.get('id') || 'VIEWFLUX_MEDIA'
+
     emitPlayerDebugLog({
       level: 'debug',
       subsystem: 'PROXY',
       action: 'PROXY_MEDIA_REQUEST',
-      message: `GET /media (itag=${itag}, Range: ${requestedRange})`,
+      message: `GET /media (itag=${itag}, video=${canonicalVideoId}, Range: ${requestedRange})`,
       trigger: 'Shaka/HTML5 video range request to localhost proxy',
       data: {
         host: target.host,
         itag,
         range: requestedRange,
-        pathname: target.pathname
+        pathname: target.pathname,
+        videoId: canonicalVideoId
       }
     })
 
@@ -340,6 +344,20 @@ export class MediaProxy {
     })
 
     let currentTarget = target
+    // Ensure googlevideo requests carry a PO token if one is available
+    if (currentTarget.hostname.endsWith('googlevideo.com') && !currentTarget.searchParams.has('pot')) {
+      try {
+        const token = await poTokenService.getTokenForVideo(canonicalVideoId)
+        if (token) {
+          const nextUrl = new URL(currentTarget.toString())
+          nextUrl.searchParams.set('pot', token)
+          currentTarget = nextUrl
+        }
+      } catch {
+        // Fall through to query without pot
+      }
+    }
+
     let upstream: Response | null = null
     let lastStatus = 0
     for (let attempt = 0; attempt < 3; attempt++) {
@@ -372,6 +390,27 @@ export class MediaProxy {
             signal: attemptSignal
           })
           lastStatus = resp.status
+        }
+
+        // Automatic 403 Forbidden recovery: Invalidate expired token and retry with freshly minted PO token
+        if (resp.status === 403 && attempt === 0 && !clientClosed) {
+          emitPlayerDebugLog({
+            level: 'warn',
+            subsystem: 'PROXY',
+            action: 'UPSTREAM_403_RECOVERY',
+            message: `Upstream returned 403 Forbidden for itag=${itag} (video=${canonicalVideoId}). Invalidating PO token and attempting recovery refresh.`,
+            trigger: 'GVS 403 Forbidden',
+            nextStep: 'Invalidating token and attempting fresh request'
+          })
+          poTokenService.invalidateToken(canonicalVideoId)
+          const freshToken = await poTokenService.getTokenForVideo(canonicalVideoId)
+          if (freshToken) {
+            const nextUrl = new URL(currentTarget.toString())
+            nextUrl.searchParams.set('pot', freshToken)
+            currentTarget = nextUrl
+            await resp.body?.cancel().catch(() => undefined)
+            continue
+          }
         }
 
         if (resp.status >= 500) {
@@ -758,24 +797,31 @@ export function rewriteHls(content: string, proxyBase: string, targetUrl: URL): 
       return trimmed
     }
     try {
-      const resolved = new URL(trimmed, targetUrl).toString()
+      const resolved = new URL(trimmed, targetUrl)
+      const potParam = targetUrl.searchParams.get('pot')
+      if (potParam && !resolved.searchParams.has('pot') && (resolved.hostname.endsWith('googlevideo.com') || resolved.hostname.endsWith('youtube.com'))) {
+        resolved.searchParams.set('pot', potParam)
+      }
+      const resolvedStr = resolved.toString()
       const isSegment =
-        resolved.includes('/sq/') ||
-        resolved.includes('/file/seg.ts') ||
-        resolved.includes('/seg.ts') ||
-        resolved.includes('/govp/') ||
-        resolved.includes('/goap/')
-      const isAudio = forceAudio || isAudioPlaylist || isAudioItagUrl(resolved)
+        resolvedStr.includes('/sq/') ||
+        resolvedStr.includes('/file/seg.ts') ||
+        resolvedStr.includes('/seg.ts') ||
+        resolvedStr.includes('/govp/') ||
+        resolvedStr.includes('/goap/')
+      const isAudio = forceAudio || isAudioPlaylist || isAudioItagUrl(resolvedStr)
 
       let ext = ''
-      if (resolved.includes('.m3u8') && !isSegment) {
+      if (resolvedStr.includes('.m3u8') && !isSegment) {
         ext = '.m3u8'
       } else if (isAudio) {
         ext = '.aac'
       } else {
         ext = '.ts'
       }
-      return `${proxyBase}/media${ext}?u=${encodeURIComponent(resolved)}`
+      const vParam = targetUrl.searchParams.get('v') || targetUrl.searchParams.get('id')
+      const vQuery = vParam ? `&v=${encodeURIComponent(vParam)}` : ''
+      return `${proxyBase}/media${ext}?u=${encodeURIComponent(resolvedStr)}${vQuery}`
     } catch {
       return trimmed
     }
@@ -842,10 +888,23 @@ export function rewriteDash(content: string, proxyBase: string, targetUrl: URL):
       } else {
         resolved = new URL(trimmed, base).toString()
       }
+      let potParam = targetUrl.searchParams.get('pot')
+      if (!potParam && base) {
+        try { potParam = new URL(base).searchParams.get('pot') } catch {}
+      }
+      if (potParam && (resolved.includes('.googlevideo.com') || resolved.includes('.youtube.com')) && !resolved.includes('pot=')) {
+        try {
+          const u = new URL(resolved)
+          u.searchParams.set('pot', potParam)
+          resolved = u.toString()
+        } catch {}
+      }
     } catch {
       return trimmed
     }
-    return `${proxyBase}/media?u=${encodeURIComponent(resolved)}`
+      const vParam = targetUrl.searchParams.get('v') || targetUrl.searchParams.get('id')
+      const vQuery = vParam ? `&v=${encodeURIComponent(vParam)}` : ''
+      return `${proxyBase}/media?u=${encodeURIComponent(resolved)}${vQuery}`
   }
 
   return content.replace(

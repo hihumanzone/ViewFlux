@@ -30,6 +30,7 @@ export interface UsePlayerHotkeysProps {
   onToggleFullscreen: () => void
   onToggleCaptions: () => void
   onTogglePip: () => void
+  onToggleLoop?: () => void
   onStepSpeed: (direction: -1 | 1) => void
   onCloseMenu: () => void
   onRevealControls: () => void
@@ -61,6 +62,7 @@ export function usePlayerHotkeys({
   onToggleFullscreen,
   onToggleCaptions,
   onTogglePip,
+  onToggleLoop,
   onStepSpeed,
   onCloseMenu,
   onRevealControls,
@@ -92,6 +94,12 @@ export function usePlayerHotkeys({
           break
         case 'l':
         case 'L':
+          if (event.shiftKey && onToggleLoop) {
+            event.preventDefault()
+            onToggleLoop()
+            onRevealControls()
+            break
+          }
           event.preventDefault()
           onSeekBy(10)
           break
@@ -172,6 +180,15 @@ export function usePlayerHotkeys({
           if (!event.ctrlKey && !event.metaKey && !event.altKey && onToggleDebugConsole) {
             event.preventDefault()
             onToggleDebugConsole()
+            break
+          }
+          break
+        case 'r':
+        case 'R':
+          if (!event.ctrlKey && !event.metaKey && !event.altKey && onToggleLoop) {
+            event.preventDefault()
+            onToggleLoop()
+            onRevealControls()
             break
           }
           break

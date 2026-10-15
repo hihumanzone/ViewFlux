@@ -30,6 +30,7 @@ const CATEGORIES: ShortcutCategory[] = [
       { key: 'F', desc: 'Toggle fullscreen' },
       { key: 'C', desc: 'Toggle subtitles / captions' },
       { key: 'I', desc: 'Toggle Picture-in-Picture' },
+      { key: 'Shift + L, R', desc: 'Toggle video loop' },
       { key: '<, >', desc: 'Decrease / increase playback speed' }
     ]
   },

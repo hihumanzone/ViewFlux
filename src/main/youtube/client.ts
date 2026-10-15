@@ -1,13 +1,12 @@
 import type { Innertube } from 'youtubei.js'
+import { poTokenService } from './pot'
 
 /**
- * We use YouTube's internal VISIONOS client. Unlike WEB it needs no PO-token /
- * BotGuard dance, and unlike IOS it does not restrict arbitrary HTTP Range
- * requests or seeking on googlevideo media URLs.
+ * We use YouTube's internal VISIONOS client as our primary desktop client profile,
+ * combined with Proof of Origin (PO) Token support for guaranteed playback integrity.
  *
  * `retrieve_player: true` downloads the player JS so youtubei.js can decipher
- * the `n`/`sig` parameters on stream URLs (the same approach NewPipe takes
- * with its JavaScript extractor and FreeTube takes via youtubei.js).
+ * the `n`/`sig` parameters on stream URLs.
  * The interpreter runs through `Platform.shim.eval` below (plain Function in
  * the main process — no extra dependencies).
  */
@@ -15,6 +14,11 @@ export const CLIENT = 'VISIONOS' as const
 
 let ytInstance: Innertube | null = null
 let initPromise: Promise<Innertube> | null = null
+
+export async function resetClient(): Promise<void> {
+  ytInstance = null
+  initPromise = null
+}
 
 export async function getClient(): Promise<Innertube> {
   if (ytInstance) return ytInstance
@@ -40,11 +44,46 @@ export async function getClient(): Promise<Innertube> {
       // it yields the deciphered `{ sig, n }` object.
       Platform.shim.eval = (async (data: { output: string }) =>
         new Function(data.output)()) as typeof Platform.shim.eval
+
+      const sessionToken = (await poTokenService.getSessionToken()) ?? undefined
+      const visitorData = poTokenService.getVisitorData() ?? undefined
+
       const yt = await Innertube.create({
         retrieve_player: true,
         lang: 'en',
-        location: 'US'
+        location: 'US',
+        po_token: sessionToken,
+        visitor_data: visitorData
       })
+
+      // Wire challenge fetcher so PoTokenService can request attestation challenges
+      poTokenService.setChallengeFetcher(async () => {
+        const challenge = await yt.getAttestationChallenge('ENGAGEMENT_TYPE_UNBOUND')
+        if (!challenge.bg_challenge) {
+          throw new Error('No bg_challenge in attestation response')
+        }
+        const bg = challenge.bg_challenge as {
+          interpreter_url?: { private_do_not_access_or_else_trusted_resource_url_wrapped_value?: string }
+          interpreter_hash?: string
+          program?: string
+          global_name?: string
+          client_experiments_state_blob?: unknown
+        }
+        const interpreterUrl = bg.interpreter_url?.private_do_not_access_or_else_trusted_resource_url_wrapped_value
+        if (!interpreterUrl) {
+          throw new Error('No interpreter_url in bg_challenge')
+        }
+        return {
+          interpreterUrl,
+          interpreterHash: bg.interpreter_hash ?? '',
+          program: bg.program ?? '',
+          globalName: bg.global_name ?? '',
+          clientExperimentsStateBlob: typeof bg.client_experiments_state_blob === 'string'
+            ? bg.client_experiments_state_blob
+            : JSON.stringify(bg.client_experiments_state_blob)
+        }
+      })
+
       ytInstance = yt
       return yt
     })().catch((err) => {

@@ -343,6 +343,8 @@ export interface Settings {
   respectSystemMotion?: boolean
   /** Automatically play next video in a playlist. */
   autoplayPlaylists: boolean
+  /** Loop videos by default when playback begins. */
+  loopByDefault: boolean
   /** Store searches in search history. */
   saveSearchHistory: boolean
   /** Record watched videos and their last position. */
@@ -353,6 +355,31 @@ export interface Settings {
   maxSearchHistory: number
   defaultViewMode: 'grid' | 'list'
   viewModes?: Record<string, 'grid' | 'list'>
+  /**
+   * Proof of Origin (PO) token mode:
+   * - 'auto': Native Electron BotGuard minter with cold-start fallback
+   * - 'external': External HTTP provider (e.g. bgutil-ytdlp-pot-provider)
+   * - 'manual': Manual PO token and visitor data
+   * - 'disabled': Do not generate or send PO tokens
+   */
+  poTokenMode: 'auto' | 'external' | 'manual' | 'disabled'
+  /** Base URL for external POT provider daemon (default http://127.0.0.1:4416) */
+  externalPoTokenUrl: string
+  /** Manually specified PO token override */
+  manualPoToken: string
+  /** Manually specified visitor data override */
+  manualVisitorData: string
+}
+
+export interface PoTokenStatus {
+  mode: 'auto' | 'external' | 'manual' | 'disabled'
+  healthy: boolean
+  activeProvider: string
+  hasIntegrityToken: boolean
+  expiresAt: number | null
+  mintedCount: number
+  lastMintedAt: number | null
+  lastError: string | null
 }
 
 export interface AppData {
@@ -437,12 +464,17 @@ export const DEFAULT_SETTINGS: Settings = {
   reduceMotion: 'system',
   respectSystemMotion: true,
   autoplayPlaylists: true,
+  loopByDefault: false,
   saveSearchHistory: true,
   saveWatchHistory: true,
   maxWatchHistory: 500,
   maxSearchHistory: 50,
   defaultViewMode: 'grid',
-  viewModes: {}
+  viewModes: {},
+  poTokenMode: 'auto',
+  externalPoTokenUrl: 'http://127.0.0.1:4416',
+  manualPoToken: '',
+  manualVisitorData: ''
 }
 
 export interface AppApi {
@@ -552,6 +584,10 @@ export interface AppApi {
   onWindowMaximizedChange?: (callback: (maximized: boolean) => void) => () => void
   onPlayerDebugLog?: (callback: (entry: PlaybackLogEntry) => void) => () => void
 
+  getPoTokenStatus(): Promise<PoTokenStatus>
+  refreshPoToken(): Promise<boolean>
+  testPoToken(videoId?: string): Promise<{ token: string; source: string; durationMs: number }>
+
   platform: 'win32' | 'darwin' | 'linux' | string
 }
 
@@ -593,7 +629,7 @@ export interface UpdaterStatus {
 
 export type LogLevel = 'info' | 'warn' | 'error' | 'debug' | 'INFO' | 'WARN' | 'ERROR' | 'DEBUG'
 
-export type LogSubsystem = 'SHAKA' | 'PROXY' | 'MANIFEST' | 'WATCHDOG' | 'MEDIA' | 'RECOVERY'
+export type LogSubsystem = 'SHAKA' | 'PROXY' | 'MANIFEST' | 'WATCHDOG' | 'MEDIA' | 'RECOVERY' | 'POTOKEN'
 
 export interface PlaybackLogEntry {
   id: string

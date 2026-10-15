@@ -3,11 +3,13 @@ import { existsSync } from 'node:fs'
 import { join } from 'node:path'
 import { Store } from './store'
 import { YoutubeService } from './youtube'
+import { resetClient } from './youtube/client'
 import { MediaProxy } from './proxy'
 import { fetchDislikes, fetchSponsorSegments } from './services'
 import { YOUTUBE_REQUEST_GLOBALS } from './http'
 import { initAutoUpdater } from './updater'
 import { setDebugLoggerWindow } from './debugLogger'
+import { poTokenService } from './youtube/pot'
 import type {
   ChannelSort,
   HistoryEntry,
@@ -235,7 +237,21 @@ function registerIpc(): void {
   ipcMain.handle('playlist:more', (_e, token: string) => youtube.remotePlaylistMore(token))
 
   ipcMain.handle('settings:get', () => store.getSettings())
-  ipcMain.handle('settings:save', (_e, settings: Settings) => store.saveSettings(settings))
+  ipcMain.handle('settings:save', (_e, settings: Settings) => {
+    const saved = store.saveSettings(settings)
+    poTokenService.setOptions({
+      mode: saved.poTokenMode,
+      externalUrl: saved.externalPoTokenUrl,
+      manualToken: saved.manualPoToken,
+      manualVisitorData: saved.manualVisitorData
+    })
+    void resetClient()
+    return saved
+  })
+
+  ipcMain.handle('pot:status', () => poTokenService.getStatus())
+  ipcMain.handle('pot:refresh', () => poTokenService.refresh())
+  ipcMain.handle('pot:test', (_e, videoId?: string) => poTokenService.testMint(videoId))
 
   ipcMain.handle('history:get', () => store.getHistory())
   ipcMain.handle('history:add', (_e, entry: HistoryEntry) => store.addHistory(entry))
@@ -431,6 +447,13 @@ app.whenReady().then(async () => {
   setupAppMenu()
   setupWebRequest()
   await store.ready()
+  const initialSettings = store.getSettings()
+  poTokenService.setOptions({
+    mode: initialSettings.poTokenMode,
+    externalUrl: initialSettings.externalPoTokenUrl,
+    manualToken: initialSettings.manualPoToken,
+    manualVisitorData: initialSettings.manualVisitorData
+  })
   const base = await proxy.start()
   youtube.setProxyBase(base)
   registerIpc()
@@ -448,7 +471,7 @@ app.on('window-all-closed', () => {
 
 app.on('before-quit', (event) => {
   if (isQuitting) return
-  // Async cleanup (store flush + proxy stop + updater timers) must finish
+  // Async cleanup (store flush + proxy stop + updater timers + pot minter) must finish
   // before exit, but Electron gives `before-quit` no async hook. Block the
   // default quit, clean up with a timeout guard, then exit explicitly via
   // app.exit() (not process.exit(), which skips Electron child teardown and
@@ -459,6 +482,7 @@ app.on('before-quit', (event) => {
     try {
       cleanupUpdater?.()
       cleanupUpdater = null
+      poTokenService.destroy()
       await Promise.race([
         Promise.allSettled([store.flush(), proxy.stop()]),
         new Promise<void>((resolve) => {

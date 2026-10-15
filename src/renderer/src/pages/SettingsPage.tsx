@@ -1,11 +1,17 @@
-import { useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { Icon } from '../components/Icons'
 import { SelectField, type SelectOption } from '../components/SelectField'
 import { SliderField } from '../components/SliderField'
 import { SubtitleStyleControls } from '../components/SubtitleStyleControls'
 import { useApp } from '../state/AppContext'
 import { Switch } from '../components/Switch'
-import { ACCENTS, SPONSOR_CATEGORIES, type Settings, type ReduceMotionSetting } from '../../../shared/types'
+import {
+  ACCENTS,
+  SPONSOR_CATEGORIES,
+  type Settings,
+  type ReduceMotionSetting,
+  type PoTokenStatus
+} from '../../../shared/types'
 import { DEFAULT_SUBTITLE_STYLE } from '../../../shared/subtitles'
 import { PLAYBACK_SPEEDS as SPEEDS } from '../../../shared/media'
 import { APP_VERSION_LABEL } from '../../../shared/appInfo'
@@ -24,6 +30,13 @@ const REDUCE_MOTION_OPTIONS: SelectOption<ReduceMotionSetting>[] = [
   { value: 'system', label: 'Follow system', hint: 'Sync with OS' },
   { value: 'on', label: 'On', hint: 'Reduce motion' },
   { value: 'off', label: 'Off', hint: 'Full motion' }
+]
+
+const PO_TOKEN_MODE_OPTIONS: SelectOption<Settings['poTokenMode']>[] = [
+  { value: 'auto', label: 'Automatic (Built-in BotGuard)', hint: 'Authentic Chromium VM' },
+  { value: 'external', label: 'External Provider', hint: 'HTTP server (BgUtils / yt-dlp)' },
+  { value: 'manual', label: 'Manual Override', hint: 'Custom token & visitor data' },
+  { value: 'disabled', label: 'Disabled', hint: 'Cold-start tokens only' }
 ]
 
 type SettingsCategory = 'all' | 'playback' | 'appearance' | 'subtitles' | 'integrations' | 'history' | 'backup' | 'about'
@@ -88,6 +101,74 @@ export function SettingsPage(): React.JSX.Element {
   } = useApp()
 
   const [activeCategory, setActiveCategory] = useState<SettingsCategory>('all')
+  const [potStatus, setPotStatus] = useState<PoTokenStatus | null>(null)
+  const [potTesting, setPotTesting] = useState(false)
+  const [potTestResult, setPotTestResult] = useState<{
+    success: boolean
+    message: string
+    token?: string
+  } | null>(null)
+  const [tokenCopied, setTokenCopied] = useState(false)
+  const [potRefreshing, setPotRefreshing] = useState(false)
+
+  const loadPotStatus = useCallback(async () => {
+    try {
+      const status = await window.api.getPoTokenStatus()
+      setPotStatus(status)
+    } catch {
+      // ignore
+    }
+  }, [])
+
+  useEffect(() => {
+    void loadPotStatus()
+  }, [loadPotStatus])
+
+  const handleTestPoToken = async (): Promise<void> => {
+    setPotTesting(true)
+    setPotTestResult(null)
+    setTokenCopied(false)
+    try {
+      const res = await window.api.testPoToken()
+      setPotTestResult({
+        success: true,
+        message: `Minted token (${res.token.length} chars) via ${res.source} in ${res.durationMs}ms`,
+        token: res.token
+      })
+      await loadPotStatus()
+    } catch (err) {
+      setPotTestResult({
+        success: false,
+        message: `Failed: ${(err as Error).message || String(err)}`
+      })
+    } finally {
+      setPotTesting(false)
+    }
+  }
+
+  const handleCopyToken = async (token: string): Promise<void> => {
+    try {
+      await navigator.clipboard.writeText(token)
+      setTokenCopied(true)
+      toast('PO Token copied to clipboard')
+      setTimeout(() => setTokenCopied(false), 2000)
+    } catch {
+      toast('Failed to copy token')
+    }
+  }
+
+  const handleRefreshPoToken = async (): Promise<void> => {
+    setPotRefreshing(true)
+    try {
+      await window.api.refreshPoToken()
+      toast('PO Token refreshed')
+      await loadPotStatus()
+    } catch (err) {
+      toast(`Refresh failed: ${(err as Error).message || String(err)}`)
+    } finally {
+      setPotRefreshing(false)
+    }
+  }
 
   const handleExport = async (): Promise<void> => {
     try {
@@ -270,6 +351,16 @@ export function SettingsPage(): React.JSX.Element {
                 onClick={() => update({ autoplayPlaylists: !settings.autoplayPlaylists })}
               />
             </Row>
+            <Row
+              label="Loop videos by default"
+              hint="Automatically replay each video from the beginning when it finishes."
+            >
+              <Switch
+                on={settings.loopByDefault}
+                label="Loop videos by default"
+                onClick={() => update({ loopByDefault: !settings.loopByDefault })}
+              />
+            </Row>
             <Row label="Preserve pitch" hint="Keep audio pitch when changing playback speed.">
               <Switch
                 on={settings.preservePitch}
@@ -287,6 +378,233 @@ export function SettingsPage(): React.JSX.Element {
                 onClick={() => update({ skipSilence: !settings.skipSilence })}
               />
             </Row>
+          </section>
+        )}
+
+        {/* ---- Playback Integrity & PO Token Card ---- */}
+        {matchesCategory('playback') && (
+          <section className="settings-card">
+            <div className="settings-card__header">
+              <div className="settings-card__icon-badge">
+                <Icon name="shield" size={20} />
+              </div>
+              <div className="settings-card__titles">
+                <div className="settings-card__title">Playback Integrity & PO Token</div>
+                <div className="settings-card__subtitle">
+                  Proof-of-Origin (PO) tokens attest player authenticity, preventing 403 Forbidden errors on YouTube video streams.
+                </div>
+              </div>
+            </div>
+
+            <Row
+              label="PO Token Provider"
+              hint="Select how Proof-of-Origin attestation tokens are acquired."
+            >
+              <SelectField
+                value={settings.poTokenMode}
+                options={PO_TOKEN_MODE_OPTIONS}
+                onSelect={(poTokenMode) => update({ poTokenMode })}
+              />
+            </Row>
+
+            {settings.poTokenMode === 'external' && (
+              <Row
+                label="External Provider URL"
+                hint="HTTP address of a running BgUtils or yt-dlp PO Token server (e.g. http://127.0.0.1:4416)."
+              >
+                <div style={{ display: 'flex', gap: '8px', width: '100%', maxWidth: '320px' }}>
+                  <input
+                    type="url"
+                    className="input input--sm"
+                    placeholder="http://127.0.0.1:4416"
+                    value={settings.externalPoTokenUrl || ''}
+                    onChange={(e) => updateQuietly({ externalPoTokenUrl: e.target.value })}
+                    onBlur={() => update({ externalPoTokenUrl: settings.externalPoTokenUrl })}
+                  />
+                </div>
+              </Row>
+            )}
+
+            {settings.poTokenMode === 'manual' && (
+              <>
+                <Row
+                  label="Manual PO Token"
+                  hint="A valid base64/websafe PO Token string obtained from a web session."
+                >
+                  <div style={{ display: 'flex', gap: '8px', width: '100%', maxWidth: '320px' }}>
+                    <input
+                      type="text"
+                      className="input input--sm"
+                      placeholder="PO Token string..."
+                      value={settings.manualPoToken || ''}
+                      onChange={(e) => updateQuietly({ manualPoToken: e.target.value })}
+                      onBlur={() => update({ manualPoToken: settings.manualPoToken })}
+                    />
+                  </div>
+                </Row>
+                <Row
+                  label="Manual Visitor Data"
+                  hint="The visitorData string matching the manual PO Token."
+                >
+                  <div style={{ display: 'flex', gap: '8px', width: '100%', maxWidth: '320px' }}>
+                    <input
+                      type="text"
+                      className="input input--sm"
+                      placeholder="VisitorData (e.g. Cgt...)"
+                      value={settings.manualVisitorData || ''}
+                      onChange={(e) => updateQuietly({ manualVisitorData: e.target.value })}
+                      onBlur={() => update({ manualVisitorData: settings.manualVisitorData })}
+                    />
+                  </div>
+                </Row>
+              </>
+            )}
+
+            <div
+              className="setting setting--column"
+              style={{
+                background: 'var(--surface-1)',
+                borderRadius: 'var(--r-md)',
+                marginTop: '8px',
+                padding: '16px'
+              }}
+            >
+              <div
+                style={{
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  alignItems: 'center',
+                  width: '100%'
+                }}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <span style={{ fontSize: '13px', fontWeight: 700, color: 'var(--on-surface)' }}>
+                    Runtime Status:
+                  </span>
+                  <span
+                    style={{
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      padding: '2px 8px',
+                      borderRadius: 'var(--r-full)',
+                      fontSize: '11px',
+                      fontWeight: 700,
+                      textTransform: 'uppercase',
+                      background: potStatus?.healthy
+                        ? 'color-mix(in srgb, #22c55e 20%, transparent)'
+                        : 'color-mix(in srgb, #f59e0b 20%, transparent)',
+                      color: potStatus?.healthy ? '#22c55e' : '#f59e0b'
+                    }}
+                  >
+                    {potStatus?.healthy ? 'Healthy & Active' : 'Standby / Fallback'}
+                  </span>
+                </div>
+                <div style={{ display: 'flex', gap: '8px' }}>
+                  <button
+                    type="button"
+                    className="btn btn--tonal btn--sm"
+                    disabled={potTesting}
+                    onClick={() => void handleTestPoToken()}
+                  >
+                    <Icon name="play_arrow" size={16} />
+                    {potTesting ? 'Minting...' : 'Test Mint'}
+                  </button>
+                  <button
+                    type="button"
+                    className="btn btn--tonal btn--sm"
+                    disabled={potRefreshing}
+                    onClick={() => void handleRefreshPoToken()}
+                  >
+                    <Icon name="refresh" size={16} />
+                    {potRefreshing ? 'Refreshing...' : 'Refresh'}
+                  </button>
+                </div>
+              </div>
+
+              <div
+                style={{
+                  display: 'grid',
+                  gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))',
+                  gap: '12px',
+                  marginTop: '6px',
+                  fontSize: '12px',
+                  color: 'var(--on-surface-variant)'
+                }}
+              >
+                <div>
+                  <span style={{ display: 'block', opacity: 0.7 }}>Active Provider</span>
+                  <strong style={{ color: 'var(--on-surface)', fontSize: '14px' }}>
+                    {potStatus?.activeProvider ?? 'None'}
+                  </strong>
+                </div>
+                <div>
+                  <span style={{ display: 'block', opacity: 0.7 }}>Tokens Minted</span>
+                  <strong style={{ color: 'var(--on-surface)', fontSize: '14px' }}>
+                    {potStatus?.mintedCount ?? 0}
+                  </strong>
+                </div>
+                <div>
+                  <span style={{ display: 'block', opacity: 0.7 }}>Integrity Token</span>
+                  <strong style={{ color: 'var(--on-surface)', fontSize: '14px' }}>
+                    {potStatus?.hasIntegrityToken ? 'Acquired' : 'Pending'}
+                  </strong>
+                </div>
+                <div>
+                  <span style={{ display: 'block', opacity: 0.7 }}>Token TTL Expiry</span>
+                  <strong style={{ color: 'var(--on-surface)', fontSize: '14px' }}>
+                    {potStatus?.expiresAt ? new Date(potStatus.expiresAt).toLocaleTimeString() : 'N/A'}
+                  </strong>
+                </div>
+              </div>
+
+              {potStatus?.lastError && (
+                <div
+                  style={{
+                    marginTop: '8px',
+                    padding: '6px 10px',
+                    borderRadius: 'var(--r-sm)',
+                    background: 'color-mix(in srgb, #ef4444 15%, transparent)',
+                    color: '#ef4444',
+                    fontSize: '12px'
+                  }}
+                >
+                  {potStatus.lastError}
+                </div>
+              )}
+
+              {potTestResult && (
+                <div
+                  style={{
+                    marginTop: '8px',
+                    padding: '8px 12px',
+                    borderRadius: 'var(--r-sm)',
+                    background: potTestResult.success
+                      ? 'color-mix(in srgb, #22c55e 15%, transparent)'
+                      : 'color-mix(in srgb, #ef4444 15%, transparent)',
+                    color: potTestResult.success ? '#22c55e' : '#ef4444',
+                    fontSize: '12px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    gap: '8px',
+                    flexWrap: 'wrap'
+                  }}
+                >
+                  <span style={{ wordBreak: 'break-all' }}>{potTestResult.message}</span>
+                  {potTestResult.token && (
+                    <button
+                      type="button"
+                      className="btn btn--tonal btn--sm"
+                      style={{ height: '26px', fontSize: '11px', padding: '0 8px' }}
+                      onClick={() => void handleCopyToken(potTestResult.token!)}
+                    >
+                      <Icon name={tokenCopied ? 'check' : 'copy'} size={14} />
+                      {tokenCopied ? 'Copied' : 'Copy Token'}
+                    </button>
+                  )}
+                </div>
+              )}
+            </div>
           </section>
         )}
 
