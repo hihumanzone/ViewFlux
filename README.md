@@ -1,6 +1,6 @@
 # ViewFlux Desktop
 
-A fast, native **Windows** YouTube client focused on one thing: **searching for and watching videos**.
+A fast, native desktop YouTube client for **Windows**, **Linux**, and **macOS** focused on one thing: **searching for and watching videos**.
 It is a modern, lightweight desktop client inspired by [LibreTube](https://github.com/libre-tube/LibreTube) —
 no distracting algorithmic feeds, no recommendation loops, no trending. Just search, a high-quality adaptive player, SponsorBlock,
 channel bookmarks with folders and tags, playlist management, and watch history.
@@ -63,6 +63,7 @@ Built with **Electron + Vite + React + TypeScript**, extracting data with
 - **Search** — results across **videos, channels, playlists, and YouTube Music**, with
   All / Videos / Channels / Playlists / Music filter chips; live search suggestions; infinite
   scroll (continuation); **search history** with configurable storage limits, reuse, per-item delete, and clear-all.
+- **Proof of Origin (PO) Tokens & Playback Integrity** — native BotGuard VM execution via an authentic, isolated offscreen Chromium runtime; produces 12-hour Google Web App Attestation (WAA) tokens with zero heavy third-party emulators. Features an instant (<0.1ms) synthetic cold-start fallback for zero startup lag, an LRU token cache, deterministic 403 Forbidden recovery with auto-refresh in the media proxy, and optional external HTTP provider or manual token overrides.
 - **Channels** — open any channel from search or the watch page: banner, avatar, handle and
   subscriber count; Videos / Releases / Playlists / About tabs (only the ones the channel actually
   has); native server-side video sorting (Newest, Most popular, Oldest) and public channel playlists
@@ -81,13 +82,14 @@ Built with **Electron + Vite + React + TypeScript**, extracting data with
   quality, **audio track selection (original audio selected by default)** plus audio bitrate,
   **customizable subtitles** (track selection plus size, colour and background — from the captions
   menu or Settings, with a live preview) that automatically lift above the control bar when it appears,
-  Picture-in-Picture, fullscreen, and keyboard shortcuts. A playback
+  single-video **Loop toggle**, Picture-in-Picture, fullscreen, and keyboard shortcuts. A playback
   sheet offers **speed presets + editable slider**, **preserve-pitch toggle**, and **Skip
   Silence** (real-time silence detection that speeds through quiet passages and restores when
   audio resumes). Every menu is an **adaptive popover** — it opens where there is room and
   closes on outside click or Escape.
 - **Playlist Sidebar** — independent scrolling sidebar with its own isolated scroll container,
   automatic scroll-to-active item, and collapsible layout.
+- **Player Diagnostics & Debug Console** — real-time floating playback diagnostic trace recording events from `SHAKA`, `PROXY`, `MANIFEST`, `WATCHDOG`, `MEDIA`, `RECOVERY`, and `POTOKEN` subsystems with level badges, filtering, JSON payload inspection, and one-click copy to clipboard.
 - **Video information** — title, channel avatar + name (clickable → channel page), views,
   publish date, description with its original line breaks, and **Return YouTube Dislike** counts.
 - **SponsorBlock** — automatic skipping of sponsor/self-promo/interaction/intro/outro/preview/filler
@@ -109,37 +111,48 @@ Built with **Electron + Vite + React + TypeScript**, extracting data with
 ## How it works (architecture)
 
 ```
-┌──────────────────────── Electron main process ─────────────────────────┐
-│  youtubei.js (Innertube)            MediaProxy (127.0.0.1, random port) │
-│   • search / suggestions             • /media   → Range/206 passthru    │
-│   • getBasicInfo (VISIONOS client)   • /manifest→ generated DASH MPD    │
-│   • toDash() → MPD                   • /captions→ json3 → WebVTT        │
-│  Store (atomic JSON in userData)     SponsorBlock + ReturnYouTubeDislike│
-└───────────────────────────────┬─────────────────────────────────────────┘
-                     contextBridge (ipcRenderer.invoke)
-┌───────────────────────────────┴─────────────────────────────────────────┐
-│  React renderer: Search · Watch · Channels · Playlists · History        │
-│  Shaka Player decodes the MPD served by the proxy                       │
-└─────────────────────────────────────────────────────────────────────────┘
+┌────────────────────────────────────────────── Electron main process ──────────────────────────────────────────────┐
+│  youtubei.js (Innertube Engine)                 PoTokenService (BotGuard & Integrity Engine)                      │
+│   • Search, suggestions, channel, playlists      • Native offscreen Chromium BotGuard minter                      │
+│   • getBasicInfo with PO token injection         • Google Web Account Authenticator (WAA) GenerateIT flow         │
+│   • toDash() → MPD manifest generation           • Zero-lag cold-start fallback & LRU token cache                 │
+│                                                                                                                   │
+│  MediaProxy (127.0.0.1, random port)            Store & External Integrations                                     │
+│   • /media   → Range/206 passthru + &pot=        • Atomic JSON persistence in userData                            │
+│   • Automatic 403 Forbidden token recovery retry • SponsorBlock skip segments & ReturnYouTubeDislike stats        │
+│   • /manifest→ generated DASH MPD manifest       • Real-time diagnostic event bus logging                         │
+│   • /captions→ json3 → WebVTT conversion                                                                          │
+└───────────────────────────────────────────────────────┬───────────────────────────────────────────────────────────┘
+                                             contextBridge (ipcRenderer.invoke)
+┌───────────────────────────────────────────────────────┴───────────────────────────────────────────────────────────┐
+│  React 19 Renderer (Search · Watch · Channels · Playlists · History · Settings)                                   │
+│   • Shaka Player decodes the local proxy DASH MPD stream                                                          │
+│   • Player Diagnostics & Debug Console surfaces live pipeline logs (POTOKEN, PROXY, MANIFEST, SHAKA, WATCHDOG)   │
+└───────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
 ```
 
-### Why no PO tokens / BotGuard?
+### Proof of Origin (PO) Tokens & Playback Integrity
 
-YouTube requires a "proof of origin" (PO) token for many extraction paths, and desktop
-clients often implement a full BotGuard flow to mint them. This app avoids that entire class of
-complexity by extracting with the **`VISIONOS` innertube client**, which returns **direct, range-seekable
-adaptive stream URLs** for every video and audio track without a PO token. Unlike the `IOS` client (which
-restricts HTTP Range requests beyond the initial buffer), `VISIONOS` stream URLs support unrestricted
-seeking across any byte range. All YouTube network access happens in the main process; the renderer only
-ever talks to the local proxy (enforced by a strict Content-Security-Policy).
+YouTube requires a cryptographic "Proof of Origin" (PO) token for media extraction and chunk streaming to guard against automated scraping and playback abuse. Without a valid PO token, stream requests are either heavily throttled or rejected outright with `403 Forbidden`.
 
-The local proxy exists because googlevideo stream URLs must be requested with a matching
-`Referer`/`Origin`/`User-Agent`, and because the renderer needs a same-origin source for the generated
+ViewFlux Desktop solves this natively without requiring external proxies or bundled Python environments:
+
+1. **Native Chromium BotGuard Minter** — ViewFlux executes Google's Web Account Authenticator (`WAA`) script inside an isolated, offscreen Electron `webContents` environment. Because this environment runs full Chromium with authentic DOM APIs and canvas rendering, it mints valid 12-hour session tokens that match genuine desktop browser behavior.
+2. **Instant Zero-Lag Cold Start** — While the background BotGuard VM asynchronously loads and initializes, ViewFlux provides an immediate synthetic integrity token so video metadata and initial playback resolve with zero latency.
+3. **Transparent MediaProxy with 403 Auto-Recovery** — All media chunks flow through the local streaming proxy on `127.0.0.1`. The proxy enforces exact `googlevideo.com` headers (`Referer`, `Origin`, and `User-Agent`), appends fresh `&pot=` tokens to chunk URLs, and automatically detects any upstream `403 Forbidden` response. When a token expires or is rejected, the proxy invalidates the cache, mints a fresh token, and transparently retries the range request without interrupting playback or stalling the player buffer.
+4. **Customizable Token Sources** — Under **Settings → PO Token (Proof of Origin)**, users can choose between:
+   - **Automatic (Native BotGuard VM)** — Default; zero-configuration background minting.
+   - **External Generator** — Connects to any local or remote PO token server (e.g., `yt-dlp` token servers or custom microservices).
+   - **Manual Token** — Allows power users to pin custom `po_token` and `visitor_data` strings.
+   - **Disabled** — For testing or unauthenticated extraction profiles.
+
+The local proxy exists because googlevideo stream URLs must be requested with matching
+`Referer`/`Origin`/`User-Agent` headers, and because the renderer needs a same-origin source for the generated
 DASH manifest and caption tracks.
 
 ## Requirements
 
-- Windows 10/11 (x64)
+- Windows 10/11 (x64), Linux (x64/arm64), or macOS (x64/arm64)
 - Node.js 20+ and npm (for development/building)
 
 ## Development
@@ -158,14 +171,24 @@ npm run preview      # preview the production build
 npm run icon         # regenerate build/icon.png
 ```
 
-## Packaging (Windows installer)
+## Packaging
+
+Packaging scripts are configured via `electron-builder` in `package.json`:
 
 ```bash
-npm run dist         # build + NSIS installer → release/
+# Windows
+npm run dist         # build + NSIS installer → release/ViewFlux-Setup-<version>.exe
 npm run dist:dir     # build + unpacked app only (faster, no installer)
-```
 
-The installer is produced at `release/ViewFlux-Setup-<version>.exe`.
+# Linux
+npm run dist:linux   # build + AppImage / .deb → release/
+
+# macOS
+npm run dist:mac     # build + DMG / .zip → release/
+
+# All platforms (from supported host)
+npm run dist:all     # build Windows, Mac, and Linux packages
+```
 
 ## Data & privacy
 
