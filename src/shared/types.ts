@@ -99,6 +99,11 @@ export interface SearchHistoryEntry {
   searchedAt: number
 }
 
+export interface TranslationLanguage {
+  languageCode: string
+  name: string
+}
+
 export interface CaptionTrack {
   languageCode: string
   name: string
@@ -147,6 +152,7 @@ export interface VideoDetails {
    */
   defaultAudioLanguage: string | null
   captions: CaptionTrack[]
+  translationLanguages?: TranslationLanguage[]
   keywords: string[]
   chapters: Chapter[]
 }

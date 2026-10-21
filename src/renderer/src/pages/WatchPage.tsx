@@ -1027,6 +1027,7 @@ export function WatchPage({
               isLive={details.isLive}
               poster={details.thumbnails[0]?.url}
               captions={details.captions}
+              translationLanguages={details.translationLanguages}
               chapters={details.chapters}
               startPosition={details.isLive ? 0 : resume}
               autoplay

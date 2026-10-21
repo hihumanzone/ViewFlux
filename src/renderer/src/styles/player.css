@@ -83,10 +83,12 @@
   gap: 12px;
   transition: opacity var(--t-med) var(--ease-out);
   pointer-events: none;
+  z-index: 5;
 }
 
 .player__center .player__big-play {
   pointer-events: auto;
+  cursor: pointer;
 }
 
 .player__center--play {
@@ -97,10 +99,18 @@
     transform 280ms cubic-bezier(0.34, 1.56, 0.64, 1);
 }
 
+.player__center--play .player__big-play {
+  pointer-events: none;
+}
+
 .player__center--play.player__center--play-visible {
   opacity: 1;
   transform: scale(1);
   pointer-events: none;
+}
+
+.player__center--play.player__center--play-visible .player__big-play {
+  pointer-events: auto;
 }
 
 .player__center .spinner {

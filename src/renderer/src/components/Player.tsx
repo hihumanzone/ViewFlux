@@ -59,6 +59,7 @@ export const Player = forwardRef<PlayerHandle, PlayerProps>(function Player(
     videoId,
     manifestUrl,
     isLive,
+    translationLanguages = [],
     captions,
     poster,
     startPosition,
@@ -586,9 +587,12 @@ export const Player = forwardRef<PlayerHandle, PlayerProps>(function Player(
   // Player click & double click controller
   const handlePlayerClick = useCallback(
     (e: React.MouseEvent): void => {
-      // Ignore clicks on controls, seekbar, and popovers
       const target = e.target as HTMLElement | null
+      const isBigPlay = Boolean(target?.closest('.player__big-play'))
+
+      // Ignore clicks on controls, seekbar, and popovers
       if (
+        !isBigPlay &&
         target?.closest(
           'button, input, select, textarea, a, .seek, .menu, .sheet, .miniplayer__header, .miniplayer__actions, .miniplayer__center, .player__error'
         )
@@ -608,6 +612,12 @@ export const Player = forwardRef<PlayerHandle, PlayerProps>(function Player(
       }
 
       if (isMini) {
+        shaka.togglePlay()
+        return
+      }
+
+      // Keyboard activation on button (Enter/Space)
+      if (e.detail === 0) {
         shaka.togglePlay()
         return
       }
@@ -641,7 +651,10 @@ export const Player = forwardRef<PlayerHandle, PlayerProps>(function Player(
   const handlePlayerDoubleClick = useCallback(
     (e: React.MouseEvent): void => {
       const target = e.target as HTMLElement | null
+      const isBigPlay = Boolean(target?.closest('.player__big-play'))
+
       if (
+        !isBigPlay &&
         target?.closest(
           'button, input, select, textarea, a, .seek, .menu, .sheet, .miniplayer__header, .miniplayer__actions, .miniplayer__center, .player__error'
         )
@@ -750,6 +763,11 @@ export const Player = forwardRef<PlayerHandle, PlayerProps>(function Player(
     shaka.selectHeight(h)
     closeMenu()
   }, [shaka.selectHeight, closeMenu])
+
+  const onTranslateCaptionMenu = useCallback((code: string, name: string) => {
+    void shaka.translateCaption(code, name)
+    closeMenu()
+  }, [shaka.translateCaption, closeMenu])
 
   const onSelectCaptionMenu = useCallback((id: number | null) => {
     shaka.selectCaption(id)
@@ -917,19 +935,9 @@ export const Player = forwardRef<PlayerHandle, PlayerProps>(function Player(
                 aria-hidden={shaka.playing || shaka.busy}
               >
                 <button
+                  type="button"
                   className="player__big-play"
                   aria-label="Play"
-                  onClick={(e) => {
-                    e.stopPropagation()
-                    shaka.togglePlay()
-                  }}
-                  onDoubleClick={(e) => {
-                    e.stopPropagation()
-                    if (Date.now() - lastFullscreenToggleRef.current > 300) {
-                      lastFullscreenToggleRef.current = Date.now()
-                      toggleFullscreen()
-                    }
-                  }}
                   tabIndex={!shaka.playing && !shaka.busy ? 0 : -1}
                 >
                   <Icon name="play" size={34} />
@@ -1015,6 +1023,9 @@ export const Player = forwardRef<PlayerHandle, PlayerProps>(function Player(
               textVisible={shaka.textVisible}
               activeTextId={shaka.activeTextId}
               onSelectCaption={onSelectCaptionMenu}
+              translationLanguages={translationLanguages}
+              activeTranslationLang={shaka.activeTranslationLang}
+              onTranslateCaption={onTranslateCaptionMenu}
               subtitleStyle={subtitleStyle}
               onSubtitleStyleChange={onSubtitleStyleChange}
               audioTracks={shaka.audioTracks}

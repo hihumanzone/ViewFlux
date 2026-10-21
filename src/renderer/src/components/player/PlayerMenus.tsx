@@ -1,11 +1,18 @@
-import { memo } from 'react'
+import { memo, useEffect, useMemo, useState } from 'react'
 import { Menu, MenuItem } from '../Menu'
 import { SliderField } from '../SliderField'
 import { SubtitleStyleControls } from '../SubtitleStyleControls'
 import { Switch } from '../Switch'
 import { PLAYBACK_SPEEDS as SPEEDS } from '../../../../shared/media'
 import { formatTime } from '../../lib/format'
-import { sameLanguage, type AudioTrack, type MenuKind, type SubtitleStyle, type TextTrack } from './types'
+import {
+  sameLanguage,
+  type AudioTrack,
+  type MenuKind,
+  type SubtitleStyle,
+  type TextTrack,
+  type TranslationLanguage
+} from './types'
 
 export interface PlayerMenusProps {
   menu: MenuKind | null
@@ -34,6 +41,9 @@ export interface PlayerMenusProps {
   onSelectCaption: (id: number | null) => void
   subtitleStyle: SubtitleStyle
   onSubtitleStyleChange: (style: SubtitleStyle) => void
+  translationLanguages?: TranslationLanguage[]
+  activeTranslationLang?: string | null
+  onTranslateCaption?: (targetCode: string, targetName: string) => void
   // Audio menu props
   audioTracks: AudioTrack[]
   audioLanguages: { code: string; label: string }[]
@@ -75,6 +85,9 @@ export const PlayerMenus = memo(function PlayerMenus({
   onSelectCaption,
   subtitleStyle,
   onSubtitleStyleChange,
+  translationLanguages,
+  activeTranslationLang,
+  onTranslateCaption,
   audioTracks,
   audioLanguages,
   selectedAudioLang,
@@ -97,6 +110,37 @@ export const PlayerMenus = memo(function PlayerMenus({
       : sleepTimerMinutes != null && sleepTimerMinutes > 0
         ? sleepTimerMinutes
         : 30
+
+  const [captionsSubmenu, setCaptionsSubmenu] = useState<'main' | 'translate'>('main')
+  const [translateSearch, setTranslateSearch] = useState('')
+
+  const nativeTracks = useMemo(
+    () => textTracks.filter((t) => !t.label?.toLowerCase().includes('auto-translated')),
+    [textTracks]
+  )
+  const canAutoTranslate = useMemo(
+    () =>
+      !isLive &&
+      nativeTracks.length > 0 &&
+      Boolean(translationLanguages && translationLanguages.length > 0),
+    [isLive, nativeTracks.length, translationLanguages]
+  )
+
+  useEffect(() => {
+    if (menu !== 'captions' || !canAutoTranslate) {
+      setCaptionsSubmenu('main')
+      setTranslateSearch('')
+    }
+  }, [menu, canAutoTranslate])
+
+  const filteredLanguages = useMemo(() => {
+    if (!translationLanguages) return []
+    const q = translateSearch.trim().toLowerCase()
+    if (!q) return translationLanguages
+    return translationLanguages.filter(
+      (l) => l.name.toLowerCase().includes(q) || l.languageCode.toLowerCase().includes(q)
+    )
+  }, [translationLanguages, translateSearch])
 
   return (
     <>
@@ -289,43 +333,115 @@ export const PlayerMenus = memo(function PlayerMenus({
       </Menu>
 
       {/* 3. Subtitles / Captions Menu */}
-      <Menu
-        anchor={menuAnchor}
-        open={menu === 'captions'}
-        onClose={onClose}
-        align="end"
-        gap={36}
-        prefer="above"
-        title="Subtitles"
-        checkable
-      >
-        <MenuItem
-          label="Off"
-          selected={!textVisible}
-          onSelect={() => onSelectCaption(null)}
-        />
-        {textTracks.length === 0 ? (
-          <div className="menu__item menu__item--empty">No subtitles available</div>
-        ) : (
-          textTracks.map((track, index) => (
-            <MenuItem
-              key={track.id ?? `${track.language}-${track.label}-${index}`}
-              label={track.label || track.language}
-              selected={textVisible && activeTextId === track.id}
-              onSelect={() => onSelectCaption(track.id)}
+      {captionsSubmenu === 'translate' ? (
+        <Menu
+          anchor={menuAnchor}
+          open={menu === 'captions'}
+          onClose={onClose}
+          align="end"
+          gap={36}
+          prefer="above"
+          title="Auto-translate"
+          checkable
+        >
+          <MenuItem
+            icon="chevronLeft"
+            label="Back to Subtitles"
+            onSelect={() => setCaptionsSubmenu('main')}
+          />
+          <div className="menu__divider" />
+          <div style={{ padding: '4px 8px 8px 8px' }}>
+            <input
+              type="search"
+              placeholder="Search languages…"
+              value={translateSearch}
+              onChange={(e) => setTranslateSearch(e.target.value)}
+              onKeyDown={(e) => e.stopPropagation()}
+              style={{
+                width: '100%',
+                padding: '6px 10px',
+                fontSize: '13px',
+                borderRadius: '6px',
+                border: '1px solid var(--outline-variant, #444)',
+                background: 'var(--surface-container-high, #222)',
+                color: 'var(--on-surface, #fff)',
+                outline: 'none',
+                boxSizing: 'border-box'
+              }}
+              autoFocus
             />
-          ))
-        )}
-        <div className="menu__divider" />
-        <div className="menu__title">Appearance</div>
-        {/* No preview here: the real captions are on screen right behind the
-            panel, and a second sample would push the popover into a scroll. */}
-        <SubtitleStyleControls
-          style={subtitleStyle}
-          onChange={onSubtitleStyleChange}
-          showPreview={false}
-        />
-      </Menu>
+          </div>
+          <div style={{ maxHeight: '240px', overflowY: 'auto' }}>
+            {filteredLanguages.length === 0 ? (
+              <div className="menu__item menu__item--empty">No matching languages</div>
+            ) : (
+              filteredLanguages.map((lang) => (
+                <MenuItem
+                  key={lang.languageCode}
+                  label={lang.name}
+                  selected={activeTranslationLang === lang.languageCode}
+                  onSelect={() => {
+                    onTranslateCaption?.(lang.languageCode, lang.name)
+                    setCaptionsSubmenu('main')
+                  }}
+                />
+              ))
+            )}
+          </div>
+        </Menu>
+      ) : (
+        <Menu
+          anchor={menuAnchor}
+          open={menu === 'captions'}
+          onClose={onClose}
+          align="end"
+          gap={36}
+          prefer="above"
+          title="Subtitles"
+          checkable
+        >
+          <MenuItem
+            label="Off"
+            selected={!textVisible}
+            onSelect={() => onSelectCaption(null)}
+          />
+          {nativeTracks.length === 0 ? (
+            <div className="menu__item menu__item--empty">No subtitles available</div>
+          ) : (
+            nativeTracks.map((track, index) => (
+              <MenuItem
+                key={track.id ?? `${track.language}-${track.label}-${index}`}
+                label={track.label || track.language}
+                selected={textVisible && activeTextId === track.id && !activeTranslationLang}
+                onSelect={() => onSelectCaption(track.id)}
+              />
+            ))
+          )}
+          {canAutoTranslate && (
+            <MenuItem
+              icon="translate"
+              label="Auto-translate"
+              hint={
+                activeTranslationLang
+                  ? (translationLanguages?.find((l) => l.languageCode === activeTranslationLang)?.name ??
+                    activeTranslationLang)
+                  : undefined
+              }
+              selected={textVisible && Boolean(activeTranslationLang)}
+              onSelect={() => setCaptionsSubmenu('translate')}
+            />
+          )}
+          <div className="menu__divider" />
+          <div className="menu__title">Appearance</div>
+          {/* No preview here: the real captions are on screen right behind the
+              panel, and a second sample would push the popover into a scroll. */}
+          <SubtitleStyleControls
+            style={subtitleStyle}
+            onChange={onSubtitleStyleChange}
+            showPreview={false}
+          />
+        </Menu>
+      )}
 
       {/* 4. Audio Tracks Menu */}
       <Menu

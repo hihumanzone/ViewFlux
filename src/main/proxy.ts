@@ -1,5 +1,6 @@
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http'
 import { Readable, Transform } from 'node:stream'
+import { session } from 'electron'
 import { isAudioItagUrl } from '../shared/media'
 import { ORIGIN, REFERER, USER_AGENT } from './http'
 import { emitPlayerDebugLog } from './debugLogger'
@@ -171,8 +172,10 @@ export class MediaProxy {
   }
 
   /** Proxied, VTT-converted URL for a YouTube timedtext caption track. */
-  captionUrl(baseUrl: string, languageCode: string): string {
-    return `${this.baseUrl}/captions?lang=${encodeURIComponent(languageCode)}&u=${encodeURIComponent(baseUrl)}`
+  captionUrl(baseUrl: string, languageCode: string, targetLanguageCode?: string): string {
+    const q = new URLSearchParams({ lang: languageCode, u: baseUrl })
+    if (targetLanguageCode) q.set('tlang', targetLanguageCode)
+    return `${this.baseUrl}/captions?${q.toString()}`
   }
 
   async start(): Promise<string> {
@@ -692,6 +695,7 @@ export class MediaProxy {
   ): Promise<void> {
     const raw = url.searchParams.get('u')
     const lang = url.searchParams.get('lang') ?? 'en'
+    const tlang = url.searchParams.get('tlang')
     if (!raw) {
       res.writeHead(400)
       res.end('missing u')
@@ -710,15 +714,49 @@ export class MediaProxy {
       res.end('host not allowed')
       return
     }
+    const cacheKey = `${target.toString()}_tlang=${tlang ?? ''}`
+    const cachedVtt = getCachedTranslation(cacheKey)
+    if (cachedVtt) {
+      res.writeHead(200, {
+        'Content-Type': 'text/vtt; charset=utf-8',
+        'Cache-Control': 'no-store'
+      })
+      if (req.method === 'HEAD') {
+        res.end()
+        return
+      }
+      res.end(cachedVtt)
+      return
+    }
+
     target.searchParams.set('fmt', 'json3')
 
     try {
+      const headers: Record<string, string> = {
+        'User-Agent': USER_AGENT,
+        Referer: REFERER,
+        Origin: ORIGIN,
+        'Accept-Encoding': 'identity'
+      }
+
+      const visitorData = poTokenService.getVisitorData()
+      if (visitorData) {
+        headers['X-Goog-Visitor-Id'] = visitorData
+      }
+
+      if (typeof session !== 'undefined' && session.defaultSession) {
+        try {
+          const cookies = await session.defaultSession.cookies.get({ domain: '.youtube.com' })
+          if (cookies.length > 0) {
+            headers['Cookie'] = cookies.map((c) => `${c.name}=${c.value}`).join('; ')
+          }
+        } catch {
+          /* ignore cookie lookup failure */
+        }
+      }
+
       const upstream = await fetch(target, {
-        headers: {
-          'User-Agent': USER_AGENT,
-          Referer: REFERER,
-          'Accept-Encoding': 'identity'
-        },
+        headers,
         redirect: 'follow'
       })
       if (!upstream.ok) {
@@ -726,8 +764,12 @@ export class MediaProxy {
         res.end('captions unavailable')
         return
       }
-      const json = (await upstream.json()) as CaptionJson
+      let json = (await upstream.json()) as CaptionJson
+      if (tlang) {
+        json = await translateCaptionJson(json, tlang)
+      }
       const vtt = json3ToVtt(json)
+      setCachedTranslation(cacheKey, vtt)
       res.writeHead(200, { 'Content-Type': 'text/vtt; charset=utf-8', 'Cache-Control': 'no-store' })
       if (req.method === 'HEAD') {
         res.end()
@@ -749,6 +791,147 @@ interface CaptionJson {
     dDurationMs?: number
     segs?: { utf8?: string }[]
   }[]
+}
+
+const captionTranslationCache = new Map<string, string>()
+const MAX_TRANSLATION_CACHE_SIZE = 200
+
+function getCachedTranslation(key: string): string | undefined {
+  return captionTranslationCache.get(key)
+}
+
+function setCachedTranslation(key: string, vtt: string): void {
+  if (captionTranslationCache.size >= MAX_TRANSLATION_CACHE_SIZE) {
+    const firstKey = captionTranslationCache.keys().next().value
+    if (firstKey) captionTranslationCache.delete(firstKey)
+  }
+  captionTranslationCache.set(key, vtt)
+}
+
+/**
+ * Translates an array of text strings into the target language using Google's public translation endpoint.
+ * Batches items to minimize HTTP requests while keeping query sizes safe.
+ */
+async function translateTextBatches(
+  texts: string[],
+  targetLang: string
+): Promise<string[]> {
+  if (texts.length === 0) return []
+  const results: string[] = new Array(texts.length).fill('')
+
+  // Split texts into batches of at most 40 items or ~2000 characters
+  const batches: { indices: number[]; batchTexts: string[] }[] = []
+  let currentIndices: number[] = []
+  let currentTexts: string[] = []
+  let currentChars = 0
+
+  for (let i = 0; i < texts.length; i++) {
+    const t = texts[i]
+    if (currentTexts.length >= 40 || currentChars + t.length > 2000) {
+      if (currentTexts.length > 0) {
+        batches.push({ indices: currentIndices, batchTexts: currentTexts })
+        currentIndices = []
+        currentTexts = []
+        currentChars = 0
+      }
+    }
+    currentIndices.push(i)
+    currentTexts.push(t)
+    currentChars += t.length
+  }
+  if (currentTexts.length > 0) {
+    batches.push({ indices: currentIndices, batchTexts: currentTexts })
+  }
+
+  for (const batch of batches) {
+    try {
+      const combined = batch.batchTexts.join('\n')
+      const translateUrl = `https://translate.googleapis.com/translate_a/single?client=dict-chrome-ex&sl=auto&tl=${encodeURIComponent(
+        targetLang
+      )}&dt=t&q=${encodeURIComponent(combined)}`
+
+      let resp = await fetch(translateUrl, {
+        headers: {
+          'User-Agent': USER_AGENT,
+          Accept: '*/*'
+        }
+      })
+
+      if (!resp.ok) {
+        const fallbackUrl = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=auto&tl=${encodeURIComponent(
+          targetLang
+        )}&dt=t&q=${encodeURIComponent(combined)}`
+        resp = await fetch(fallbackUrl, {
+          headers: {
+            'User-Agent': USER_AGENT,
+            Accept: '*/*'
+          }
+        })
+      }
+
+      if (!resp.ok) {
+        throw new Error(`Translation returned status ${resp.status}`)
+      }
+
+      const data = (await resp.json()) as unknown
+      const rawSegments = Array.isArray(data) && Array.isArray(data[0]) ? data[0] : []
+      const translatedFull = rawSegments
+        .map((s) => (Array.isArray(s) ? String(s[0] ?? '') : ''))
+        .join('')
+      const translatedLines = translatedFull.split('\n')
+
+      for (let j = 0; j < batch.indices.length; j++) {
+        results[batch.indices[j]] = (translatedLines[j] ?? batch.batchTexts[j]).trim()
+      }
+    } catch (err) {
+      console.warn('[proxy] GTX batch translation failed, falling back to original texts:', err)
+      for (let j = 0; j < batch.indices.length; j++) {
+        results[batch.indices[j]] = batch.batchTexts[j]
+      }
+    }
+  }
+
+  return results
+}
+
+async function translateCaptionJson(
+  json: CaptionJson,
+  targetLang: string
+): Promise<CaptionJson> {
+  const events = json.events ?? []
+  const textIndices: number[] = []
+  const originalTexts: string[] = []
+
+  for (let i = 0; i < events.length; i++) {
+    const event = events[i]
+    if (event.tStartMs == null || !event.segs) continue
+    const text = event.segs
+      .map((seg) => seg.utf8 ?? '')
+      .join('')
+      .replace(/\r?\n/g, ' ')
+      .trim()
+    if (!text) continue
+    textIndices.push(i)
+    originalTexts.push(text)
+  }
+
+  if (originalTexts.length === 0) return json
+
+  const translatedTexts = await translateTextBatches(originalTexts, targetLang)
+
+  const newEvents = events.map((e) => ({ ...e, segs: e.segs ? [...e.segs] : undefined }))
+  for (let k = 0; k < textIndices.length; k++) {
+    const eventIdx = textIndices[k]
+    const trans = translatedTexts[k]
+    if (trans) {
+      newEvents[eventIdx] = {
+        ...newEvents[eventIdx],
+        segs: [{ utf8: trans }]
+      }
+    }
+  }
+
+  return { events: newEvents }
 }
 
 function formatTimestamp(seconds: number): string {

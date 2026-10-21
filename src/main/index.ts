@@ -20,6 +20,14 @@ import type {
   Settings
 } from '../shared/types'
 
+// Configure application identity and isolate dev profile before Store & lock initialization
+if (!app.isPackaged) {
+  app.setName('ViewFlux Dev')
+  app.setPath('userData', join(app.getPath('appData'), 'viewflux-dev'))
+} else {
+  app.setName('ViewFlux')
+}
+
 const store = new Store()
 const youtube = new YoutubeService()
 const proxy = new MediaProxy({
@@ -134,6 +142,10 @@ function createWindow(): void {
   mainWindow.on('closed', () => {
     setDebugLoggerWindow(null)
     mainWindow = null
+    poTokenService.destroy()
+    if (process.platform !== 'darwin') {
+      app.quit()
+    }
   })
 
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
@@ -380,9 +392,6 @@ function setupWebRequest(): void {
   })
 }
 
-// Configure application identity at module scope before ready event
-app.setName('ViewFlux')
-
 // Disable Chromium DirectComposition hardware video overlays on Windows.
 // When letterboxed videos (e.g. 21:9 or 2.35:1) play in fullscreen on Windows, Chromium's DComp
 // video overlay plane can occlude sibling DOM overlays (player controls, seek bar, captions)
@@ -411,17 +420,8 @@ function focusOrCreateWindow(): void {
     if (mainWindow.isMinimized()) mainWindow.restore()
     mainWindow.focus()
     mainWindow.show()
-  } else if (BrowserWindow.getAllWindows().length === 0) {
-    createWindow()
   } else {
-    for (const win of BrowserWindow.getAllWindows()) {
-      if (!win.isDestroyed()) {
-        if (win.isMinimized()) win.restore()
-        win.focus()
-        win.show()
-        break
-      }
-    }
+    createWindow()
   }
 }
 
@@ -461,7 +461,7 @@ app.whenReady().then(async () => {
   createWindow()
 
   app.on('activate', () => {
-    if (BrowserWindow.getAllWindows().length === 0) createWindow()
+    if (!mainWindow || mainWindow.isDestroyed()) createWindow()
   })
 })
 
@@ -486,8 +486,7 @@ app.on('before-quit', (event) => {
       await Promise.race([
         Promise.allSettled([store.flush(), proxy.stop()]),
         new Promise<void>((resolve) => {
-          const t = setTimeout(resolve, 2500)
-          t.unref?.()
+          setTimeout(resolve, 2500)
         })
       ])
     } finally {

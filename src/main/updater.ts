@@ -9,7 +9,7 @@ let status: UpdaterStatus = {
 
 function broadcastStatus(): void {
   for (const win of BrowserWindow.getAllWindows()) {
-    if (!win.isDestroyed()) {
+    if (!win.isDestroyed() && win.isVisible()) {
       win.webContents.send('updater:status', status)
     }
   }

@@ -3,11 +3,12 @@ import type {
   CaptionTrack,
   Chapter,
   Settings,
-  SponsorSegment
+  SponsorSegment,
+  TranslationLanguage
 } from '../../../../shared/types'
 import type { SubtitleStyle } from '../../../../shared/subtitles'
 
-export type { CaptionTrack, Chapter, Settings, SponsorSegment, SubtitleStyle }
+export type { CaptionTrack, Chapter, Settings, SponsorSegment, SubtitleStyle, TranslationLanguage }
 
 export interface PlayerHandle {
   seekTo: (time: number) => void
@@ -52,6 +53,7 @@ export interface PlayerProps {
   isLive: boolean
   poster?: string
   captions: CaptionTrack[]
+  translationLanguages?: TranslationLanguage[]
   chapters?: Chapter[]
   startPosition: number
   autoplay: boolean

@@ -1,5 +1,5 @@
 import type { Innertube } from 'youtubei.js'
-import type { CaptionTrack, Chapter, VideoDetails } from '../../shared/types'
+import type { CaptionTrack, Chapter, TranslationLanguage, VideoDetails } from '../../shared/types'
 import { CLIENT, getClient } from './client'
 import { extractVideoChapters, normalizeThumbs, pickThumbnail, text } from './parsers'
 import { pruneMap } from './tokens'
@@ -94,6 +94,16 @@ export class VideoService {
     }))
   }
 
+  private buildTranslationLanguages(
+    raw: { language_code: string; language_name?: TextLike }[] | undefined
+  ): TranslationLanguage[] {
+    if (!raw) return []
+    return raw.map((item) => ({
+      languageCode: item.language_code,
+      name: text(item.language_name) || item.language_code
+    }))
+  }
+
   private extractChapters(
     info: Awaited<ReturnType<VideoService['getInfo']>>,
     duration: number,
@@ -168,6 +178,7 @@ export class VideoService {
       manifestUrl: playable && this.proxyBase ? `${this.proxyBase}/manifest?id=${videoId}` : null,
       defaultAudioLanguage: this.defaultAudioLanguage(info),
       captions: this.buildCaptions(info.captions?.caption_tracks),
+      translationLanguages: this.buildTranslationLanguages(info.captions?.translation_languages),
       keywords: basic.keywords ?? [],
       chapters
     }

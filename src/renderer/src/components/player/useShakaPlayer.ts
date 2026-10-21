@@ -287,6 +287,7 @@ export function useShakaPlayer({
   const [textTracks, setTextTracks] = useState<TextTrack[]>([])
   const [activeTextId, setActiveTextId] = useState<number | null>(null)
   const [textVisible, setTextVisible] = useState(false)
+  const [activeTranslationLang, setActiveTranslationLang] = useState<string | null>(null)
 
   // Recovery & watchdog refs
   const statusRef = useRef(status)
@@ -318,6 +319,13 @@ export function useShakaPlayer({
   const audioLangRef = useRef<string | null>(null)
   const defaultLangRef = useRef(defaultAudioLanguage)
   defaultLangRef.current = defaultAudioLanguage
+  const captionsRef = useRef(captions)
+  captionsRef.current = captions
+  const activeTextLangRef = useRef<string | null>(null)
+  const activeTranslationLangRef = useRef<string | null>(null)
+  activeTranslationLangRef.current = activeTranslationLang
+  const textVisibleRef = useRef(textVisible)
+  textVisibleRef.current = textVisible
   /**
    * Guards the "Shaka drifted off our language, put it back" re-pin against
    * fighting itself: if a language genuinely cannot be selected, retrying on
@@ -460,6 +468,80 @@ export function useShakaPlayer({
     applyAudioSelection(target)
   }, [applyAudioSelection])
 
+  const reapplyCaptionsAfterLoad = useCallback(async (): Promise<void> => {
+    const player = playerRef.current
+    if (!player) return
+    const currentCaptions = captionsRef.current
+    if (!currentCaptions || currentCaptions.length === 0) return
+
+    for (const caption of currentCaptions) {
+      try {
+        await player.addTextTrackAsync(
+          caption.url,
+          caption.languageCode,
+          'subtitles',
+          'text/vtt',
+          undefined,
+          caption.name
+        )
+      } catch {
+        /* ignore individual failure */
+      }
+    }
+
+    const wantedTranslation = activeTranslationLangRef.current
+    if (wantedTranslation) {
+      const baseTrack = currentCaptions.find((c) => c.isTranslatable) ?? currentCaptions[0]
+      if (baseTrack && baseTrack.url) {
+        try {
+          const urlObj = new URL(baseTrack.url)
+          urlObj.searchParams.set('tlang', wantedTranslation)
+          const translatedUrl = urlObj.toString()
+          const label = `${wantedTranslation} (auto-translated)`
+          await player.addTextTrackAsync(
+            translatedUrl,
+            wantedTranslation,
+            'subtitles',
+            'text/vtt',
+            undefined,
+            label
+          )
+        } catch (e) {
+          console.warn('[player] failed to re-add translated caption after reload', e)
+        }
+      }
+    }
+
+    const updated = player.getTextTracks()
+    setTextTracks(updated)
+
+    if (textVisibleRef.current) {
+      const wantedLang = wantedTranslation || activeTextLangRef.current
+      if (wantedLang) {
+        const matching = updated.find((t) =>
+          wantedTranslation
+            ? t.language === wantedTranslation && t.label?.toLowerCase().includes('auto-translated')
+            : t.language === wantedLang && !t.label?.toLowerCase().includes('auto-translated')
+        )
+        if (matching) {
+          player.selectTextTrack(matching)
+          setActiveTextId(matching.id)
+          setTextVisible(true)
+          return
+        }
+      }
+      if (updated.length > 0) {
+        player.selectTextTrack(updated[0])
+        setActiveTextId(updated[0].id)
+        setTextVisible(true)
+      }
+    } else {
+      player.selectTextTrack(null)
+      setActiveTextId(null)
+      setTextVisible(false)
+    }
+  }, [])
+
   /**
    * Shaka is authoritative. Whenever it changes tracks on its own (ABR, a
    * quality switch, a manifest update) we re-read the active language, and if it
@@ -600,16 +682,28 @@ export function useShakaPlayer({
         player.selectTextTrack(null)
         setActiveTextId(null)
         setTextVisible(false)
+        activeTextLangRef.current = null
+        activeTranslationLangRef.current = null
+        setActiveTranslationLang(null)
         onOsd?.('Subtitles: Off', 'captions')
         onCaptionsToggle?.(false)
       } else {
-        const track = player.getTextTracks().find((t) => t.id === id)
+        const currentTracks = player.getTextTracks()
+        const track = currentTracks.find((t) => t.id === id)
         if (track) {
           player.selectTextTrack(track)
           setActiveTextId(id)
           setTextVisible(true)
+          activeTextLangRef.current = track.language
+          if (!track.label?.toLowerCase().includes('auto-translated')) {
+            activeTranslationLangRef.current = null
+            setActiveTranslationLang(null)
+          }
           onOsd?.(`Subtitles: ${track.label || track.language}`, 'captions')
           onCaptionsToggle?.(true)
+        } else {
+          setTextTracks(currentTracks)
+          setActiveTranslationLang(null)
         }
       }
     },
@@ -621,6 +715,67 @@ export function useShakaPlayer({
     if (textVisible) selectCaption(null)
     else selectCaption(textTracks[0]?.id ?? null)
   }, [textTracks, textVisible, selectCaption])
+
+  const translateCaption = useCallback(
+    async (targetLanguageCode: string, targetLanguageName: string) => {
+      const player = playerRef.current
+      if (!player) return
+
+      const existing = player
+        .getTextTracks()
+        .find(
+          (t) =>
+            t.language === targetLanguageCode &&
+            t.label?.toLowerCase().includes('auto-translated')
+        )
+      if (existing) {
+        player.selectTextTrack(existing)
+        setActiveTextId(existing.id)
+        setTextVisible(true)
+        activeTextLangRef.current = targetLanguageCode
+        activeTranslationLangRef.current = targetLanguageCode
+        setActiveTranslationLang(targetLanguageCode)
+        onOsd?.(`Subtitles: ${targetLanguageName} (auto-translated)`, 'captions')
+        onCaptionsToggle?.(true)
+        return
+      }
+
+      const baseTrack = captions.find((c) => c.isTranslatable) ?? captions[0]
+      if (!baseTrack || !baseTrack.url) return
+
+      try {
+        const urlObj = new URL(baseTrack.url)
+        urlObj.searchParams.set('tlang', targetLanguageCode)
+        const translatedUrl = urlObj.toString()
+        const label = `${targetLanguageName} (auto-translated)`
+
+        const track = await player.addTextTrackAsync(
+          translatedUrl,
+          targetLanguageCode,
+          'subtitles',
+          'text/vtt',
+          undefined,
+          label
+        )
+        const updated = player.getTextTracks()
+        setTextTracks(updated)
+        player.selectTextTrack(track)
+        setActiveTextId(track.id)
+        setTextVisible(true)
+        activeTextLangRef.current = targetLanguageCode
+        activeTranslationLangRef.current = targetLanguageCode
+        setActiveTranslationLang(targetLanguageCode)
+        onOsd?.(`Subtitles: ${label}`, 'captions')
+        onCaptionsToggle?.(true)
+      } catch (err) {
+        console.error('[player] Failed to add translated caption track', err)
+        setActiveTranslationLang(null)
+        activeTranslationLangRef.current = null
+        onOsd?.(`Translation to ${targetLanguageName} unavailable`, 'captions')
+      }
+    },
+    [captions, onOsd, onCaptionsToggle]
+  )
 
   // Playback control
   const togglePlay = useCallback(() => {
@@ -952,6 +1107,7 @@ export function useShakaPlayer({
         })
 
         reapplyAudioAfterLoad()
+        await reapplyCaptionsAfterLoad()
 
         // Reapply quality preferences
         const targetHeight = selectedHeightRef.current
@@ -1083,6 +1239,27 @@ export function useShakaPlayer({
       // broken", so surfacing it would flash an error on every successful
       // recovery.
       if (detail?.code === CODE_LOAD_INTERRUPTED) return
+      // Text track (subtitles) errors must NEVER disrupt video playback or trigger recoverPlayback!
+      const errRecord = errObj as Record<string, unknown>
+      const isTextError =
+        errRecord?.category === 4 /* shaka.util.Error.Category.TEXT */ ||
+        (errRecord?.category === 1 /* NETWORK */ && (Array.isArray(errRecord?.data) && (errRecord.data[2] === 3 || errRecord.data[1] === 3))) ||
+        (typeof detail?.message === 'string' && detail.message.toLowerCase().includes('text'))
+
+      if (isTextError) {
+        console.warn('[player] non-fatal text track error ignored to protect playback:', detail)
+        appendPlayerDebugLog({
+          level: 'WARN',
+          subsystem: 'SHAKA',
+          action: 'TEXT_TRACK_ERROR',
+          message: `Text track error ignored to protect playback: ${detail?.message || 'Text error'}`,
+          trigger: 'shaka.Player "error" event (category TEXT/NETWORK text)',
+          nextStep: 'Leaving video playing; resetting subtitle selection'
+        })
+        onOsd?.('Subtitles unavailable', 'captions')
+        return
+      }
+
       console.error('[player-shaka-error]', detail)
 
       const isRecoverable =
@@ -1491,29 +1668,15 @@ export function useShakaPlayer({
           }
         }
 
-        for (const caption of captions) {
-          try {
-            await player.addTextTrackAsync(
-              caption.url,
-              caption.languageCode,
-              'subtitles',
-              'text/vtt',
-              undefined,
-              caption.name
-            )
-          } catch {
-            /* ignore individual failure */
-          }
-        }
+        await reapplyCaptionsAfterLoad()
         if (disposed) return
-        const added = player.getTextTracks()
-        setTextTracks(added)
 
-        if (alwaysShowCaptions && added.length > 0) {
-          const first = added[0]
+        if (alwaysShowCaptions && player.getTextTracks().length > 0) {
+          const first = player.getTextTracks()[0]
           player.selectTextTrack(first)
           setActiveTextId(first.id)
           setTextVisible(true)
+          activeTextLangRef.current = first.language
         }
 
         video.preservesPitch = preservePitch
@@ -1989,6 +2152,7 @@ export function useShakaPlayer({
     textTracks,
     activeTextId,
     textVisible,
+    activeTranslationLang,
     audioLanguages,
     audioTiers,
     levelHeights,
@@ -1998,6 +2162,7 @@ export function useShakaPlayer({
     selectAudioTier,
     selectAudio,
     selectCaption,
+    translateCaption,
     togglePlay,
     toggleCaptions,
     seekTo,
