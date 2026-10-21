@@ -1,4 +1,5 @@
 import { memo, useEffect, useMemo, useState } from 'react'
+import { Icon } from '../Icons'
 import { Menu, MenuItem } from '../Menu'
 import { SliderField } from '../SliderField'
 import { SubtitleStyleControls } from '../SubtitleStyleControls'
@@ -44,6 +45,7 @@ export interface PlayerMenusProps {
   translationLanguages?: TranslationLanguage[]
   activeTranslationLang?: string | null
   onTranslateCaption?: (targetCode: string, targetName: string) => void
+  captionsLoading?: boolean
   // Audio menu props
   audioTracks: AudioTrack[]
   audioLanguages: { code: string; label: string }[]
@@ -88,6 +90,7 @@ export const PlayerMenus = memo(function PlayerMenus({
   translationLanguages,
   activeTranslationLang,
   onTranslateCaption,
+  captionsLoading,
   audioTracks,
   audioLanguages,
   selectedAudioLang,
@@ -342,52 +345,58 @@ export const PlayerMenus = memo(function PlayerMenus({
           gap={36}
           prefer="above"
           title="Auto-translate"
+          className="menu--translate"
           checkable
-        >
-          <MenuItem
-            icon="chevronLeft"
-            label="Back to Subtitles"
-            onSelect={() => setCaptionsSubmenu('main')}
-          />
-          <div className="menu__divider" />
-          <div style={{ padding: '4px 8px 8px 8px' }}>
-            <input
-              type="search"
-              placeholder="Search languages…"
-              value={translateSearch}
-              onChange={(e) => setTranslateSearch(e.target.value)}
-              onKeyDown={(e) => e.stopPropagation()}
-              style={{
-                width: '100%',
-                padding: '6px 10px',
-                fontSize: '13px',
-                borderRadius: '6px',
-                border: '1px solid var(--outline-variant, #444)',
-                background: 'var(--surface-container-high, #222)',
-                color: 'var(--on-surface, #fff)',
-                outline: 'none',
-                boxSizing: 'border-box'
-              }}
-              autoFocus
-            />
-          </div>
-          <div style={{ maxHeight: '240px', overflowY: 'auto' }}>
-            {filteredLanguages.length === 0 ? (
-              <div className="menu__item menu__item--empty">No matching languages</div>
-            ) : (
-              filteredLanguages.map((lang) => (
-                <MenuItem
-                  key={lang.languageCode}
-                  label={lang.name}
-                  selected={activeTranslationLang === lang.languageCode}
-                  onSelect={() => {
-                    onTranslateCaption?.(lang.languageCode, lang.name)
-                    setCaptionsSubmenu('main')
-                  }}
+          header={
+            <>
+              <MenuItem
+                icon="chevronLeft"
+                label="Back to Subtitles"
+                onSelect={() => setCaptionsSubmenu('main')}
+              />
+              <div className="menu__divider" />
+              <div className="menu-search">
+                <Icon name="search" size={16} className="menu-search__icon" />
+                <input
+                  type="text"
+                  className="menu-search__input"
+                  placeholder="Search languages…"
+                  aria-label="Search languages"
+                  value={translateSearch}
+                  onChange={(e) => setTranslateSearch(e.target.value)}
+                  onKeyDown={(e) => e.stopPropagation()}
+                  autoFocus
                 />
-              ))
-            )}
-          </div>
+                {translateSearch && (
+                  <button
+                    type="button"
+                    className="menu-search__clear"
+                    aria-label="Clear search"
+                    onClick={() => setTranslateSearch('')}
+                  >
+                    <Icon name="close" size={14} />
+                  </button>
+                )}
+              </div>
+            </>
+          }
+        >
+          {filteredLanguages.length === 0 ? (
+            <div className="menu__item menu__item--empty">No matching languages</div>
+          ) : (
+            filteredLanguages.map((lang) => (
+              <MenuItem
+                key={lang.languageCode}
+                label={lang.name}
+                selected={activeTranslationLang === lang.languageCode}
+                loading={captionsLoading && activeTranslationLang === lang.languageCode}
+                onSelect={() => {
+                  onTranslateCaption?.(lang.languageCode, lang.name)
+                  setCaptionsSubmenu('main')
+                }}
+              />
+            ))
+          )}
         </Menu>
       ) : (
         <Menu
@@ -413,6 +422,12 @@ export const PlayerMenus = memo(function PlayerMenus({
                 key={track.id ?? `${track.language}-${track.label}-${index}`}
                 label={track.label || track.language}
                 selected={textVisible && activeTextId === track.id && !activeTranslationLang}
+                loading={
+                  captionsLoading &&
+                  textVisible &&
+                  activeTextId === track.id &&
+                  !activeTranslationLang
+                }
                 onSelect={() => onSelectCaption(track.id)}
               />
             ))
@@ -428,6 +443,7 @@ export const PlayerMenus = memo(function PlayerMenus({
                   : undefined
               }
               selected={textVisible && Boolean(activeTranslationLang)}
+              loading={captionsLoading && textVisible && Boolean(activeTranslationLang)}
               onSelect={() => setCaptionsSubmenu('translate')}
             />
           )}

@@ -288,6 +288,8 @@ export function useShakaPlayer({
   const [activeTextId, setActiveTextId] = useState<number | null>(null)
   const [textVisible, setTextVisible] = useState(false)
   const [activeTranslationLang, setActiveTranslationLang] = useState<string | null>(null)
+  const [captionsLoading, setCaptionsLoading] = useState(false)
+  const captionsLoadingTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   // Recovery & watchdog refs
   const statusRef = useRef(status)
@@ -678,7 +680,12 @@ export function useShakaPlayer({
     (id: number | null) => {
       const player = playerRef.current
       if (!player) return
+      if (captionsLoadingTimerRef.current) {
+        clearTimeout(captionsLoadingTimerRef.current)
+        captionsLoadingTimerRef.current = null
+      }
       if (id == null) {
+        setCaptionsLoading(false)
         player.selectTextTrack(null)
         setActiveTextId(null)
         setTextVisible(false)
@@ -691,6 +698,7 @@ export function useShakaPlayer({
         const currentTracks = player.getTextTracks()
         const track = currentTracks.find((t) => t.id === id)
         if (track) {
+          setCaptionsLoading(true)
           player.selectTextTrack(track)
           setActiveTextId(id)
           setTextVisible(true)
@@ -701,9 +709,14 @@ export function useShakaPlayer({
           }
           onOsd?.(`Subtitles: ${track.label || track.language}`, 'captions')
           onCaptionsToggle?.(true)
+          captionsLoadingTimerRef.current = setTimeout(() => {
+            captionsLoadingTimerRef.current = null
+            setCaptionsLoading(false)
+          }, 350)
         } else {
           setTextTracks(currentTracks)
           setActiveTranslationLang(null)
+          setCaptionsLoading(false)
         }
       }
     },
@@ -721,29 +734,36 @@ export function useShakaPlayer({
       const player = playerRef.current
       if (!player) return
 
-      const existing = player
-        .getTextTracks()
-        .find(
-          (t) =>
-            t.language === targetLanguageCode &&
-            t.label?.toLowerCase().includes('auto-translated')
-        )
-      if (existing) {
-        player.selectTextTrack(existing)
-        setActiveTextId(existing.id)
-        setTextVisible(true)
-        activeTextLangRef.current = targetLanguageCode
-        activeTranslationLangRef.current = targetLanguageCode
-        setActiveTranslationLang(targetLanguageCode)
-        onOsd?.(`Subtitles: ${targetLanguageName} (auto-translated)`, 'captions')
-        onCaptionsToggle?.(true)
-        return
+      if (captionsLoadingTimerRef.current) {
+        clearTimeout(captionsLoadingTimerRef.current)
+        captionsLoadingTimerRef.current = null
       }
-
-      const baseTrack = captions.find((c) => c.isTranslatable) ?? captions[0]
-      if (!baseTrack || !baseTrack.url) return
+      setCaptionsLoading(true)
+      onOsd?.(`Translating subtitles to ${targetLanguageName}…`, 'captions')
 
       try {
+        const existing = player
+          .getTextTracks()
+          .find(
+            (t) =>
+              t.language === targetLanguageCode &&
+              t.label?.toLowerCase().includes('auto-translated')
+          )
+        if (existing) {
+          player.selectTextTrack(existing)
+          setActiveTextId(existing.id)
+          setTextVisible(true)
+          activeTextLangRef.current = targetLanguageCode
+          activeTranslationLangRef.current = targetLanguageCode
+          setActiveTranslationLang(targetLanguageCode)
+          onOsd?.(`Subtitles: ${targetLanguageName} (auto-translated)`, 'captions')
+          onCaptionsToggle?.(true)
+          return
+        }
+
+        const baseTrack = captions.find((c) => c.isTranslatable) ?? captions[0]
+        if (!baseTrack || !baseTrack.url) return
+
         const urlObj = new URL(baseTrack.url)
         urlObj.searchParams.set('tlang', targetLanguageCode)
         const translatedUrl = urlObj.toString()
@@ -772,6 +792,8 @@ export function useShakaPlayer({
         setActiveTranslationLang(null)
         activeTranslationLangRef.current = null
         onOsd?.(`Translation to ${targetLanguageName} unavailable`, 'captions')
+      } finally {
+        setCaptionsLoading(false)
       }
     },
     [captions, onOsd, onCaptionsToggle]
@@ -1257,6 +1279,7 @@ export function useShakaPlayer({
           nextStep: 'Leaving video playing; resetting subtitle selection'
         })
         onOsd?.('Subtitles unavailable', 'captions')
+        setCaptionsLoading(false)
         return
       }
 
@@ -2153,6 +2176,7 @@ export function useShakaPlayer({
     activeTextId,
     textVisible,
     activeTranslationLang,
+    captionsLoading,
     audioLanguages,
     audioTiers,
     levelHeights,

@@ -1,6 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { Icon, type IconName } from './Icons'
+import { Spinner } from './EmptyState'
 import { popDismissableLayer, pushDismissableLayer } from '../lib/keyboard'
 
 /** Distance between the anchor and the panel, and the minimum gap to the window edges. */
@@ -9,7 +10,8 @@ const MARGIN = 8
 const MAX_PANEL_HEIGHT = 420
 
 interface Placement {
-  top: number
+  top?: number
+  bottom?: number
   left: number
   maxHeight: number
 }
@@ -36,6 +38,7 @@ interface MenuProps {
    * `aria-checked`, instead of plain actions.
    */
   checkable?: boolean
+  header?: React.ReactNode
   children: React.ReactNode
 }
 
@@ -109,6 +112,7 @@ export function Menu({
   gap = GAP,
   prefer,
   checkable = false,
+  header,
   children
 }: MenuProps): React.JSX.Element | null {
   const panelRef = useRef<HTMLDivElement>(null)
@@ -120,26 +124,27 @@ export function Menu({
 
     const rect = getAnchorRect(anchor)
     const width = panel.offsetWidth
-    const height = panel.offsetHeight
     const spaceBelow = window.innerHeight - rect.bottom - gap - MARGIN
     const spaceAbove = rect.top - gap - MARGIN
-    const fullHeight = Math.min(height, MAX_PANEL_HEIGHT)
+
     let flip: boolean
     if (prefer === 'above') {
       // Stay above unless there is genuinely no room (then take below).
-      flip = spaceAbove >= fullHeight || spaceAbove >= spaceBelow
+      flip = spaceAbove >= 140 || spaceAbove >= spaceBelow
     } else if (prefer === 'below') {
-      flip = spaceBelow < fullHeight && spaceAbove > spaceBelow
+      flip = spaceBelow < 140 && spaceAbove > spaceBelow
     } else {
-      flip = height > spaceBelow && spaceAbove > spaceBelow
+      const needed = Math.min(panel.scrollHeight || 200, MAX_PANEL_HEIGHT)
+      flip = needed > spaceBelow && spaceAbove > spaceBelow
     }
+
+    const availableSpace = flip ? spaceAbove : spaceBelow
     const maxHeight = Math.round(
-      Math.max(140, Math.min(flip ? spaceAbove : spaceBelow, height, MAX_PANEL_HEIGHT))
+      Math.max(140, Math.min(availableSpace, MAX_PANEL_HEIGHT))
     )
-    const rawTop = flip
-      ? Math.max(MARGIN, rect.top - Math.min(height, maxHeight) - gap)
-      : rect.bottom + gap
-    const top = Math.round(rawTop)
+
+    const top = flip ? undefined : Math.round(rect.bottom + gap)
+    const bottom = flip ? Math.round(window.innerHeight - rect.top + gap) : undefined
 
     const preferred =
       align === 'end'
@@ -155,9 +160,13 @@ export function Menu({
     )
 
     setPlacement((prev) =>
-      prev && prev.top === top && prev.left === left && prev.maxHeight === maxHeight
+      prev &&
+      prev.top === top &&
+      prev.bottom === bottom &&
+      prev.left === left &&
+      prev.maxHeight === maxHeight
         ? prev
-        : { top, left, maxHeight }
+        : { top, bottom, left, maxHeight }
     )
   }, [anchor, align, gap, prefer])
 
@@ -264,7 +273,8 @@ export function Menu({
         style={
           placement
             ? {
-                top: `${placement.top}px`,
+                top: placement.top != null ? `${placement.top}px` : undefined,
+                bottom: placement.bottom != null ? `${placement.bottom}px` : undefined,
                 left: `${placement.left}px`,
                 maxHeight: `${placement.maxHeight}px`
               }
@@ -272,6 +282,7 @@ export function Menu({
         }
       >
         {title ? <div className="menu__title">{title}</div> : null}
+        {header ? <div className="menu__header">{header}</div> : null}
         <div className="menu__content">{children}</div>
       </div>
     </CheckableContext.Provider>,
@@ -285,6 +296,7 @@ interface MenuItemProps {
   label: string
   hint?: string
   selected?: boolean
+  loading?: boolean
   danger?: boolean
   onSelect: () => void
 }
@@ -295,6 +307,7 @@ export function MenuItem({
   label,
   hint,
   selected,
+  loading,
   danger,
   onSelect
 }: MenuItemProps): React.JSX.Element {
@@ -326,7 +339,11 @@ export function MenuItem({
       ) : null}
       <span className="menu__item-label">{label}</span>
       {hint ? <span className="menu__item-hint">{hint}</span> : null}
-      {selected ? (
+      {loading ? (
+        <span className="menu__item-check">
+          <Spinner className="spinner--sm" />
+        </span>
+      ) : selected ? (
         <span className="menu__item-check">
           <Icon name="check" size={16} />
         </span>

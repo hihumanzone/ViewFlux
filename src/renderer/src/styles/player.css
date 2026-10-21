@@ -1264,6 +1264,29 @@
   color: var(--on-primary);
 }
 
+/* ---- Subtitle Loading Indicator ---- */
+.player__subtitle-loading {
+  position: absolute;
+  bottom: calc(var(--subtitles-bottom, 16px) + 20px);
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 8;
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 16px;
+  border-radius: var(--r-full);
+  background: color-mix(in srgb, var(--surface-2) 85%, transparent);
+  border: 1px solid var(--outline-variant);
+  box-shadow: var(--shadow-2);
+  backdrop-filter: blur(16px);
+  color: var(--on-surface);
+  font-size: 13.5px;
+  font-weight: 500;
+  pointer-events: none;
+  animation: page-in var(--t-fast) var(--ease-out) both;
+}
+
 /* ---- Subtitles ---- */
 .player .shaka-text-container {
   position: absolute !important;

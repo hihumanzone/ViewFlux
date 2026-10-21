@@ -817,6 +817,14 @@ export const Player = forwardRef<PlayerHandle, PlayerProps>(function Player(
         </div>
       )}
 
+      {/* Subtitle Loading Indicator */}
+      {shaka.captionsLoading && shaka.textVisible && (
+        <div className="player__subtitle-loading" role="status" aria-live="polite">
+          <Spinner className="spinner--sm" />
+          <span>Loading subtitles…</span>
+        </div>
+      )}
+
       {/* Error display */}
       {shaka.status === 'error' && (
         <div className="player__error" role="alert">
@@ -1025,6 +1033,7 @@ export const Player = forwardRef<PlayerHandle, PlayerProps>(function Player(
               onSelectCaption={onSelectCaptionMenu}
               translationLanguages={translationLanguages}
               activeTranslationLang={shaka.activeTranslationLang}
+              captionsLoading={shaka.captionsLoading}
               onTranslateCaption={onTranslateCaptionMenu}
               subtitleStyle={subtitleStyle}
               onSubtitleStyleChange={onSubtitleStyleChange}
